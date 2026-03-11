@@ -17,6 +17,7 @@ RUN apt-get update && \
     python3 \
     openssl \
     ccache \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ ${UID:-0} -ne 0 ] && [ ${GID:-0} -ne 0 ]; then \

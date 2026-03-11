@@ -6,7 +6,7 @@ cd "$DIR"
 
 TOOLS="$DIR/tools"
 KERNEL_DIR="$DIR/kernel/linux"
-CONFIGS_DIR="$DIR/kernel/configs"
+PATCHES_DIR="$DIR/kernel/patches"
 TMP_DIR="/tmp/vamos-build-tmp"
 OUT_DIR="$DIR/output"
 BOOT_IMG=./boot.img
@@ -33,7 +33,27 @@ CONTAINER_ID=$(docker run -d -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
 
 trap "echo 'Cleaning up container:'; docker container rm -f $CONTAINER_ID; rm -rf $TMP_DIR" EXIT
 
+apply_patches() {
+  cd "$KERNEL_DIR"
+
+  # Reset submodule to committed state for deterministic builds
+  echo "-- Resetting kernel submodule to clean state --"
+  git checkout .
+  git clean -fd
+
+  if [ -d "$PATCHES_DIR" ] && ls "$PATCHES_DIR"/*.patch 1>/dev/null 2>&1; then
+    echo "-- Applying patches --"
+    for patch in "$PATCHES_DIR"/*.patch; do
+      echo "Applying $(basename "$patch")"
+      git apply "$patch"
+    done
+  fi
+}
+
 build_kernel() {
+  # Apply patches to kernel tree
+  apply_patches
+
   # Symlink firmware into kernel tree
   ln -sfn "$DIR/kernel/firmware" "$KERNEL_DIR/firmware"
 
@@ -59,7 +79,7 @@ build_kernel() {
 
   echo "-- Loading $DEFCONFIG --"
   make defconfig O=out
-  KCONFIG_CONFIG=out/.config scripts/kconfig/merge_config.sh -m out/.config "$CONFIGS_DIR/$DEFCONFIG"
+  KCONFIG_CONFIG=out/.config scripts/kconfig/merge_config.sh -m out/.config "arch/arm64/configs/$DEFCONFIG"
   make olddefconfig O=out
 
   echo "-- Building kernel with $(nproc) cores --"
@@ -105,4 +125,4 @@ build_kernel() {
 }
 
 # Run build inside container
-docker exec -u $(id -nu) $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR CONFIGS_DIR=$CONFIGS_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f build_kernel); build_kernel"
+docker exec -u $(id -nu) $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel); build_kernel"
