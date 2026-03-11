@@ -16,9 +16,4 @@ RUN apt-get update && \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -s $(which ccache) /usr/local/bin/gcc && \
-    ln -s $(which ccache) /usr/local/bin/g++ && \
-    ln -s $(which ccache) /usr/local/bin/cc && \
-    ln -s $(which ccache) /usr/local/bin/c++
-
 ENTRYPOINT ["tail", "-f", "/dev/null"]
