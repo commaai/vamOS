@@ -14,10 +14,10 @@ BOOT_IMG=./boot.img
 DEFCONFIG="${DEFCONFIG:-vamos_defconfig}"
 DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
-# Init kernel submodule if needed
+# Check submodule initted
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  echo "Initializing kernel submodule..."
-  git -C "$DIR" submodule update --init "$KERNEL_DIR"
+  echo "Run ./setup.sh first!"
+  exit 1
 fi
 
 # Build docker container
