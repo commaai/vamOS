@@ -15,12 +15,6 @@ if [ "$ARCH_HOST" != "aarch64" ] && [ "$ARCH_HOST" != "arm64" ]; then
   sudo apt-get install -y gcc-aarch64-linux-gnu
 fi
 
-# Install bun (needed for bunx @commaai/qdl in flash_kernel.sh)
-if ! command -v bun &>/dev/null; then
-  echo "Installing bun..."
-  curl -fsSL https://bun.sh/install | bash
-fi
-
 # Set up udev rules for Qualcomm EDL mode (needed for qdl flashing)
 UDEV_RULES="/etc/udev/rules.d/99-qualcomm-edl.rules"
 if [ ! -f "$UDEV_RULES" ]; then
