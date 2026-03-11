@@ -45,7 +45,8 @@ apply_patches() {
     echo "-- Applying patches --"
     for patch in "$PATCHES_DIR"/*.patch; do
       echo "Applying $(basename "$patch")"
-      git apply "$patch"
+      git apply --check --whitespace=error "$patch"
+      git apply --whitespace=error "$patch"
     done
   fi
 }
