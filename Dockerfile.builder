@@ -1,19 +1,12 @@
-FROM ubuntu:24.04
+FROM ghcr.io/void-linux/void-glibc-full
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
-    bc \
-    flex \
-    bison \
-    libelf-dev \
-    python3 \
-    openssl \
+RUN xbps-install -ySu && \
+    xbps-install -y base-devel \
+    bash \
     ccache \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    openssl-devel \
+    python3 && \
+    xbps-remove -O
 
 ENTRYPOINT ["tail", "-f", "/dev/null"]

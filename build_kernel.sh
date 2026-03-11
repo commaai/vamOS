@@ -61,7 +61,7 @@ build_kernel() {
 
   # ccache
   export CCACHE_DIR="$DIR/.ccache"
-  export PATH="/usr/lib/ccache:$PATH"
+  export PATH="/usr/lib/ccache/bin:$PATH"
 
   # Reproducible builds
   export KBUILD_BUILD_HOST="vamos"
