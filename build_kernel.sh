@@ -54,9 +54,6 @@ build_kernel() {
   # Apply patches to kernel tree
   apply_patches
 
-  # Symlink firmware into kernel tree
-  ln -sfn "$DIR/kernel/firmware" "$KERNEL_DIR/firmware"
-
   # Cross-compilation setup
   ARCH_HOST=$(uname -m)
   export ARCH=arm64
@@ -80,6 +77,9 @@ build_kernel() {
   echo "-- Loading $DEFCONFIG --"
   make defconfig O=out
   KCONFIG_CONFIG=out/.config scripts/kconfig/merge_config.sh -m out/.config "arch/arm64/configs/$DEFCONFIG"
+  # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
+  # can find the blobs without symlinking into the kernel tree
+  echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
   make olddefconfig O=out
 
   echo "-- Building kernel with $(nproc) cores --"
