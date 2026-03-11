@@ -6,7 +6,7 @@ new file mode 100644
 index 000000000000..389649f2c5fa
 --- /dev/null
 +++ b/arch/arm64/configs/vamos_defconfig
-@@ -0,0 +1,5714 @@
+@@ -0,0 +1,5713 @@
 +#
 +# Automatically generated file; DO NOT EDIT.
 +# Linux/arm64 4.9.103 Kernel Configuration
