@@ -1,4 +1,4 @@
-# This defconfig is derived from comma.ai's tici_defconfig for the SDM845:
+# This defconfig is derived from agnos-kernel-sdm845's tici_defconfig:
 # https://github.com/commaai/agnos-kernel-sdm845/blob/0c7baacf063d2bedf72a643d280355d3d97c6885/arch/arm64/configs/tici_defconfig
 
 diff --git a/arch/arm64/configs/vamos_defconfig b/arch/arm64/configs/vamos_defconfig
