@@ -1,7 +1,9 @@
 FROM ghcr.io/void-linux/void-glibc-full
 
-RUN xbps-install -ySu && \
-    xbps-install -y base-devel \
+RUN xbps-install -yS
+
+RUN xbps-install -y \
+    base-devel \
     bash \
     ccache \
     git \
