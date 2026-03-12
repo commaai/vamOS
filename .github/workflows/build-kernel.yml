@@ -25,6 +25,19 @@ jobs:
       - name: Setup
         run: ./setup.sh
 
+      - name: Get kernel submodule ref
+        id: kernel-submodule
+        run: echo "ref=$(git ls-tree HEAD | awk '$4 == "kernel"' | awk '{print $3}')" | tee -a $GITHUB_OUTPUT
+
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-kernel-${{ steps.kernel-submodule.outputs.ref }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-kernel-${{ steps.kernel-submodule.outputs.ref }}-
+            ccache-kernel-
+
       - name: Build kernel
         run: ./build_kernel.sh
 
