@@ -6,10 +6,10 @@ RUN xbps-install -y \
     base-devel \
     bash \
     ccache \
-    cross-aarch64-linux-gnu \
     git \
     openssl-devel \
     python3 && \
+    if [ "$(uname -m)" != "aarch64" ]; then xbps-install -y cross-aarch64-linux-gnu; fi && \
     xbps-remove -O
 
 ENTRYPOINT ["tail", "-f", "/dev/null"]
