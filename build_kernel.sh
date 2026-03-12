@@ -64,6 +64,7 @@ build_kernel() {
   export PATH="/usr/lib/ccache/bin:$PATH"
 
   # Reproducible builds
+  export KBUILD_BUILD_USER="vamos"
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
 
