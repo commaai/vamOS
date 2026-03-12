@@ -6,6 +6,7 @@ RUN xbps-install -y \
     base-devel \
     bash \
     ccache \
+    cross-aarch64-linux-gnu \
     git \
     openssl-devel \
     python3 && \
