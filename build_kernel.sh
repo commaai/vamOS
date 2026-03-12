@@ -14,10 +14,9 @@ BOOT_IMG=./boot.img
 DEFCONFIG="${DEFCONFIG:-vamos_defconfig}"
 DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
-# Check submodule initted
+# Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  echo "Run ./setup.sh first!"
-  exit 1
+  ./setup.sh
 fi
 
 # Build docker container
