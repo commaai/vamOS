@@ -1,0 +1,14 @@
+[user]
+  email = device@comma.ai
+  name = Comma Device
+[push]
+  default = simple
+[pull]
+  rebase = false
+[url "git@github.com:"]
+  pushInsteadOf = "https://github.com/"
+[filter "lfs"]
+  clean = git-lfs clean -- %f
+  smudge = git-lfs smudge -- %f
+  required = true
+  process = git-lfs filter-process

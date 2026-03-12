@@ -7,7 +7,7 @@ if ! command -v bun &> /dev/null; then
   export PATH="$HOME/.bun/bin:$PATH"
 fi
 
-QDL="bunx --bun commaai/qdl.js"
+QDL="bunx --bun andiradulescu/qdl.js"
 
 # preload package so bunx output doesn't pollute stdout on first run
 $QDL --help > /dev/null 2>&1 || true

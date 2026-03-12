@@ -1,0 +1,35 @@
+[project]
+name = "agnos"
+version = "0.1.0"
+authors = [{name = "Vehicle Researcher", email = "user@comma.ai"}]
+requires-python = ">=3.12.3, <3.13"
+description = ""
+dependencies = [
+  "openpilot",
+  "openpilot[testing]",
+
+  # hardware.py
+  "dbus-python",
+  # amplifier.py
+  "smbus2",
+
+  # provisioning
+  "pyusb",
+  "paramiko",
+
+  # extra nice-to-haves
+  "evdev",
+  "ipython",
+  "py-spy",
+  "spidev2",
+  "flaky",
+
+  # GUIs
+  "raylib @ https://github.com/commaai/raylib-python-cffi/releases/download/8/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl",
+]
+
+[tool.uv]
+environments = ["python_version >= '3.12' and python_version < '3.13' and sys_platform == 'linux'"]
+
+[tool.uv.sources]
+openpilot = { path = "openpilot" }
