@@ -21,8 +21,17 @@ fi
 
 # Build docker container
 echo "Building vamos-builder docker image"
-export DOCKER_BUILDKIT=1
-docker build -f Dockerfile.builder -t vamos-builder "$DIR"
+if [ "${BUILDX_CACHE:-0}" = "1" ]; then
+  docker buildx build \
+    -f Dockerfile.builder \
+    --cache-from type=gha,scope=vamos-builder \
+    --cache-to type=gha,mode=max,scope=vamos-builder \
+    --load \
+    -t vamos-builder "$DIR"
+else
+  export DOCKER_BUILDKIT=1
+  docker build -f Dockerfile.builder -t vamos-builder "$DIR"
+fi
 
 echo "Starting vamos-builder container"
 CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)

@@ -25,6 +25,9 @@ jobs:
         id: kernel-submodule
         run: echo "ref=$(git ls-tree HEAD | awk '$4 == "kernel"' | awk '{print $3}')" | tee -a $GITHUB_OUTPUT
 
+      - name: set up docker buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: restore ccache
         uses: actions/cache@v4
         with:
@@ -36,6 +39,8 @@ jobs:
 
       - name: build kernel
         run: ./build_kernel.sh
+        env:
+          BUILDX_CACHE: 1
 
       - name: upload boot.img
         uses: actions/upload-artifact@v4
