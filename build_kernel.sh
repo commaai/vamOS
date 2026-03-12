@@ -14,22 +14,18 @@ BOOT_IMG=./boot.img
 DEFCONFIG="${DEFCONFIG:-vamos_defconfig}"
 DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
-# Check submodule initted
+# Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  echo "Run ./setup.sh first!"
-  exit 1
+  ./setup.sh
 fi
 
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
-docker build -f Dockerfile.builder -t vamos-builder "$DIR" \
-  --build-arg UNAME=$(id -nu) \
-  --build-arg UID=$(id -u) \
-  --build-arg GID=$(id -g)
+docker build -f Dockerfile.builder -t vamos-builder "$DIR"
 
 echo "Starting vamos-builder container"
-CONTAINER_ID=$(docker run -d -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
+CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
 
 trap "echo 'Cleaning up container:'; docker container rm -f $CONTAINER_ID; rm -rf $TMP_DIR" EXIT
 
@@ -64,11 +60,10 @@ build_kernel() {
 
   # ccache
   export CCACHE_DIR="$DIR/.ccache"
-  export PATH="/usr/lib/ccache:$PATH"
-  export HOSTCC="ccache gcc"
-  export HOSTCXX="ccache g++"
+  export PATH="/usr/lib/ccache/bin:$PATH"
 
   # Reproducible builds
+  export KBUILD_BUILD_USER="vamos"
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
 
@@ -126,4 +121,4 @@ build_kernel() {
 }
 
 # Run build inside container
-docker exec -u $(id -nu) $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel); build_kernel"
+docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel); build_kernel"
