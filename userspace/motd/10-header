@@ -1,0 +1,18 @@
+#!/bin/sh
+#
+#    10-header - create the header of the MOTD
+
+# Source os-release for PRETTY_NAME (works on Void, Ubuntu, etc.)
+[ -r /etc/os-release ] && . /etc/os-release
+
+AGNOS_VERSION=$(cat /VERSION)
+GIT_HASH=$(head -1 /BUILD 2>/dev/null | cut -c1-7)
+
+if [ -n "$GIT_HASH" ]; then
+	AGNOS_DESCRIPTION="$AGNOS_VERSION ($GIT_HASH)"
+else
+	AGNOS_DESCRIPTION="$AGNOS_VERSION"
+fi
+
+printf "Welcome to AGNOS v%s\n" "$AGNOS_DESCRIPTION"
+printf "Based on %s (%s %s %s)\n" "$PRETTY_NAME" "$(uname -o)" "$(uname -r)" "$(uname -m)"

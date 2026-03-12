@@ -1,0 +1,3 @@
+# Set permissions on GPIO devices - use udev's built-in mechanism instead of find
+SUBSYSTEM=="gpio", GROUP="gpio", MODE="0660"
+SUBSYSTEM=="gpio*", KERNEL=="gpiochip*", GROUP="gpio", MODE="0660"
