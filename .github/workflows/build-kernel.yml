@@ -21,9 +21,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: setup
-        run: ./setup.sh
-
       - name: get kernel submodule ref
         id: kernel-submodule
         run: echo "ref=$(git ls-tree HEAD | awk '$4 == "kernel"' | awk '{print $3}')" | tee -a $GITHUB_OUTPUT
