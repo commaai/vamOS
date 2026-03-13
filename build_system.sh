@@ -50,20 +50,23 @@ docker buildx build -f Dockerfile --check "$DIR"
 
 # Start build and create container
 echo "Building vamos docker image"
-BUILD="docker buildx build --load"
 if [ -n "$NS" ]; then
   BUILD="nsc build --load"
+elif [ "$(uname -m)" = "aarch64" ]; then
+  # Native ARM — skip buildx overhead (faster image export)
+  BUILD="docker build"
+else
+  BUILD="docker buildx build --load --platform=linux/arm64"
 fi
 $BUILD -f Dockerfile -t vamos-builder "$DIR" \
-  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE" \
-  --platform=linux/arm64
+  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE"
 
 echo "Creating vamos container"
 CONTAINER_ID=$(docker container create --entrypoint /bin/sh vamos-builder:latest)
 
 # Setup mount container for macOS and CI support
 echo "Building system-builder docker image"
-docker buildx build --load -f Dockerfile.system-builder -t vamos-system-builder "$DIR" \
+docker build -f Dockerfile.system-builder -t vamos-system-builder "$DIR" \
   --build-arg UNAME="$(id -nu)" \
   --build-arg UID="$(id -u)" \
   --build-arg GID="$(id -g)"
