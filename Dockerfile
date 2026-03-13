@@ -87,7 +87,6 @@ RUN xbps-install -y \
   stress-ng \
   tree \
   wavemon \
-  android-tools \
   avahi-utils \
   usbutils \
   vim
@@ -111,14 +110,14 @@ RUN mkdir -p /root/.config
 COPY ./userspace/sv/ /etc/sv/
 # Enable services
 RUN for svc in \
-  ipa_fws adbd brightnessd fs_setup gpio init-qcom lte \
+  ipa_fws brightnessd fs_setup gpio init-qcom lte \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
   irsc_util leprop usb adsp cdsp \
   rmt_storage init_mss pdmapper tftp_server \
   comma modemmanager magic \
-  ssh-param-watcher adb-param-watcher \
+  ssh-param-watcher dnsmasq \
   rsyslogd iptables cnss_daemon polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
@@ -175,11 +174,10 @@ COPY ./userspace/files/abctl /usr/bin/abctl
 # journalctl shim - openpilot's journald.py expects systemd's journalctl
 COPY ./userspace/files/journalctl /usr/bin/journalctl
 COPY ./userspace/files/set_ssh.sh /usr/$USERNAME/set_ssh.sh
-COPY ./userspace/files/set_adb.sh /usr/$USERNAME/set_adb.sh
 COPY ./userspace/files/power_drop_monitor.py /usr/$USERNAME/power_drop_monitor.py
 COPY ./userspace/analyze-boot-time.py /usr/$USERNAME/tests/analyze-boot-time.py
 COPY ./userspace/files/fs_setup.sh /usr/$USERNAME/fs_setup.sh
-RUN chmod +x /usr/$USERNAME/comma.sh /usr/$USERNAME/set_ssh.sh /usr/$USERNAME/set_adb.sh /usr/$USERNAME/fs_setup.sh /usr/bin/journalctl
+RUN chmod +x /usr/$USERNAME/comma.sh /usr/$USERNAME/set_ssh.sh /usr/$USERNAME/fs_setup.sh /usr/bin/journalctl
 
 # Custom runit stages
 COPY ./userspace/files/runit-1 /etc/runit/1
@@ -203,6 +201,10 @@ COPY ./userspace/files/NetworkManager.conf /etc/NetworkManager/NetworkManager.co
 COPY ./userspace/files/lte.nmconnection /usr/lib/NetworkManager/system-connections/
 COPY ./userspace/files/usb0.nmconnection /usr/lib/NetworkManager/system-connections/
 RUN chmod 600 /usr/lib/NetworkManager/system-connections/*.nmconnection
+
+# dnsmasq for USB DHCP
+RUN mkdir -p /etc/dnsmasq.d /var/lib/misc
+COPY ./userspace/files/usb0.conf /etc/dnsmasq.d/
 
 # iptables rules
 RUN mkdir -p /etc/iptables
@@ -307,11 +309,6 @@ RUN echo ttyMSM0 >> /etc/securetty
 RUN usermod -p '$6$agnosdev$tQ10U3e/BwHhW2Jc0N2nCo5wd9U616KhZu8ZgC4CoyhUX2ui29zIWXKXkEwCvV8yB3dYEhsMKrmA8dJnD6Y2./' comma && \
     usermod -p '$6$agnosdev$tQ10U3e/BwHhW2Jc0N2nCo5wd9U616KhZu8ZgC4CoyhUX2ui29zIWXKXkEwCvV8yB3dYEhsMKrmA8dJnD6Y2./' root
 
-# USB gadget: disable ffs.adb in boot-time 9024 script (set_adb.sh handles it later)
-# USB networking (NCM) disabled — use WiFi. See set_adb_ncm.sh to re-enable.
-# RUN sed -i 's/gsi.rndis/ncm.0/g' /usr/bin/usb/compositions/9024
-RUN sed -i 's/.*ffs.adb.*configs.*/#\0/' /usr/bin/usb/compositions/9024
-
 # DEBUG: SSH setup - sshd_config expects keys in /data/etc/ssh/
 # The /data partition is mounted at runtime from /dev/sda12
 # We need to create the ssh directory structure on first boot
@@ -331,20 +328,6 @@ RUN echo '#!/bin/sh' > /etc/sv/sshd/run && \
 
 # DEBUG: Fix iptables to allow SSH (insert before wwan0 DROP rule)
 RUN sed -i '/-A INPUT -i wwan0 -j DROP/i -A INPUT -p tcp --dport 22 -j ACCEPT' /etc/iptables/rules.v4 || true
-
-# USB networking disabled — use WiFi. See userspace/files/set_adb_ncm.sh to re-enable.
-# RUN echo '[connection]' > /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'id=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'type=ethernet' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'interface-name=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'autoconnect=true' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv4]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=manual' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'addresses=192.168.7.1/24' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv6]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=disabled' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     chmod 600 /usr/lib/NetworkManager/system-connections/usb0.nmconnection
-# RUN sed -i '/echo \$1 > UDC/a\\tip addr add 192.168.7.1/24 dev usb0 2>/dev/null || true\n\tip link set usb0 up' /usr/bin/usb/compositions/9024
 
 RUN ldconfig
 
