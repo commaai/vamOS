@@ -74,7 +74,7 @@ jobs:
           PROFILE_MD=$(cat output/rootfs-profile.md)
 
           # Assemble comment with hidden marker for find-and-update
-          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n%s' \
+          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
             '<!-- rootfs-profile-bot -->' \
             '## vamOS System Profile' \
             '### Changes vs master' \
