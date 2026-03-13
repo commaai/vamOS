@@ -32,6 +32,8 @@ jobs:
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          lfs: true
 
       - name: build system image
         run: ./build_system.sh
