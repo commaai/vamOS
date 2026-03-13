@@ -11,6 +11,7 @@ on:
       - 'Dockerfile'
       - 'Dockerfile.system-builder'
       - 'build_system.sh'
+      - 'scripts/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
       - '.github/workflows/build-system.yml'
@@ -19,6 +20,7 @@ on:
       - 'Dockerfile'
       - 'Dockerfile.system-builder'
       - 'build_system.sh'
+      - 'scripts/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
       - '.github/workflows/build-system.yml'
@@ -26,6 +28,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
+    permissions:
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,3 +43,53 @@ jobs:
         with:
           name: system.img
           path: output/system.img
+
+      - name: upload rootfs profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: rootfs-profile
+          path: |
+            output/rootfs-profile.json
+            output/rootfs-profile.md
+
+      - name: download master baseline
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p baseline
+          RUN_ID=$(gh run list --workflow=build-system.yml --branch=master \
+            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
+          fi
+
+      - name: post PR comment
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Generate diff (gracefully handles missing baseline)
+          DIFF_MD=$(./scripts/profile_rootfs.sh diff baseline/rootfs-profile.json output/rootfs-profile.json 2>/dev/null || echo "No baseline available")
+          PROFILE_MD=$(cat output/rootfs-profile.md)
+
+          # Assemble comment with hidden marker for find-and-update
+          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
+            '<!-- rootfs-profile-bot -->' \
+            '## vamOS System Profile' \
+            '### Changes vs master' \
+            "$DIFF_MD" \
+            "$PROFILE_MD"
+
+          # Find existing comment by marker
+          COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '.[] | select(.body | contains("<!-- rootfs-profile-bot -->")) | .id' \
+            | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+              -X PATCH -f body="$COMMENT_BODY"
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT_BODY"
+          fi

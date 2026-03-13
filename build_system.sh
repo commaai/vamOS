@@ -121,6 +121,12 @@ set_network_stuff() {
 GIT_HASH=${GIT_HASH:-$(git --git-dir="$DIR/.git" rev-parse HEAD)}
 exec_as_root bash -c "set -e; export ROOTFS_DIR=$ROOTFS_DIR GIT_HASH=$GIT_HASH; $(declare -f set_network_stuff); set_network_stuff"
 
+# Profile rootfs (before unmount)
+echo "Profiling rootfs"
+MOUNT_CONTAINER_ID="$MOUNT_CONTAINER_ID" ROOTFS_DIR="$ROOTFS_DIR" \
+  ROOTFS_IMAGE="$ROOTFS_IMAGE" OUTPUT_DIR="$OUTPUT_DIR" \
+  "$DIR/scripts/profile_rootfs.sh"
+
 # Unmount image
 echo "Unmount filesystem"
 exec_as_root umount -l "$ROOTFS_DIR"
@@ -128,5 +134,13 @@ exec_as_root umount -l "$ROOTFS_DIR"
 # Sparsify system image
 echo "Sparsifying system image"
 exec_as_user img2simg "$ROOTFS_IMAGE" "$OUT_IMAGE"
+
+# Patch sparse image size into profile JSON
+SPARSE_SIZE=$(stat -c%s "$OUT_IMAGE" 2>/dev/null || stat -f%z "$OUT_IMAGE")
+if command -v jq &>/dev/null; then
+  jq --arg s "$SPARSE_SIZE" '.image_size_sparse_bytes = ($s | tonumber)' \
+    "$OUTPUT_DIR/rootfs-profile.json" > "$OUTPUT_DIR/rootfs-profile.json.tmp" && \
+    mv "$OUTPUT_DIR/rootfs-profile.json.tmp" "$OUTPUT_DIR/rootfs-profile.json"
+fi
 
 echo "Done!"
