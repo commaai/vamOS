@@ -74,12 +74,12 @@ jobs:
           PROFILE_MD=$(cat output/rootfs-profile.md)
 
           # Assemble comment with hidden marker for find-and-update
-          printf -v COMMENT_BODY '%s\n%s\n%s\n\n%s\n%s' \
+          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n%s' \
             '<!-- rootfs-profile-bot -->' \
-            '## Rootfs Size Profile' \
-            "$PROFILE_MD" \
+            '## vamOS System Profile' \
             '### Changes vs master' \
-            "$DIFF_MD"
+            "$DIFF_MD" \
+            "$PROFILE_MD"
 
           # Find existing comment by marker
           COMMENT_ID=$(gh api \
