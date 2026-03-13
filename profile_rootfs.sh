@@ -98,29 +98,34 @@ exec_container() {
 
 mkdir -p "$OUTPUT_DIR"
 
+PROFILE_START=$(date +%s%N)
 echo "Collecting rootfs profile data..."
 
 # Used space on ext4
+
 DF_LINE=$(exec_container df -B1 "$ROOTFS_DIR" | tail -1)
 USED_BYTES=$(echo "$DF_LINE" | awk '{print $3}')
 TOTAL_BYTES=$(echo "$DF_LINE" | awk '{print $2}')
 AVAIL_BYTES=$(echo "$DF_LINE" | awk '{print $4}')
 
+
 # Summary stats
+
 FILE_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type f | wc -l)
 DIR_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type d | wc -l)
 SYMLINK_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type l | wc -l)
 
-# xbps packages
-XBPS_DB="$ROOTFS_DIR/usr/lib/xbps-db"
+
+# xbps packages — parse pkgdb plist directly (single XML file with all packages)
+
 PACKAGES_JSON="[]"
 PKG_COUNT=0
-if exec_container test -d "$XBPS_DB" 2>/dev/null; then
-  PACKAGES_RAW=$(exec_container sh -c "for f in $XBPS_DB/*.plist; do
-    pkg=\$(basename \"\$f\" .plist)
-    size=\$(awk '/installed_size/ { getline; gsub(/.*<integer>|<\\/integer>.*/, \"\"); print; exit }' \"\$f\")
-    [ -n \"\$size\" ] && echo \"\$size\t\$pkg\"
-  done")
+PKGDB="$ROOTFS_DIR/usr/lib/xbps-db/pkgdb-0.38.plist"
+if exec_container test -f "$PKGDB" 2>/dev/null; then
+  PACKAGES_RAW=$(exec_container awk '
+    /<key>pkgver<\/key>/ { getline; gsub(/.*<string>|<\/string>.*/, ""); pkgver=$0 }
+    /<key>installed_size<\/key>/ { getline; gsub(/.*<integer>|<\/integer>.*/, ""); if(pkgver) print $0 "\t" pkgver; pkgver="" }
+  ' "$PKGDB")
   if [ -n "$PACKAGES_RAW" ]; then
     PACKAGES_JSON=$(echo "$PACKAGES_RAW" | sort -rn | jq -Rn '
       [inputs | split("\t") | {name: .[1], bytes: (.[0] | tonumber)}]
@@ -130,6 +135,7 @@ if exec_container test -d "$XBPS_DB" 2>/dev/null; then
 fi
 
 # Top 30 directories by size
+
 TOP_DIRS_JSON=$(exec_container du -x --max-depth=3 "$ROOTFS_DIR" 2>/dev/null \
   | sort -rn | head -30 \
   | awk -v root="$ROOTFS_DIR" '{
@@ -139,6 +145,7 @@ TOP_DIRS_JSON=$(exec_container du -x --max-depth=3 "$ROOTFS_DIR" 2>/dev/null \
   | jq -Rn '[inputs | split("\t") | {path: .[1], bytes: (.[0] | tonumber)}]')
 
 # Top 30 files by size
+
 TOP_FILES_JSON=$(exec_container find "$ROOTFS_DIR" -xdev -type f -printf '%s %p\n' 2>/dev/null \
   | sort -rn | head -30 \
   | awk -v root="$ROOTFS_DIR" '{
@@ -148,6 +155,7 @@ TOP_FILES_JSON=$(exec_container find "$ROOTFS_DIR" -xdev -type f -printf '%s %p\
   | jq -Rn '[inputs | split("\t") | {path: .[1], bytes: (.[0] | tonumber)}]')
 
 # Python venv breakdown
+
 VENV_JSON="[]"
 VENV_TOTAL=0
 VENV_DIR="$ROOTFS_DIR/usr/local/venv/lib"
@@ -164,6 +172,7 @@ if exec_container test -d "$VENV_DIR" 2>/dev/null; then
 fi
 
 # ARM toolchain size
+
 TOOLCHAIN_BYTES=0
 TOOLCHAIN_RAW=$(exec_container sh -c "du -sb $ROOTFS_DIR/opt/arm-gnu-toolchain-* 2>/dev/null" || true)
 if [ -n "$TOOLCHAIN_RAW" ]; then
@@ -171,12 +180,14 @@ if [ -n "$TOOLCHAIN_RAW" ]; then
 fi
 
 # Firmware sizes
+
 FIRMWARE_BYTES=0
 if exec_container test -d "$ROOTFS_DIR/lib/firmware" 2>/dev/null; then
   FIRMWARE_BYTES=$(exec_container du -sb "$ROOTFS_DIR/lib/firmware" 2>/dev/null | awk '{print $1}')
 fi
 
 # Shared libs (top 30)
+
 SHARED_LIBS_JSON=$(exec_container find "$ROOTFS_DIR/usr/lib" -name '*.so*' -type f -printf '%s %p\n' 2>/dev/null \
   | sort -rn | head -30 \
   | awk -v root="$ROOTFS_DIR" '{
@@ -293,4 +304,5 @@ echo "=== Rootfs Profile ==="
 echo "Used: ${USED_MB}MB / ${TOTAL_MB}MB"
 echo "Files: ${FILE_COUNT} | Dirs: ${DIR_COUNT} | Symlinks: ${SYMLINK_COUNT} | Packages: ${PKG_COUNT}"
 echo "Categories: xbps=$(fmt_mb "$XBPS_TOTAL")MB  venv=$(fmt_mb "$VENV_TOTAL")MB  toolchain=$(fmt_mb "$TOOLCHAIN_BYTES")MB  firmware=$(fmt_mb "$FIRMWARE_BYTES")MB  other=$(fmt_mb "$OTHER_BYTES")MB"
+echo "Profiling completed in $(( ($(date +%s%N) - PROFILE_START) / 1000000 ))ms"
 echo "Output: $OUTPUT_DIR/rootfs-profile.json, $OUTPUT_DIR/rootfs-profile.md"
