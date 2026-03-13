@@ -290,7 +290,7 @@ fmt_pct() { echo "scale=1; $1 * 100 / $USED_BYTES" | bc; }
   echo "$PACKAGES_JSON" | jq -r '.[:10][] | "| \(.name) | \(.bytes / 1048576 | . * 10 | floor / 10)MB |"'
   echo ""
 
-  echo "<details><summary>Top 30 files by size</summary>"
+  echo "<details><summary><h3>Top 30 Files by Size</h3></summary>"
   echo ""
   echo "| File | Size |"
   echo "|------|------|"
