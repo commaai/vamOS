@@ -25,12 +25,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: cache void rootfs tarball
-        uses: actions/cache@v4
-        with:
-          path: void-aarch64-ROOTFS-20250202.tar.xz
-          key: void-rootfs-20250202
-
       - name: build system image
         run: ./build_system.sh
 
