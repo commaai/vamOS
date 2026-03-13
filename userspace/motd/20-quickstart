@@ -13,9 +13,9 @@ Here are some useful commands:
   Install Python packages
     └── pip install <pkg>
 
-When modifying AGNOS, keep in mind that the system partition isn't
+When modifying vamOS, keep in mind that the system partition isn't
 particularly large. /data/ is the largest partition, and unlike the
-rest of the partitions, it will persist across AGNOS updates.
+rest of the partitions, it will persist across vamOS updates.
 
-Want a clean slate? Reflash AGNOS with https://flash.comma.ai.
+Want a clean slate? Reflash vamOS with https://flash.comma.ai.
 EOF

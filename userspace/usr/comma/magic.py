@@ -13,7 +13,7 @@ DRM_DEVICE = "/dev/dri/card0"
 BACKGROUND = "/usr/comma/bg.jpg"
 
 # This is needed to keep the old updater working. Updater used to be stored in
-# openpilot directly instead of in AGNOS. This will intercept the old updater
+# openpilot directly instead of in vamOS. This will intercept the old updater
 # trying to use a Weston socket and start our own.
 def updater_weston():
   os.makedirs(WESTON_RUNTIME_DIR, exist_ok=True)

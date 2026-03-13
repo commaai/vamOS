@@ -1,5 +1,5 @@
 #!/bin/bash
-# Extract and clean agnos-*.deb blobs for Void Linux
+# Extract and clean upstream .deb blobs for Void Linux
 # Removes: systemd units, armhf libs, weston/wayland (display stack)
 # Keeps: firmware, aarch64 libs, binaries, udev rules, init scripts
 
@@ -8,7 +8,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEBS_DIR="$SCRIPT_DIR/../userspace/debs"
 BLOBS_DIR="$SCRIPT_DIR/blobs"
-TMP_DIR="/tmp/agnos-blob-extract"
+TMP_DIR="/tmp/vamos-blob-extract"
 
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
@@ -16,9 +16,9 @@ mkdir -p "$TMP_DIR"
 rm -rf "$BLOBS_DIR"
 mkdir -p "$BLOBS_DIR"
 
-echo "=== Extracting agnos-base.deb ==="
+echo "=== Extracting vamos-base.deb ==="
 mkdir -p "$TMP_DIR/base"
-dpkg-deb -R "$DEBS_DIR/agnos-base.deb" "$TMP_DIR/base"
+dpkg-deb -R "$DEBS_DIR/vamos-base.deb" "$TMP_DIR/base"
 
 # Remove systemd
 rm -rf "$TMP_DIR/base/etc/systemd"
@@ -36,9 +36,9 @@ if [ -d "$TMP_DIR/base/usr/lib/aarch64-linux-gnu" ]; then
     rm -rf "$TMP_DIR/base/usr/lib/aarch64-linux-gnu"
 fi
 
-echo "=== Extracting agnos-wlan.deb ==="
+echo "=== Extracting vamos-wlan.deb ==="
 mkdir -p "$TMP_DIR/wlan"
-dpkg-deb -R "$DEBS_DIR/agnos-wlan_0.0.3.deb" "$TMP_DIR/wlan"
+dpkg-deb -R "$DEBS_DIR/vamos-wlan_0.0.3.deb" "$TMP_DIR/wlan"
 
 # Remove systemd
 rm -rf "$TMP_DIR/wlan/etc/systemd"
@@ -59,9 +59,9 @@ if [ -d "$TMP_DIR/wlan/usr/lib/aarch64-linux-gnu" ]; then
     rm -rf "$TMP_DIR/wlan/usr/lib/aarch64-linux-gnu"
 fi
 
-echo "=== Extracting agnos-display.deb (GPU/OpenCL only) ==="
+echo "=== Extracting vamos-display.deb (GPU/OpenCL only) ==="
 mkdir -p "$TMP_DIR/display"
-dpkg-deb -R "$DEBS_DIR/agnos-display_0.0.1.deb" "$TMP_DIR/display"
+dpkg-deb -R "$DEBS_DIR/vamos-display_0.0.1.deb" "$TMP_DIR/display"
 
 # Remove weston entirely - not used
 rm -rf "$TMP_DIR/display/usr/bin/weston"*

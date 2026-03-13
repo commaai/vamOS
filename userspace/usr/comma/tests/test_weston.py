@@ -5,7 +5,7 @@ import hashlib
 import subprocess
 
 """
-journalctl -o short-monotonic -u weston -u weston-ready -u agnos-tests
+journalctl -o short-monotonic -u weston -u weston-ready -u vamos-tests
 """
 
 if __name__ == "__main__":

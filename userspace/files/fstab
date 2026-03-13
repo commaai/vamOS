@@ -1,4 +1,4 @@
-# AGNOS Void Linux fstab
+# vamOS Void Linux fstab
 # <file system>                           <dir>       <type>  <options>                                                    <dump> <pass>
 
 # Qualcomm DSP firmware partition (read-only)

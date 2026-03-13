@@ -6,7 +6,7 @@ PASSWD=comma
 
 # Create identification files
 touch /TICI
-touch /AGNOS
+touch /VAMOS
 
 # Update xbps first, then package database
 xbps-install -Syu xbps -y

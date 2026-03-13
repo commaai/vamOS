@@ -1,6 +1,6 @@
 #!/bin/sh
 # Shutdown wrapper - sends wall broadcast before triggering runit shutdown
-# Matches systemd/Ubuntu AGNOS behavior where users see "The system will power off now!"
+# Matches systemd/Ubuntu behavior where users see "The system will power off now!"
 # Installed in /usr/local/sbin/ to shadow /usr/bin/ originals
 
 cmd=$(basename "$0")
