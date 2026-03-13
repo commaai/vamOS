@@ -54,7 +54,6 @@ RUN xbps-install -y \
   iperf3 \
   ripgrep \
   ncdu \
-  nfs-utils \
   socat \
   stress-ng \
   tree \
