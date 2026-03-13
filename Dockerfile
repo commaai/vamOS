@@ -43,6 +43,55 @@ RUN cd /tmp/agnos/irsc_util && \
 # libqmi, ModemManager are from Void repos (in base_setup.sh)
 # lpac, qt, weston - removed, not used
 
+# ARM bare-metal cross-compiler (equivalent to Ubuntu's gcc-arm-none-eabi)
+# Void's cross-arm-none-eabi-gcc is x86_64 only, so download ARM's official aarch64 toolchain
+RUN set -e; \
+    TOOLCHAIN_DIR=/opt/arm-gnu-toolchain-13.2.Rel1-aarch64-arm-none-eabi; \
+    curl -fsSL "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-aarch64-arm-none-eabi.tar.xz" | tar -xJ -C /opt; \
+    cd "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"* && \
+    rm -rf arm && \
+    find thumb -maxdepth 1 -type d ! \( -name thumb -o -name v7e-m+fp \) -exec rm -rf {} + && \
+    rm -f cc1plus g++-mapper-server && \
+    rm -rf "$TOOLCHAIN_DIR/share/doc" "$TOOLCHAIN_DIR/share/info" "$TOOLCHAIN_DIR/share/man" "$TOOLCHAIN_DIR/share/gdb" "$TOOLCHAIN_DIR/share/systemtap" && \
+    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gdb,gprof,gfortran,lto-dump,c++,cpp,g++} && \
+    rm -f "$TOOLCHAIN_DIR/libexec/gcc/arm-none-eabi/"*/{cc1plus,f951,lto1,lto-wrapper} && \
+    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/include/c++" && \
+    find "$TOOLCHAIN_DIR/arm-none-eabi/lib" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
+    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
+    find "$TOOLCHAIN_DIR/arm-none-eabi/lib/thumb" -maxdepth 1 -mindepth 1 -type d ! \( -name 'v7e-m+fp' \) -exec rm -rf {} + && \
+    for d in "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"*/thumb/*; do case "$d" in *v7e-m+fp*) ;; *) rm -rf "$d";; esac; done && \
+    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f -name '*gcov*' -delete && \
+    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/lib/arm" && \
+    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gcov,gcov-tool,gcov-dump} && \
+    for b in gcc ar as ld nm ranlib objcopy objdump size strip addr2line readelf strings; do \
+      if [ -x "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" ]; then \
+        ln -sf "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" /usr/bin/; \
+      fi; \
+    done
+
+# Mesa DRI drivers (freedreno for Qualcomm Adreno GPU)
+# Required for EGL/GBM to work with the display
+RUN yes | xbps-install -Sy mesa-dri
+
+# Extra packages (nice-to-haves for development)
+RUN xbps-install -y \
+  bash-completion \
+  btop \
+  hyperfine \
+  iperf \
+  iperf3 \
+  ripgrep \
+  ncdu \
+  nfs-utils \
+  socat \
+  stress-ng \
+  tree \
+  wavemon \
+  android-tools \
+  avahi-utils \
+  usbutils \
+  vim
+
 # Python packages via uv
 ARG XDG_DATA_HOME="/usr/local"
 ENV PATH="/root/.local/bin:$XDG_DATA_HOME/venv/bin:$PATH"
@@ -217,36 +266,6 @@ RUN /tmp/agnos/readonly_setup.sh
 # Version
 COPY VERSION /VERSION
 
-# ARM bare-metal cross-compiler (equivalent to Ubuntu's gcc-arm-none-eabi)
-# Void's cross-arm-none-eabi-gcc is x86_64 only, so download ARM's official aarch64 toolchain
-RUN set -e; \
-    TOOLCHAIN_DIR=/opt/arm-gnu-toolchain-13.2.Rel1-aarch64-arm-none-eabi; \
-    curl -fsSL "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-aarch64-arm-none-eabi.tar.xz" | tar -xJ -C /opt; \
-    cd "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"* && \
-    rm -rf arm && \
-    find thumb -maxdepth 1 -type d ! \( -name thumb -o -name v7e-m+fp \) -exec rm -rf {} + && \
-    rm -f cc1plus g++-mapper-server && \
-    rm -rf "$TOOLCHAIN_DIR/share/doc" "$TOOLCHAIN_DIR/share/info" "$TOOLCHAIN_DIR/share/man" "$TOOLCHAIN_DIR/share/gdb" "$TOOLCHAIN_DIR/share/systemtap" && \
-    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gdb,gprof,gfortran,lto-dump,c++,cpp,g++} && \
-    rm -f "$TOOLCHAIN_DIR/libexec/gcc/arm-none-eabi/"*/{cc1plus,f951,lto1,lto-wrapper} && \
-    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/include/c++" && \
-    find "$TOOLCHAIN_DIR/arm-none-eabi/lib" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
-    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
-    find "$TOOLCHAIN_DIR/arm-none-eabi/lib/thumb" -maxdepth 1 -mindepth 1 -type d ! \( -name 'v7e-m+fp' \) -exec rm -rf {} + && \
-    for d in "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"*/thumb/*; do case "$d" in *v7e-m+fp*) ;; *) rm -rf "$d";; esac; done && \
-    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f -name '*gcov*' -delete && \
-    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/lib/arm" && \
-    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gcov,gcov-tool,gcov-dump} && \
-    for b in gcc ar as ld nm ranlib objcopy objdump size strip addr2line readelf strings; do \
-      if [ -x "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" ]; then \
-        ln -sf "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" /usr/bin/; \
-      fi; \
-    done
-
-# Mesa DRI drivers (freedreno for Qualcomm Adreno GPU)
-# Required for EGL/GBM to work with the display
-RUN yes | xbps-install -Sy mesa-dri
-
 # TODO: Remove Qualcomm GPU blobs by rebuilding pyray/raylib against Mesa
 # Currently raylib is compiled directly against libEGL_adreno.so/libGLESv2_adreno.so
 # To use open-source Mesa freedreno instead:
@@ -274,25 +293,6 @@ RUN cp /usr/lib/libEGL_adreno.so /usr/lib/libEGL.so.1.1.0 && \
 RUN find /usr/share/locale -maxdepth 1 -mindepth 1 ! -name en_US ! -name en -exec rm -rf {} + && \
     rm -rf /usr/share/man /usr/share/doc /usr/share/info && \
     rm -rf /var/cache/xbps
-
-# Extra packages (nice-to-haves for development)
-RUN xbps-install -y \
-  bash-completion \
-  btop \
-  hyperfine \
-  iperf \
-  iperf3 \
-  ripgrep \
-  ncdu \
-  nfs-utils \
-  socat \
-  stress-ng \
-  tree \
-  wavemon \
-  android-tools \
-  avahi-utils \
-  usbutils \
-  vim
 
 # ################# #
 # #### Cleanup #### #
