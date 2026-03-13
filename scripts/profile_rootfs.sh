@@ -48,8 +48,8 @@ if [ "${1:-}" = "diff" ]; then
   echo ""
 
   # Added/removed packages
-  ADDED=$(jq -r '[.packages[].name] | sort[]' "$CURRENT" | comm -23 - <(jq -r '[.packages[].name] | sort[]' "$BASELINE"))
-  REMOVED=$(jq -r '[.packages[].name] | sort[]' "$BASELINE" | comm -23 - <(jq -r '[.packages[].name] | sort[]' "$CURRENT"))
+  ADDED=$(comm -23 <(jq -r '.packages[].name' "$CURRENT" | sort) <(jq -r '.packages[].name' "$BASELINE" | sort))
+  REMOVED=$(comm -23 <(jq -r '.packages[].name' "$BASELINE" | sort) <(jq -r '.packages[].name' "$CURRENT" | sort))
 
   if [ -n "$ADDED" ]; then
     echo "**Added packages:** $(echo "$ADDED" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')"
