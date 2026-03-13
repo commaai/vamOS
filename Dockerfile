@@ -26,8 +26,6 @@ FROM void-base
 
 ARG USERNAME=comma
 
-# Hardware blobs from upstream .deb packages (cleaned: no systemd, no armhf, no weston)
-# Run ./userspace/extract-blobs.sh to regenerate
 COPY ./userspace/blobs/base/ /
 # USB scripts expect /sbin/usb but files are in /usr/bin/usb
 RUN ln -sf /usr/bin/usb /sbin/usb
