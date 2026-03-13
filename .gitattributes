@@ -1,11 +1,10 @@
 kernel/firmware/*.img filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/lib/*.so* filter=lfs diff=lfs merge=lfs -text
-userspace/root/usr/lib/firmware/*.elf filter=lfs diff=lfs merge=lfs -text
-userspace/root/lib/firmware/*.elf filter=lfs diff=lfs merge=lfs -text
+userspace/root/usr/lib/firmware/**/*.elf filter=lfs diff=lfs merge=lfs -text
+userspace/root/lib/firmware/**/*.elf filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/comma/updater filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/comma/setup filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/comma/reset filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/comma/installer filter=lfs diff=lfs merge=lfs -text
-userspace/root/usr/lib/firmware/CAMERA_ICP.elf filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/share/fonts/*.otf filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/share/fonts/*.woff2 filter=lfs diff=lfs merge=lfs -text
