@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -e
 
+# Timestamp helper
+ts() { echo "[$(date +%H:%M:%S)] $*"; }
+
+# Install pv for transfer monitoring
+if ! command -v pv &>/dev/null; then
+  sudo apt-get update -qq && sudo apt-get install -y -qq pv
+fi
+
 VOID_ROOTFS_URL="https://repo-default.voidlinux.org/live/current/void-aarch64-ROOTFS-20250202.tar.xz"
 VOID_ROOTFS_FILE="void-aarch64-ROOTFS-20250202.tar.xz"
 VOID_ROOTFS_SHA256="01a30f17ae06d4d5b322cd579ca971bc479e02cc284ec1e5a4255bea6bac3ce6"
@@ -25,22 +33,22 @@ mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
 
 # Download Void rootfs if not done already
 if [ ! -f "$VOID_ROOTFS_FILE" ]; then
-  echo "Downloading Void Linux rootfs: $VOID_ROOTFS_FILE"
+  ts "Downloading Void Linux rootfs: $VOID_ROOTFS_FILE"
   if ! curl -C - -o "$VOID_ROOTFS_FILE" "$VOID_ROOTFS_URL" --silent --remote-time --fail; then
-    echo "Download failed"
+    ts "Download failed"
     exit 1
   fi
 fi
 
 # Check SHA256 sum
 if [ "$(shasum -a 256 "$VOID_ROOTFS_FILE" | awk '{print $1}')" != "$VOID_ROOTFS_SHA256" ]; then
-  echo "Checksum mismatch"
+  ts "Checksum mismatch"
   exit 1
 fi
 
 # Setup qemu multiarch
 if [ "$(uname -m)" = "x86_64" ]; then
-  echo "Registering emulator"
+  ts "Registering emulator"
   docker run --rm --privileged tonistiigi/binfmt --install all
 fi
 
@@ -49,7 +57,7 @@ export DOCKER_BUILDKIT=1
 docker buildx build -f Dockerfile --check "$DIR"
 
 # Start build and create container
-echo "Building vamos docker image"
+ts "Building vamos docker image"
 if [ -n "$NS" ]; then
   BUILD="nsc build --load"
 elif [ "$(uname -m)" = "aarch64" ]; then
@@ -61,17 +69,17 @@ fi
 $BUILD -f Dockerfile -t vamos-builder "$DIR" \
   --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE"
 
-echo "Creating vamos container"
+ts "Creating vamos container"
 CONTAINER_ID=$(docker container create --entrypoint /bin/sh vamos-builder:latest)
 
 # Setup mount container for macOS and CI support
-echo "Building system-builder docker image"
+ts "Building system-builder docker image"
 docker build -f Dockerfile.system-builder -t vamos-system-builder "$DIR" \
   --build-arg UNAME="$(id -nu)" \
   --build-arg UID="$(id -u)" \
   --build-arg GID="$(id -g)"
 
-echo "Starting system-builder container"
+ts "Starting system-builder container"
 MOUNT_CONTAINER_ID=$(docker run -d --privileged -v "$DIR:$DIR" vamos-system-builder)
 
 # Cleanup containers on possible exit
@@ -88,12 +96,12 @@ exec_as_root() {
 }
 
 # Create filesystem ext4 image
-echo "Creating empty filesystem"
+ts "Creating empty filesystem"
 exec_as_user fallocate -l "$ROOTFS_IMAGE_SIZE" "$ROOTFS_IMAGE"
 exec_as_user mkfs.ext4 "$ROOTFS_IMAGE" &> /dev/null
 
 # Mount filesystem
-echo "Mounting empty filesystem"
+ts "Mounting empty filesystem"
 exec_as_root mkdir -p "$ROOTFS_DIR"
 exec_as_root mount "$ROOTFS_IMAGE" "$ROOTFS_DIR"
 
@@ -102,15 +110,16 @@ trap "exec_as_root umount -l $ROOTFS_DIR &> /dev/null || true; \
 echo \"Cleaning up containers:\"; \
 docker container rm -f $CONTAINER_ID $MOUNT_CONTAINER_ID" EXIT
 
-# Extract image (pipe directly to avoid double I/O)
-echo "Extracting docker image"
-docker container export "$CONTAINER_ID" | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
+# Extract image (pipe through pv for transfer monitoring)
+ts "Extracting docker image"
+docker container export "$CONTAINER_ID" | pv -f | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
+ts "Extraction complete"
 
 # Avoid detecting as container
-echo "Removing .dockerenv file"
+ts "Removing .dockerenv file"
 exec_as_root rm -f "$ROOTFS_DIR/.dockerenv"
 
-echo "Setting network stuff"
+ts "Setting network stuff"
 set_network_stuff() {
   cd "$ROOTFS_DIR"
   # Add hostname and hosts
@@ -134,10 +143,11 @@ GIT_HASH=${GIT_HASH:-$(git --git-dir="$DIR/.git" rev-parse HEAD)}
 exec_as_root bash -c "set -e; export ROOTFS_DIR=$ROOTFS_DIR GIT_HASH=$GIT_HASH; $(declare -f set_network_stuff); set_network_stuff"
 
 # Unmount image
-echo "Unmount filesystem"
+ts "Unmount filesystem"
 exec_as_root umount -l "$ROOTFS_DIR"
 
 # Sparsify system image
+ts "Sparsifying system image"
 exec_as_user img2simg "$ROOTFS_IMAGE" "$OUT_IMAGE"
 
-echo "Done!"
+ts "Done!"
