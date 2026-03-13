@@ -48,22 +48,6 @@ fi
 export DOCKER_BUILDKIT=1
 docker buildx build -f Dockerfile --check "$DIR"
 
-# Start build and create container
-echo "Building vamos docker image"
-if [ -n "$NS" ]; then
-  BUILD="nsc build --load"
-elif [ "$(uname -m)" = "aarch64" ]; then
-  # Native ARM — skip buildx overhead (faster image export)
-  BUILD="docker build"
-else
-  BUILD="docker buildx build --load --platform=linux/arm64"
-fi
-$BUILD -f Dockerfile -t vamos-builder "$DIR" \
-  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE"
-
-echo "Creating vamos container"
-CONTAINER_ID=$(docker container create --entrypoint /bin/sh vamos-builder:latest)
-
 # Setup mount container for macOS and CI support
 echo "Building system-builder docker image"
 docker build -f Dockerfile.system-builder -t vamos-system-builder "$DIR" \
@@ -76,7 +60,7 @@ MOUNT_CONTAINER_ID=$(docker run -d --privileged -v "$DIR:$DIR" vamos-system-buil
 
 # Cleanup containers on possible exit
 trap "echo \"Cleaning up containers:\"; \
-docker container rm -f $CONTAINER_ID $MOUNT_CONTAINER_ID" EXIT
+docker container rm -f $MOUNT_CONTAINER_ID" EXIT
 
 # Define functions for docker execution
 exec_as_user() {
@@ -100,11 +84,15 @@ exec_as_root mount "$ROOTFS_IMAGE" "$ROOTFS_DIR"
 # Also unmount filesystem (overwrite previous trap)
 trap "exec_as_root umount -l $ROOTFS_DIR &> /dev/null || true; \
 echo \"Cleaning up containers:\"; \
-docker container rm -f $CONTAINER_ID $MOUNT_CONTAINER_ID" EXIT
+docker container rm -f $MOUNT_CONTAINER_ID" EXIT
 
-# Extract image (pipe directly to avoid double I/O)
-echo "Extracting docker image"
-docker container export "$CONTAINER_ID" | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
+echo "Building and extracting vamos docker image"
+docker buildx build -f Dockerfile --platform=linux/arm64 \
+  --output "type=tar,dest=-" \
+  --provenance=false \
+  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE" \
+  "$DIR" | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
+echo "Build and extraction complete"
 
 # Avoid detecting as container
 echo "Removing .dockerenv file"
@@ -144,6 +132,7 @@ echo "Unmount filesystem"
 exec_as_root umount -l "$ROOTFS_DIR"
 
 # Sparsify system image
+echo "Sparsifying system image"
 exec_as_user img2simg "$ROOTFS_IMAGE" "$OUT_IMAGE"
 
 # Patch sparse image size into profile JSON
