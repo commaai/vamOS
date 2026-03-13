@@ -6,7 +6,8 @@ PASSWD=comma
 
 # Create identification files
 touch /TICI
-touch /AGNOS
+# TODO: rename once openpilot supports
+touch /VAMOS
 
 # Update xbps first, then package database
 xbps-install -Syu xbps -y

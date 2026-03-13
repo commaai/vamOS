@@ -1,4 +1,4 @@
-# AGNOS Void Linux Build
+# vamOS Void Linux Build
 # check=error=true
 
 # ################## #
@@ -11,23 +11,21 @@ ARG VOID_ROOTFS
 ADD ${VOID_ROOTFS} /
 
 # Build folder
-RUN mkdir -p /tmp/agnos
+RUN mkdir -p /tmp/vamos
 
 ARG USERNAME=comma
 
 # Base system setup
-COPY ./userspace/base_setup.sh /tmp/agnos/
-RUN /tmp/agnos/base_setup.sh
+COPY ./userspace/base_setup.sh /tmp/vamos/
+RUN /tmp/vamos/base_setup.sh
 
 # ################### #
-# ###### AGNOS ###### #
+# ###### vamOS ###### #
 # ################### #
 FROM void-base
 
 ARG USERNAME=comma
 
-# Hardware blobs from agnos-*.deb (cleaned: no systemd, no armhf, no weston)
-# Run ./userspace/extract-blobs.sh to regenerate
 COPY ./userspace/blobs/base/ /
 # USB scripts expect /sbin/usb but files are in /usr/bin/usb
 RUN ln -sf /usr/bin/usb /sbin/usb
@@ -35,10 +33,10 @@ COPY ./userspace/blobs/wlan/ /
 COPY ./userspace/blobs/display/ /
 
 # Build 64-bit irsc_util (replaces 32-bit blob that requires armhf libs)
-COPY ./userspace/irsc_util/ /tmp/agnos/irsc_util/
-RUN cd /tmp/agnos/irsc_util && \
+COPY ./userspace/irsc_util/ /tmp/vamos/irsc_util/
+RUN cd /tmp/vamos/irsc_util && \
     gcc -Wall -O2 -o /usr/bin/irsc_util irsc_util.c && \
-    rm -rf /tmp/agnos/irsc_util
+    rm -rf /tmp/vamos/irsc_util
 
 # libqmi, ModemManager are from Void repos (in base_setup.sh)
 # lpac, qt, weston - removed, not used
@@ -94,8 +92,8 @@ RUN xbps-install -y \
 # Python packages via uv
 ARG XDG_DATA_HOME="/usr/local"
 ENV PATH="/root/.local/bin:$XDG_DATA_HOME/venv/bin:$PATH"
-COPY ./userspace/uv /tmp/agnos/uv
-RUN cd /tmp/agnos/uv && \
+COPY ./userspace/uv /tmp/vamos/uv
+RUN cd /tmp/vamos/uv && \
     MAKEFLAGS="-j$(nproc)" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
     uv sync --frozen --inexact
 
@@ -185,7 +183,7 @@ COPY ./userspace/files/runit-2 /etc/runit/2
 COPY ./userspace/files/runit-3 /etc/runit/3
 RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
 
-# Shutdown wrappers - send wall broadcast like systemd does on Ubuntu AGNOS
+# Shutdown wrappers - send wall broadcast like systemd does on Ubuntu
 # Only poweroff and reboot: halt/shutdown must NOT be wrapped because Void's
 # /usr/bin/shutdown script calls halt/reboot internally, causing cascading walls
 COPY ./userspace/files/shutdown-wrapper /usr/local/sbin/poweroff
@@ -262,8 +260,8 @@ COPY ./userspace/eval/rootfs-export.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/rootfs-*.sh
 
 # Read-only rootfs setup
-COPY ./userspace/readonly_setup.sh /tmp/agnos/
-RUN /tmp/agnos/readonly_setup.sh
+COPY ./userspace/readonly_setup.sh /tmp/vamos/
+RUN /tmp/vamos/readonly_setup.sh
 
 # Version
 COPY VERSION /VERSION
@@ -306,8 +304,8 @@ RUN echo ttyMSM0 >> /etc/securetty
 
 # DEBUG: fix comma password (chpasswd fails under QEMU)
 # Use pre-computed hash for reliability: password is "comma"
-RUN usermod -p '$6$agnosdev$tQ10U3e/BwHhW2Jc0N2nCo5wd9U616KhZu8ZgC4CoyhUX2ui29zIWXKXkEwCvV8yB3dYEhsMKrmA8dJnD6Y2./' comma && \
-    usermod -p '$6$agnosdev$tQ10U3e/BwHhW2Jc0N2nCo5wd9U616KhZu8ZgC4CoyhUX2ui29zIWXKXkEwCvV8yB3dYEhsMKrmA8dJnD6Y2./' root
+RUN usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' comma && \
+    usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' root
 
 # DEBUG: SSH setup - sshd_config expects keys in /data/etc/ssh/
 # The /data partition is mounted at runtime from /dev/sda12

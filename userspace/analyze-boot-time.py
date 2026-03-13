@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Analyze boot time on AGNOS (works on both Ubuntu/systemd and Void/runit).
+"""Analyze boot time on vamOS (works on both Ubuntu/systemd and Void/runit).
 
 Data sources:
   - dmesg: KPI counters from Qualcomm IMEM (bootloader timing via MPM clock)
@@ -150,7 +150,7 @@ def main():
   timeline.sort(key=lambda x: x[1])
 
   init_name = "systemd" if is_systemd() else "runit"
-  print(f"AGNOS boot analysis ({init_name})")
+  print(f"vamOS boot analysis ({init_name})")
   print()
   print(f"{'Phase':<25} {'Time':>8} {'Delta':>8} {'%':>5}")
   print("-" * 50)

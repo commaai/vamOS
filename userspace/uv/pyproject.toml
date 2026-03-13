@@ -1,5 +1,5 @@
 [project]
-name = "agnos"
+name = "vamos"
 version = "0.1.0"
 authors = [{name = "Vehicle Researcher", email = "user@comma.ai"}]
 requires-python = ">=3.12.3, <3.13"

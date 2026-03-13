@@ -1,5 +1,5 @@
 #!/bin/sh
-# Custom runit stage 2 for AGNOS
+# Custom runit stage 2 for vamOS
 
 # Copy services to writable location (runsv needs to create supervise/ dirs)
 mkdir -p /run/runit/service
