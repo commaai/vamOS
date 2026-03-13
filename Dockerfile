@@ -39,33 +39,7 @@ RUN cd /tmp/vamos/irsc_util && \
     rm -rf /tmp/vamos/irsc_util
 
 # libqmi, ModemManager are from Void repos (in base_setup.sh)
-# lpac, qt, weston - removed, not used
-
-# ARM bare-metal cross-compiler (equivalent to Ubuntu's gcc-arm-none-eabi)
-# Void's cross-arm-none-eabi-gcc is x86_64 only, so download ARM's official aarch64 toolchain
-RUN set -e; \
-    TOOLCHAIN_DIR=/opt/arm-gnu-toolchain-13.2.Rel1-aarch64-arm-none-eabi; \
-    curl -fsSL "https://developer.arm.com/-/media/Files/downloads/gnu/13.2.rel1/binrel/arm-gnu-toolchain-13.2.rel1-aarch64-arm-none-eabi.tar.xz" | tar -xJ -C /opt; \
-    cd "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"* && \
-    rm -rf arm && \
-    find thumb -maxdepth 1 -type d ! \( -name thumb -o -name v7e-m+fp \) -exec rm -rf {} + && \
-    rm -f cc1plus g++-mapper-server && \
-    rm -rf "$TOOLCHAIN_DIR/share/doc" "$TOOLCHAIN_DIR/share/info" "$TOOLCHAIN_DIR/share/man" "$TOOLCHAIN_DIR/share/gdb" "$TOOLCHAIN_DIR/share/systemtap" && \
-    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gdb,gprof,gfortran,lto-dump,c++,cpp,g++} && \
-    rm -f "$TOOLCHAIN_DIR/libexec/gcc/arm-none-eabi/"*/{cc1plus,f951,lto1,lto-wrapper} && \
-    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/include/c++" && \
-    find "$TOOLCHAIN_DIR/arm-none-eabi/lib" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
-    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f \( -name 'libstdc++*' -o -name 'libsupc++*' -o -name 'libgfortran*' \) -delete && \
-    find "$TOOLCHAIN_DIR/arm-none-eabi/lib/thumb" -maxdepth 1 -mindepth 1 -type d ! \( -name 'v7e-m+fp' \) -exec rm -rf {} + && \
-    for d in "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi/"*/thumb/*; do case "$d" in *v7e-m+fp*) ;; *) rm -rf "$d";; esac; done && \
-    find "$TOOLCHAIN_DIR/lib/gcc/arm-none-eabi" -type f -name '*gcov*' -delete && \
-    rm -rf "$TOOLCHAIN_DIR/arm-none-eabi/lib/arm" && \
-    rm -f "$TOOLCHAIN_DIR/bin/arm-none-eabi-"{gcov,gcov-tool,gcov-dump} && \
-    for b in gcc ar as ld nm ranlib objcopy objdump size strip addr2line readelf strings; do \
-      if [ -x "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" ]; then \
-        ln -sf "$TOOLCHAIN_DIR/bin/arm-none-eabi-$b" /usr/bin/; \
-      fi; \
-    done
+# lpac, qt, weston, gcc-arm-none-eabi - removed, now vendored via commaai/dependencies
 
 # Mesa DRI drivers (freedreno for Qualcomm Adreno GPU)
 # Required for EGL/GBM to work with the display
