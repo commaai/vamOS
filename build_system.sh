@@ -56,22 +56,6 @@ fi
 export DOCKER_BUILDKIT=1
 docker buildx build -f Dockerfile --check "$DIR"
 
-# Start build and create container
-ts "Building vamos docker image"
-if [ -n "$NS" ]; then
-  BUILD="nsc build --load"
-elif [ "$(uname -m)" = "aarch64" ]; then
-  # Native ARM — skip buildx overhead (faster image export)
-  BUILD="docker build"
-else
-  BUILD="docker buildx build --load --platform=linux/arm64"
-fi
-$BUILD -f Dockerfile -t vamos-builder "$DIR" \
-  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE"
-
-ts "Creating vamos container"
-CONTAINER_ID=$(docker container create --entrypoint /bin/sh vamos-builder:latest)
-
 # Setup mount container for macOS and CI support
 ts "Building system-builder docker image"
 docker build -f Dockerfile.system-builder -t vamos-system-builder "$DIR" \
@@ -84,7 +68,7 @@ MOUNT_CONTAINER_ID=$(docker run -d --privileged -v "$DIR:$DIR" vamos-system-buil
 
 # Cleanup containers on possible exit
 trap "echo \"Cleaning up containers:\"; \
-docker container rm -f $CONTAINER_ID $MOUNT_CONTAINER_ID" EXIT
+docker container rm -f $MOUNT_CONTAINER_ID" EXIT
 
 # Define functions for docker execution
 exec_as_user() {
@@ -108,12 +92,26 @@ exec_as_root mount "$ROOTFS_IMAGE" "$ROOTFS_DIR"
 # Also unmount filesystem (overwrite previous trap)
 trap "exec_as_root umount -l $ROOTFS_DIR &> /dev/null || true; \
 echo \"Cleaning up containers:\"; \
-docker container rm -f $CONTAINER_ID $MOUNT_CONTAINER_ID" EXIT
+docker container rm -f $MOUNT_CONTAINER_ID" EXIT
 
-# Extract image (pipe through pv for transfer monitoring)
-ts "Extracting docker image"
-docker container export "$CONTAINER_ID" | pv -f | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
-ts "Extraction complete"
+# Build and export filesystem directly as tar, pipe into mounted rootfs
+# This skips --load (slow "exporting layers" into Docker image store) and docker container export
+ts "Building and extracting vamos docker image"
+if [ -n "$NS" ]; then
+  BUILD="nsc build"
+else
+  BUILD="docker buildx build"
+fi
+PLATFORM_FLAG=""
+if [ "$(uname -m)" != "aarch64" ]; then
+  PLATFORM_FLAG="--platform=linux/arm64"
+fi
+$BUILD -f Dockerfile $PLATFORM_FLAG \
+  --output "type=tar,dest=-" \
+  --provenance=false \
+  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE" \
+  "$DIR" | pv -f | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
+ts "Build and extraction complete"
 
 # Avoid detecting as container
 ts "Removing .dockerenv file"
