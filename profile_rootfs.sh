@@ -116,12 +116,11 @@ XBPS_DB="$ROOTFS_DIR/usr/lib/xbps-db"
 PACKAGES_JSON="[]"
 PKG_COUNT=0
 if exec_container test -d "$XBPS_DB" 2>/dev/null; then
-  PACKAGES_RAW=$(exec_container find "$XBPS_DB" -name '*.plist' -exec cat {} + | awk '
-    /<key>[^<]+<\/key>/ && !in_dict { pkg=$0; gsub(/.*<key>|<\/key>.*/, "", pkg) }
-    /<dict>/ { in_dict=1 }
-    /installed_size/ { getline; gsub(/.*<integer>|<\/integer>.*/, ""); size=$0 }
-    /<\/dict>/ { if(pkg && size) print size "\t" pkg; pkg=""; size=""; in_dict=0 }
-  ')
+  PACKAGES_RAW=$(exec_container sh -c "for f in $XBPS_DB/*.plist; do
+    pkg=\$(basename \"\$f\" .plist)
+    size=\$(awk '/installed_size/ { getline; gsub(/.*<integer>|<\\/integer>.*/, \"\"); print; exit }' \"\$f\")
+    [ -n \"\$size\" ] && echo \"\$size\t\$pkg\"
+  done")
   if [ -n "$PACKAGES_RAW" ]; then
     PACKAGES_JSON=$(echo "$PACKAGES_RAW" | sort -rn | jq -Rn '
       [inputs | split("\t") | {name: .[1], bytes: (.[0] | tonumber)}]

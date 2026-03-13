@@ -75,10 +75,10 @@ jobs:
 
           # Assemble comment with hidden marker for find-and-update
           COMMENT_BODY="<!-- rootfs-profile-bot -->
-          ## Rootfs Size Profile
-          ${PROFILE_MD}
-          ### Changes vs master
-          ${DIFF_MD}"
+## Rootfs Size Profile
+${PROFILE_MD}
+### Changes vs master
+${DIFF_MD}"
 
           # Find existing comment by marker
           COMMENT_ID=$(gh api \
