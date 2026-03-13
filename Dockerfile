@@ -26,12 +26,6 @@ FROM void-base
 
 ARG USERNAME=comma
 
-COPY ./userspace/blobs/base/ /
-# USB scripts expect /sbin/usb but files are in /usr/bin/usb
-RUN ln -sf /usr/bin/usb /sbin/usb
-COPY ./userspace/blobs/wlan/ /
-COPY ./userspace/blobs/display/ /
-
 # Build 64-bit irsc_util (replaces 32-bit blob that requires armhf libs)
 COPY ./userspace/irsc_util/ /tmp/vamos/irsc_util/
 RUN cd /tmp/vamos/irsc_util && \
@@ -72,16 +66,19 @@ RUN cd /tmp/vamos/uv && \
     MAKEFLAGS="-j$(nproc)" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
     uv sync --frozen --inexact
 
-# Home directory - ensure directory exists first
-RUN mkdir -p /home/$USERNAME && chown $USERNAME:$USERNAME /home/$USERNAME
-COPY --chown=comma:comma ./userspace/home/ /home/$USERNAME/
+# Root filesystem overlay — all userspace files at their final paths
+COPY ./userspace/root/ /
+
+# USB scripts expect /sbin/usb but files are in /usr/bin/usb
+RUN ln -sf /usr/bin/usb /sbin/usb
+
+# Fix ownership on home directory (overlay COPY runs as root)
+RUN chown -R comma:comma /home/comma
 # Void's default .bashrc doesn't source .bash_aliases
 RUN printf '\nif [ -f ~/.bash_aliases ]; then\n    . ~/.bash_aliases\nfi\n' >> /home/$USERNAME/.bashrc
 RUN mkdir -p /root/.config
 
-# runit services
-COPY ./userspace/sv/ /etc/sv/
-# Enable services
+# Enable runit services
 RUN for svc in \
   ipa_fws adbd brightnessd fs_setup gpio init-qcom lte \
   avahi-ssh-publish power_monitor power_drop_monitor \
@@ -99,101 +96,29 @@ RUN for svc in \
 # Remove udevd service - we start udevd in runit stage 1, no need for service
 RUN rm -f /etc/runit/runsvdir/default/udevd
 
-# Firmware
-COPY ./userspace/firmware/ /lib/firmware/
-COPY ./userspace/files/wlan_mac.bin /lib/firmware/
-
-# Firmware loading helper (eudev doesn't have built-in firmware loader like systemd-udev)
-COPY ./userspace/files/firmware-helper.sh /lib/udev/firmware-helper.sh
-COPY ./userspace/files/50-firmware.rules /etc/udev/rules.d/
-
-# Qualcomm libs (aarch64 only, no armhf)
-COPY ./userspace/libs/ /usr/lib/
-
-# udev rules (excluding polkit rules)
-COPY ./userspace/files/78-modem.rules /etc/udev/rules.d/
-COPY ./userspace/files/92-dsp.rules /etc/udev/rules.d/
-COPY ./userspace/files/93-input.rules /etc/udev/rules.d/
-COPY ./userspace/files/94-backlight.rules /etc/udev/rules.d/
-COPY ./userspace/files/95-gpu.rules /etc/udev/rules.d/
-COPY ./userspace/files/96-i2c.rules /etc/udev/rules.d/
-COPY ./userspace/files/97-tty.rules /etc/udev/rules.d/
-COPY ./userspace/files/98-panda.rules /etc/udev/rules.d/
-COPY ./userspace/files/99-gpio.rules /etc/udev/rules.d/
-
-# polkit rules
-RUN mkdir -p /etc/polkit-1/rules.d
-COPY ./userspace/files/comma-polkit.rules /etc/polkit-1/rules.d/
-
-# Config files
-COPY ./userspace/files/profile /etc/profile
-COPY ./userspace/files/venv_path.sh /etc/profile.d/
-COPY ./userspace/files/ssh_config /etc/ssh/
-COPY ./userspace/files/sshd_config /etc/ssh/
-COPY ./userspace/files/logrotate.conf /etc/
-COPY ./userspace/files/rsyslog /etc/logrotate.d/
 # Make logs readable by comma user (for journalctl shim)
 RUN sed -i 's/FileCreateMode 0640/FileCreateMode 0644/' /etc/rsyslog.conf
 
-# comma userspace tools
-COPY ./userspace/usr/comma/ /usr/$USERNAME/
-COPY ./userspace/usr/share/fonts/ /usr/share/fonts/
-
-# Void-specific overrides for scripts that use systemctl
-# These use sv (runit) instead of systemctl (systemd)
-COPY ./userspace/files/comma.sh /usr/$USERNAME/comma.sh
-# Replace proprietary abctl (fails on Void) with Python reimplementation
-COPY ./userspace/files/abctl /usr/bin/abctl
-# journalctl shim - openpilot's journald.py expects systemd's journalctl
-COPY ./userspace/files/journalctl /usr/bin/journalctl
-COPY ./userspace/files/set_ssh.sh /usr/$USERNAME/set_ssh.sh
-COPY ./userspace/files/set_adb.sh /usr/$USERNAME/set_adb.sh
-COPY ./userspace/files/power_drop_monitor.py /usr/$USERNAME/power_drop_monitor.py
-COPY ./userspace/analyze-boot-time.py /usr/$USERNAME/tests/analyze-boot-time.py
-COPY ./userspace/files/fs_setup.sh /usr/$USERNAME/fs_setup.sh
-RUN chmod +x /usr/$USERNAME/comma.sh /usr/$USERNAME/set_ssh.sh /usr/$USERNAME/set_adb.sh /usr/$USERNAME/fs_setup.sh /usr/bin/journalctl
-
-# Custom runit stages
-COPY ./userspace/files/runit-1 /etc/runit/1
-COPY ./userspace/files/runit-2 /etc/runit/2
-COPY ./userspace/files/runit-3 /etc/runit/3
+# Set executable permissions
+RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_adb.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
 RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
 
 # Shutdown wrappers - send wall broadcast like systemd does on Ubuntu
 # Only poweroff and reboot: halt/shutdown must NOT be wrapped because Void's
 # /usr/bin/shutdown script calls halt/reboot internally, causing cascading walls
-COPY ./userspace/files/shutdown-wrapper /usr/local/sbin/poweroff
 RUN chmod +x /usr/local/sbin/poweroff && \
     ln -sf poweroff /usr/local/sbin/reboot
 
-# NetworkManager config
-RUN mkdir -p /etc/NetworkManager/conf.d /usr/lib/NetworkManager/system-connections
-COPY ./userspace/files/10-globally-managed-devices.conf /etc/NetworkManager/conf.d/
-# Use Void-specific NM config (dns=default instead of systemd-resolved)
-COPY ./userspace/files/NetworkManager.conf /etc/NetworkManager/NetworkManager.conf
-# system-connections goes to /usr/lib because /etc/NetworkManager/system-connections is symlinked to /data
-COPY ./userspace/files/lte.nmconnection /usr/lib/NetworkManager/system-connections/
-COPY ./userspace/files/usb0.nmconnection /usr/lib/NetworkManager/system-connections/
+# NetworkManager connection permissions
 RUN chmod 600 /usr/lib/NetworkManager/system-connections/*.nmconnection
 
-# iptables rules
-RUN mkdir -p /etc/iptables
-COPY ./userspace/etc/iptables/rules.v4 /etc/iptables/rules.v4
 # Void's iptables service expects iptables.rules
 RUN ln -s /etc/iptables/rules.v4 /etc/iptables/iptables.rules
 
-# Extra firmware
-RUN mkdir -p /usr/lib/firmware /usr/share/mobile-broadband-provider-info
-COPY ./userspace/files/CAMERA_ICP.elf /usr/lib/firmware/
-COPY ./userspace/files/serviceproviders.xml /usr/share/mobile-broadband-provider-info/serviceproviders.xml
-
 # MOTD - profile.d runs update-motd.d scripts into /run/motd, pam_motd displays it
-COPY ./userspace/motd/ /etc/update-motd.d/
-COPY ./userspace/files/update-motd.sh /etc/profile.d/update-motd.sh
 RUN sed -i 's|motd=/etc/motd|motd=/run/motd|' /etc/pam.d/system-login
 
 # Hourly logrotate cron job
-COPY ./userspace/files/logrotate /etc/cron.hourly/
 RUN chmod 755 /etc/cron.hourly/logrotate
 
 # Mount point directories (empty, populated by fstab mounts at runtime)
@@ -208,9 +133,6 @@ RUN mkdir -p /system/persist/hlos_rfs/shared \
              /system/persist/rfs/msm/adsp \
              /system/persist/rfs/msm/mpss \
              /system/persist/rfs/shared
-
-# fstab for mounting partitions
-COPY ./userspace/files/fstab /etc/fstab
 
 # Prefer ipv4 over ipv6
 RUN echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
@@ -242,7 +164,7 @@ COPY VERSION /VERSION
 # Currently raylib is compiled directly against libEGL_adreno.so/libGLESv2_adreno.so
 # To use open-source Mesa freedreno instead:
 #   1. Rebuild pyray wheel linking against GLVND (-lEGL -lGLESv2) not Adreno directly
-#   2. Remove display blobs (userspace/blobs/display/)
+#   2. Remove display blobs (userspace/root/usr/lib/)
 #   3. Keep mesa-dri package (provides freedreno via msm_dri.so)
 # This would eliminate all proprietary GPU dependencies
 
@@ -320,4 +242,4 @@ RUN sed -i '/-A INPUT -i wwan0 -j DROP/i -A INPUT -p tcp --dport 22 -j ACCEPT' /
 
 RUN ldconfig
 
-# Note: /data mount is handled in userspace/files/runit-1
+# Note: /data mount is handled in runit stage 1 (/etc/runit/1)
