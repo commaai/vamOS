@@ -171,14 +171,6 @@ if exec_container test -d "$VENV_DIR" 2>/dev/null; then
   VENV_TOTAL=${VENV_TOTAL:-0}
 fi
 
-# ARM toolchain size
-
-TOOLCHAIN_BYTES=0
-TOOLCHAIN_RAW=$(exec_container sh -c "du -sb $ROOTFS_DIR/opt/arm-gnu-toolchain-* 2>/dev/null" || true)
-if [ -n "$TOOLCHAIN_RAW" ]; then
-  TOOLCHAIN_BYTES=$(echo "$TOOLCHAIN_RAW" | awk '{sum+=$1} END{print sum}')
-fi
-
 # Firmware sizes
 
 FIRMWARE_BYTES=0
@@ -201,7 +193,7 @@ XBPS_TOTAL=0
 if [ "$PACKAGES_JSON" != "[]" ]; then
   XBPS_TOTAL=$(echo "$PACKAGES_JSON" | jq '[.[].bytes] | add // 0')
 fi
-OTHER_BYTES=$((USED_BYTES - XBPS_TOTAL - VENV_TOTAL - TOOLCHAIN_BYTES - FIRMWARE_BYTES))
+OTHER_BYTES=$((USED_BYTES - XBPS_TOTAL - VENV_TOTAL - FIRMWARE_BYTES))
 [ $OTHER_BYTES -lt 0 ] && OTHER_BYTES=0
 
 # ── Assemble JSON ──────────────────────────────────────────────────────────────
@@ -218,7 +210,6 @@ jq -n \
   --argjson top_files "$TOP_FILES_JSON" \
   --argjson python_venv "$VENV_JSON" \
   --arg venv_total "$VENV_TOTAL" \
-  --arg toolchain "$TOOLCHAIN_BYTES" \
   --arg firmware "$FIRMWARE_BYTES" \
   --argjson shared_libs "$SHARED_LIBS_JSON" \
   --arg xbps_total "$XBPS_TOTAL" \
@@ -236,13 +227,11 @@ jq -n \
     top_files: $top_files,
     python_venv: $python_venv,
     python_venv_bytes: ($venv_total | tonumber),
-    toolchain_bytes: ($toolchain | tonumber),
     firmware_bytes: ($firmware | tonumber),
     shared_libs: $shared_libs,
     categories: {
       xbps_packages: ($xbps_total | tonumber),
       python_venv: ($venv_total | tonumber),
-      arm_toolchain: ($toolchain | tonumber),
       firmware: ($firmware | tonumber),
       other: ($other | tonumber)
     }
@@ -278,7 +267,6 @@ fmt_pct() { echo "scale=1; $1 * 100 / $USED_BYTES" | bc; }
   echo "|----------|------|---|"
   echo "| xbps packages | $(fmt_mb "$XBPS_TOTAL")MB | $(fmt_pct "$XBPS_TOTAL")% |"
   echo "| Python venv | $(fmt_mb "$VENV_TOTAL")MB | $(fmt_pct "$VENV_TOTAL")% |"
-  echo "| ARM toolchain | $(fmt_mb "$TOOLCHAIN_BYTES")MB | $(fmt_pct "$TOOLCHAIN_BYTES")% |"
   echo "| Firmware | $(fmt_mb "$FIRMWARE_BYTES")MB | $(fmt_pct "$FIRMWARE_BYTES")% |"
   echo "| Other | $(fmt_mb "$OTHER_BYTES")MB | $(fmt_pct "$OTHER_BYTES")% |"
   echo ""
@@ -303,6 +291,6 @@ echo ""
 echo "=== Rootfs Profile ==="
 echo "Used: ${USED_MB}MB / ${TOTAL_MB}MB"
 echo "Files: ${FILE_COUNT} | Dirs: ${DIR_COUNT} | Symlinks: ${SYMLINK_COUNT} | Packages: ${PKG_COUNT}"
-echo "Categories: xbps=$(fmt_mb "$XBPS_TOTAL")MB  venv=$(fmt_mb "$VENV_TOTAL")MB  toolchain=$(fmt_mb "$TOOLCHAIN_BYTES")MB  firmware=$(fmt_mb "$FIRMWARE_BYTES")MB  other=$(fmt_mb "$OTHER_BYTES")MB"
+echo "Categories: xbps=$(fmt_mb "$XBPS_TOTAL")MB  venv=$(fmt_mb "$VENV_TOTAL")MB  firmware=$(fmt_mb "$FIRMWARE_BYTES")MB  other=$(fmt_mb "$OTHER_BYTES")MB"
 echo "Profiling completed in $(( ($(date +%s%N) - PROFILE_START) / 1000000 ))ms"
 echo "Output: $OUTPUT_DIR/rootfs-profile.json, $OUTPUT_DIR/rootfs-profile.md"
