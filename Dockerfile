@@ -260,6 +260,12 @@ RUN cp /usr/lib/libEGL_adreno.so /usr/lib/libEGL.so.1.1.0 && \
     cp /usr/lib/libwayland-egl-qcom.so /usr/lib/libwayland-egl.so.1 && \
     ln -sf libwayland-egl.so.1 /usr/lib/libwayland-egl.so
 
+# Strip MIT Kerberos (pulled in transitively, unused)
+RUN xbps-remove -Fy mit-krb5-libs || true && \
+    rm -rf /usr/lib/libkrb5* /usr/lib/libk5crypto* /usr/lib/libgssapi_krb5* \
+           /usr/lib/libkrb5support* /usr/lib/libgssrpc* /usr/lib/libkadm5* \
+           /usr/lib/krb5 /usr/share/et /usr/share/examples/krb5 /etc/krb5*
+
 # Drop non-English locales, man/doc/info pages, and xbps cache
 RUN find /usr/share/locale -maxdepth 1 -mindepth 1 ! -name en_US ! -name en -exec rm -rf {} + && \
     rm -rf /usr/share/man /usr/share/doc /usr/share/info && \
