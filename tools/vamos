@@ -8,8 +8,23 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")/.." >/dev/null && pwd)"
 
+setup() {
+  git -C "$DIR" submodule update --init --depth 1
+  if [ "$(uname)" = "Linux" ]; then
+    UDEV_RULES="/etc/udev/rules.d/99-qualcomm-edl.rules"
+    if [ ! -f "$UDEV_RULES" ]; then
+      echo "Setting up udev rules for Qualcomm EDL..."
+      sudo tee "$UDEV_RULES" > /dev/null <<'EOF'
+SUBSYSTEM=="usb", ATTR{idVendor}=="05c6", ATTR{idProduct}=="9008", MODE="0666"
+SUBSYSTEM=="usb", ATTR{idVendor}=="3801", ATTR{idProduct}=="9008", MODE="0666"
+EOF
+      sudo udevadm trigger --attr-match=subsystem=usb
+    fi
+  fi
+}
+
 case "${1:-}" in
-  setup)    exec "$DIR/tools/setup.sh" ;;
+  setup)    setup ;;
   build)
     case "${2:-}" in
       kernel) exec "$DIR/tools/build/build_kernel.sh" ;;
