@@ -86,7 +86,7 @@ RUN for svc in \
   irsc_util leprop usb adsp cdsp \
   rmt_storage init_mss pdmapper tftp_server \
   comma modemmanager magic \
-  ssh-param-watcher dnsmasq \
+  ssh-param-watcher ncm-param-watcher \
   rsyslogd iptables cnss_daemon polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
@@ -99,7 +99,7 @@ RUN rm -f /etc/runit/runsvdir/default/udevd
 RUN sed -i 's/FileCreateMode 0640/FileCreateMode 0644/' /etc/rsyslog.conf
 
 # Set executable permissions
-RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
+RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_ncm.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
 RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
 
 # Shutdown wrappers - send wall broadcast like systemd does on Ubuntu

@@ -39,10 +39,12 @@ handle_setup_keys () {
     fi
 
     echo -n 1 > /data/params/d/SshEnabled
+    echo -n 1 > /data/params/d/UsbNcmEnabled
     cp /usr/comma/setup_keys /data/params/d/GithubSshKeys
   elif [[ -e /data/params/d/GithubSshKeys && -e /data/continue.sh ]]; then
     if cmp -s /data/params/d/GithubSshKeys /usr/comma/setup_keys; then
       rm /data/params/d/SshEnabled
+      rm /data/params/d/UsbNcmEnabled
       rm /data/params/d/GithubSshKeys
     fi
   fi

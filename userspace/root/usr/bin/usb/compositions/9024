@@ -120,20 +120,8 @@ run_configfs() {
 	rm -rf configs/c.2 configs/c.3 2> /dev/null
 	echo 0x05c6 > idVendor
 	echo 0x9024 > idProduct
-	echo "NCM" > configs/c.1/strings/0x409/configuration
-	ln -s functions/ncm.0 configs/c.1/f1
 	echo 0xA0 > configs/c.1/bmAttributes
-	echo "binding UDC with Gadget..." $1
-	echo $1 > UDC
 	cd /
-
-	# Wait for usb0 interface
-	for i in $(seq 1 30); do
-		ip link show usb0 > /dev/null 2>&1 && break
-		sleep 0.1
-	done
-	ip addr add 192.168.42.2/24 dev usb0 2>/dev/null || true
-	ip link set usb0 up
 }
 
 case `source /sbin/usb/target` in
