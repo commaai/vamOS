@@ -63,7 +63,7 @@ ARG XDG_DATA_HOME="/usr/local"
 ENV PATH="/root/.local/bin:$XDG_DATA_HOME/venv/bin:$PATH"
 COPY ./userspace/uv /tmp/vamos/uv
 RUN cd /tmp/vamos/uv && \
-    MAKEFLAGS="-j$()" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
+    MAKEFLAGS="-j$(nproc)" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
     uv sync --frozen --inexact
 
 # Root filesystem overlay — all userspace files at their final paths
