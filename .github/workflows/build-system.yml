@@ -43,6 +43,7 @@ jobs:
         with:
           name: system.img
           path: build/system.img
+          if-no-files-found: error
 
       - name: upload rootfs profile
         uses: actions/upload-artifact@v4
@@ -51,6 +52,7 @@ jobs:
           path: |
             build/rootfs-profile.json
             build/rootfs-profile.md
+          if-no-files-found: error
 
       - name: download master baseline
         if: github.event_name == 'pull_request'

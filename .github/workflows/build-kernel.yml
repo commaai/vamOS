@@ -46,3 +46,4 @@ jobs:
         with:
           name: boot.img
           path: build/boot.img
+          if-no-files-found: error
