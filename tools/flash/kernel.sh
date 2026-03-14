@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
 # TODO: remove --legacy flag once the mainline kernel is stable
@@ -13,12 +13,12 @@ if [ "${1:-}" = "--legacy" ]; then
     echo "Downloading legacy kernel image..."
     curl -fSL "$LEGACY_KERNEL_URL" | xz -d > "$LEGACY_IMG"
   fi
-  tools/qdl flash boot "$LEGACY_IMG"
+  tools/bin/qdl flash boot "$LEGACY_IMG"
 else
   BOOT_IMG="$DIR/output/boot.img"
   if [ ! -f "$BOOT_IMG" ]; then
     echo "boot.img not found, building kernel..."
     "$DIR/vamos" build kernel
   fi
-  tools/qdl flash boot "$BOOT_IMG"
+  tools/bin/qdl flash boot "$BOOT_IMG"
 fi

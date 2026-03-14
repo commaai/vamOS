@@ -33,11 +33,11 @@ case "${1:-}" in
     esac ;;
   flash)
     case "${2:-}" in
-      kernel)   exec "$DIR/tools/flash_kernel.sh" "${3:-}" ;;
-      system)   exec "$DIR/tools/flash_system.sh" ;;
-      firmware) exec "$DIR/tools/flash_firmware.sh" ;;
-      gpt)      exec "$DIR/tools/flash_gpt.sh" ;;
-      all)      "$DIR/tools/flash_gpt.sh" && "$DIR/tools/flash_firmware.sh" && "$DIR/tools/flash_kernel.sh" && "$DIR/tools/flash_system.sh" ;;
+      kernel)   exec "$DIR/tools/flash/kernel.sh" "${3:-}" ;;
+      system)   exec "$DIR/tools/flash/system.sh" ;;
+      firmware) exec "$DIR/tools/flash/firmware.sh" ;;
+      gpt)      exec "$DIR/tools/flash/gpt.sh" ;;
+      all)      "$DIR/tools/flash/gpt.sh" && "$DIR/tools/flash/firmware.sh" && "$DIR/tools/flash/kernel.sh" && "$DIR/tools/flash/system.sh" ;;
       *)        echo "Usage: vamos flash <kernel|system|firmware|gpt|all>"; exit 1 ;;
     esac ;;
   profile)
