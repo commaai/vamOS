@@ -68,6 +68,8 @@ xbps-install -y \
   lz4 \
   nano \
   ncurses-devel \
+  ncurses-term \
+  ghostty-term \
   net-tools \
   NetworkManager \
   nload \
