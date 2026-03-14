@@ -1,3 +1,4 @@
+firmware/*.img filter=lfs diff=lfs merge=lfs -text
 kernel/firmware/*.img filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/lib/*.so* filter=lfs diff=lfs merge=lfs -text
 userspace/root/usr/lib/firmware/**/*.elf filter=lfs diff=lfs merge=lfs -text
