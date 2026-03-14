@@ -27,15 +27,14 @@ docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR"
 echo "Starting vamos-builder container"
 CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
 
-trap "echo 'Cleaning up container:'; docker container rm -f $CONTAINER_ID; rm -rf $TMP_DIR" EXIT
+trap cleanup EXIT
 
 apply_patches() {
   cd "$KERNEL_DIR"
 
   # Reset submodule to committed state for deterministic builds
   echo "-- Resetting kernel submodule to clean state --"
-  git checkout .
-  git clean -fd
+  clean_kernel_tree
 
   if [ -d "$PATCHES_DIR" ] && ls "$PATCHES_DIR"/*.patch 1>/dev/null 2>&1; then
     echo "-- Applying patches --"
@@ -120,5 +119,19 @@ build_kernel() {
   ls -lh "$OUT_DIR/boot.img"
 }
 
+clean_kernel_tree() {
+  git -C "$KERNEL_DIR" reset --hard HEAD >/dev/null 2>&1 || true
+  git -C "$KERNEL_DIR" clean -fd >/dev/null 2>&1 || true
+}
+
+cleanup() {
+  echo "Cleaning up container and kernel tree..."
+
+  clean_kernel_tree
+
+  docker container rm -f "${CONTAINER_ID:-}" >/dev/null 2>&1 || true
+  rm -rf "$TMP_DIR"
+}
+
 # Run build inside container
-docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel); build_kernel"
+docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree); build_kernel"
