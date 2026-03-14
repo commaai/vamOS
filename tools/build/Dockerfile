@@ -157,8 +157,6 @@ RUN chmod +x /usr/local/bin/rootfs-*.sh
 COPY ./userspace/readonly_setup.sh /tmp/vamos/
 RUN /tmp/vamos/readonly_setup.sh
 
-# Version
-COPY userspace/VERSION /VERSION
 
 # TODO: Remove Qualcomm GPU blobs by rebuilding pyray/raylib against Mesa
 # Currently raylib is compiled directly against libEGL_adreno.so/libGLESv2_adreno.so
