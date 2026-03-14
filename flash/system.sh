@@ -4,6 +4,5 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
 cd "$DIR"
 
-for lun in 0 1 2 3 4 5; do
-  tools/qdl repairgpt "$lun" "$DIR/firmware/gpt_main_$lun.img"
-done
+tools/bin/qdl flash system "$DIR/output/system.img"
+tools/bin/qdl reset
