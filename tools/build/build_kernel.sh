@@ -13,7 +13,9 @@ BOOT_IMG=./boot.img
 
 BASE_DEFCONFIG="defconfig"
 CONFIG_FRAGMENT="$DIR/kernel/configs/vamos.config"
-DTB="${DTB:-qcom/sdm845-mtp.dtb}"
+
+DTS_FILE="$DIR/kernel/dts/sdm845-comma4.dts"
+DTB="qcom/$(basename "${DTS_FILE%.dts}.dtb")"
 
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
@@ -53,6 +55,9 @@ apply_patches() {
 build_kernel() {
   # Apply patches to kernel tree
   apply_patches
+
+  # Install the device tree files
+  install_dts
 
   # Cross-compilation setup
   ARCH_HOST=$(uname -m)
@@ -141,5 +146,15 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 
+install_dts() {
+  local dts_name dtb_name
+
+  dts_name="$(basename "$DTS_FILE")"
+  dtb_name="${dts_name%.dts}.dtb"
+
+  echo "-- Installing DTS $dts_name --"
+  cp "$DTS_FILE" "$KERNEL_DIR/arch/arm64/boot/dts/qcom/"
+}
+
 # Run build inside container
-docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree); build_kernel"
+docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DTS_FILE='$DTS_FILE' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree install_dts); build_kernel"
