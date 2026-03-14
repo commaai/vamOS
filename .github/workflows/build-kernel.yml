@@ -9,13 +9,13 @@ on:
     branches: [master]
     paths:
       - 'kernel/**'
-      - 'build_kernel.sh'
+      - 'scripts/build_kernel.sh'
       - 'Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
   pull_request:
     paths:
       - 'kernel/**'
-      - 'build_kernel.sh'
+      - 'scripts/build_kernel.sh'
       - 'Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
 
@@ -39,7 +39,7 @@ jobs:
             ccache-kernel-
 
       - name: build kernel
-        run: ./build_kernel.sh
+        run: ./vamos build kernel
 
       - name: upload boot.img
         uses: actions/upload-artifact@v4

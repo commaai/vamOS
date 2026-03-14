@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
 cd "$DIR"
 
 TOOLS="$DIR/tools"
@@ -16,7 +16,7 @@ DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  ./setup.sh
+  "$DIR/scripts/setup.sh"
 fi
 
 # Build docker container

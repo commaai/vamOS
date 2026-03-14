@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -e
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" >/dev/null && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+DIR="$(cd "$(dirname "$SOURCE")/.." >/dev/null && pwd)"
+
+case "${1:-}" in
+  setup)    exec "$DIR/scripts/setup.sh" ;;
+  build)
+    case "${2:-}" in
+      kernel) exec "$DIR/scripts/build_kernel.sh" ;;
+      system) exec "$DIR/scripts/build_system.sh" ;;
+      *)      echo "Usage: vamos build <kernel|system>"; exit 1 ;;
+    esac ;;
+  flash)
+    case "${2:-}" in
+      kernel) exec "$DIR/scripts/flash_kernel.sh" ;;
+      system) exec "$DIR/scripts/flash_system.sh" ;;
+      all)    "$DIR/scripts/flash_kernel.sh" && "$DIR/scripts/flash_system.sh" ;;
+      *)      echo "Usage: vamos flash <kernel|system|all>"; exit 1 ;;
+    esac ;;
+  profile)
+    shift
+    if [ "${1:-}" != "diff" ]; then
+      echo "Error: profile collection can only be run during 'vamos build system'"
+      echo "Usage: vamos profile diff <baseline.json> <current.json>"
+      exit 1
+    fi
+    exec "$DIR/scripts/profile_rootfs.sh" "$@" ;;
+  *)
+    echo "Usage: vamos <setup|build|flash|profile>"
+    echo ""
+    echo "  setup              Initialize submodules and udev rules"
+    echo "  build kernel       Build the kernel (output/boot.img)"
+    echo "  build system       Build the system image (output/system.img)"
+    echo "  flash kernel       Flash boot.img to device via EDL"
+    echo "  flash system       Flash system.img to device via EDL"
+    echo "  flash all          Flash kernel + system"
+    echo "  profile [diff]     Profile rootfs or diff two profiles"
+    exit 1 ;;
+esac

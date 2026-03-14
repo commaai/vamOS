@@ -6,7 +6,7 @@ VOID_ROOTFS_FILE="void-aarch64-ROOTFS-20250202.tar.xz"
 VOID_ROOTFS_SHA256="01a30f17ae06d4d5b322cd579ca971bc479e02cc284ec1e5a4255bea6bac3ce6"
 
 # Make sure we're in the correct spot
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
 cd "$DIR"
 
 BUILD_DIR="$DIR/build"

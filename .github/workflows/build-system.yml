@@ -10,7 +10,7 @@ on:
     paths:
       - 'Dockerfile'
       - 'Dockerfile.system-builder'
-      - 'build_system.sh'
+      - 'scripts/build_system.sh'
       - 'scripts/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
@@ -19,7 +19,7 @@ on:
     paths:
       - 'Dockerfile'
       - 'Dockerfile.system-builder'
-      - 'build_system.sh'
+      - 'scripts/build_system.sh'
       - 'scripts/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
@@ -36,7 +36,7 @@ jobs:
           lfs: true
 
       - name: build system image
-        run: ./build_system.sh
+        run: ./vamos build system
 
       - name: upload system.img
         uses: actions/upload-artifact@v4
