@@ -14,6 +14,7 @@ RUN apk add --no-cache \
     build-base \
     ccache \
     e2fsprogs \
+    findutils \
     flex \
     git \
     libcap \
