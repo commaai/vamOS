@@ -1,6 +1,18 @@
 # vamOS
 a new operating system for comma 3X and comma four
 
+## Usage
+
+```
+./vamos setup              # init submodules and udev rules
+./vamos build kernel       # build boot.img
+./vamos build system       # build system.img
+./vamos flash kernel       # flash boot.img via EDL
+./vamos flash system       # flash system.img via EDL
+./vamos flash all          # flash both
+./vamos profile diff A B   # diff two rootfs profiles
+```
+
 ## Kernel Patches
 
 Patches in `kernel/patches/` are applied in order to the Linux kernel tree. They follow this naming convention:

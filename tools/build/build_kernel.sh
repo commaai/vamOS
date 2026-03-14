@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
 TOOLS="$DIR/tools"
@@ -16,13 +16,13 @@ DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  ./setup.sh
+  "$DIR/tools/setup.sh"
 fi
 
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
-docker build -f Dockerfile.builder -t vamos-builder "$DIR"
+docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR"
 
 echo "Starting vamos-builder container"
 CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
@@ -108,7 +108,7 @@ build_kernel() {
 
   # Sign boot.img
   openssl dgst -sha256 -binary $BOOT_IMG.nonsecure > $BOOT_IMG.sha256
-  openssl pkeyutl -sign -in $BOOT_IMG.sha256 -inkey $DIR/vble-qti.key -out $BOOT_IMG.sig -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1
+  openssl pkeyutl -sign -in $BOOT_IMG.sha256 -inkey $DIR/tools/build/vble-qti.key -out $BOOT_IMG.sig -pkeyopt digest:sha256 -pkeyopt rsa_padding_mode:pkcs1
   dd if=/dev/zero of=$BOOT_IMG.sig.padded bs=2048 count=1 2>/dev/null
   dd if=$BOOT_IMG.sig of=$BOOT_IMG.sig.padded conv=notrunc 2>/dev/null
   cat $BOOT_IMG.nonsecure $BOOT_IMG.sig.padded > $BOOT_IMG
