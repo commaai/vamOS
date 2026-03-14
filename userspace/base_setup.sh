@@ -68,8 +68,6 @@ xbps-install -y \
   lz4 \
   nano \
   ncurses-devel \
-  ncurses-term \
-  ghostty-term \
   net-tools \
   NetworkManager \
   nload \
@@ -92,7 +90,14 @@ xbps-install -y \
   libqmi-devel \
   ModemManager \
   ModemManager-devel \
-  cronie
+  cronie \
+  # terminfo
+  ncurses-term \
+  ghostty-terminfo \
+  alacritty-terminfo \
+  kitty-terminfo \
+  foot-terminfo \
+  contour-terminfo \
 
 # Create privileged user (use /usr/bin/bash - Void Linux path)
 useradd -m -s /usr/bin/bash $USERNAME
