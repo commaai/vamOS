@@ -1,0 +1,8 @@
+#!/bin/sh
+exec 2>&1
+# Fast initial sync: retry every 10s until clock is set, then run as daemon
+# Matches upstream timesyncd ConnectionRetrySec=10 for faster sync after network connects
+while ! busybox ntpd -nqN -p pool.ntp.org 2>&1; do
+  sleep 10
+done
+exec busybox ntpd -nN -p pool.ntp.org

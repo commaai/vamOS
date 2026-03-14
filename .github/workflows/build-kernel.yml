@@ -1,18 +1,22 @@
 name: build kernel
 
+concurrency:
+  group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.run_id || github.head_ref || github.ref }}-${{ github.workflow }}-${{ github.event_name }}
+  cancel-in-progress: true
+
 on:
   push:
     branches: [master]
     paths:
       - 'kernel/**'
-      - 'build_kernel.sh'
-      - 'Dockerfile.builder'
+      - 'tools/build/build_kernel.sh'
+      - 'tools/build/Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
   pull_request:
     paths:
       - 'kernel/**'
-      - 'build_kernel.sh'
-      - 'Dockerfile.builder'
+      - 'tools/build/build_kernel.sh'
+      - 'tools/build/Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
 
 jobs:
@@ -35,7 +39,7 @@ jobs:
             ccache-kernel-
 
       - name: build kernel
-        run: ./build_kernel.sh
+        run: ./vamos build kernel
 
       - name: upload boot.img
         uses: actions/upload-artifact@v4
