@@ -45,4 +45,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: boot.img
-          path: output/boot.img
+          path: build/boot.img
