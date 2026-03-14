@@ -81,7 +81,7 @@ build_kernel() {
   make olddefconfig O=out
 
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) O=out Image.gz "arch/arm64/boot/dts/$DTB"
+  make -j$(nproc) O=out Image.gz "$DTB"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
