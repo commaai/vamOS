@@ -87,7 +87,7 @@ RUN for svc in \
   irsc_util leprop usb adsp cdsp \
   rmt_storage init_mss pdmapper tftp_server \
   comma modemmanager magic \
-  ssh-param-watcher ncm-param-watcher \
+  ssh-param-watcher ncm-param-watcher dnsmasq \
   rsyslogd iptables cnss_daemon polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
