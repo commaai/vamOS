@@ -18,7 +18,7 @@ case "${1:-}" in
     esac ;;
   flash)
     case "${2:-}" in
-      kernel)   exec "$DIR/tools/flash_kernel.sh" ;;
+      kernel)   exec "$DIR/tools/flash_kernel.sh" "${3:-}" ;;
       system)   exec "$DIR/tools/flash_system.sh" ;;
       firmware) exec "$DIR/tools/flash_firmware.sh" ;;
       gpt)      exec "$DIR/tools/flash_gpt.sh" ;;
@@ -39,7 +39,7 @@ case "${1:-}" in
     echo "  setup              Initialize submodules and udev rules"
     echo "  build kernel       Build the kernel (output/boot.img)"
     echo "  build system       Build the system image (output/system.img)"
-    echo "  flash kernel       Flash boot.img to device via EDL"
+    echo "  flash kernel       Flash boot.img to device via EDL (--legacy for legacy kernel)"
     echo "  flash system       Flash system.img to device via EDL"
     echo "  flash firmware     Flash firmware partitions to device via EDL"
     echo "  flash gpt          Flash GPT partition tables to device via EDL"
