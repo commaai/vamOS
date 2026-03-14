@@ -99,27 +99,28 @@ echo "Removing .dockerenv file"
 exec_as_root rm -f "$ROOTFS_DIR/.dockerenv"
 
 echo "Setting network stuff"
-set_network_stuff() {
-  cd "$ROOTFS_DIR"
+GIT_HASH=${GIT_HASH:-$(git --git-dir="$DIR/.git" rev-parse HEAD)}
+DATETIME=$(date '+%Y-%m-%dT%H:%M:%S')
+exec_as_root sh -c "
+  set -e
+  cd '$ROOTFS_DIR'
+
   # Add hostname and hosts
   HOST=comma
-  bash -c "ln -sf /proc/sys/kernel/hostname etc/hostname"
-  bash -c "echo \"127.0.0.1    localhost.localdomain localhost\" > etc/hosts"
-  bash -c "echo \"127.0.0.1    $HOST\" >> etc/hosts"
+  ln -sf /proc/sys/kernel/hostname etc/hostname
+  echo '127.0.0.1    localhost.localdomain localhost' > etc/hosts
+  echo \"127.0.0.1    \$HOST\" >> etc/hosts
 
   # DNS: resolv.conf must be writable for NetworkManager
   # Docker mounts resolv.conf during build so we do this after export
-  bash -c "rm -f etc/resolv.conf && ln -s /run/resolv.conf etc/resolv.conf"
+  rm -f etc/resolv.conf && ln -s /run/resolv.conf etc/resolv.conf
 
-  # Void's iputils doesn't set CAP_NET_RAW on ping, so non-root gets "Operation not permitted"
-  bash -c "setcap cap_net_raw+ep bin/iputils-ping"
+  # Void's iputils doesn't set CAP_NET_RAW on ping, so non-root gets 'Operation not permitted'
+  setcap cap_net_raw+ep bin/iputils-ping
 
   # Write build info
-  DATETIME=$(date '+%Y-%m-%dT%H:%M:%S')
-  bash -c "printf \"$GIT_HASH\n$DATETIME\n\" > BUILD"
-}
-GIT_HASH=${GIT_HASH:-$(git --git-dir="$DIR/.git" rev-parse HEAD)}
-exec_as_root bash -c "set -e; export ROOTFS_DIR=$ROOTFS_DIR GIT_HASH=$GIT_HASH; $(declare -f set_network_stuff); set_network_stuff"
+  printf '%s\n%s\n' '$GIT_HASH' '$DATETIME' > BUILD
+"
 
 # Profile rootfs (before unmount)
 echo "Profiling rootfs"

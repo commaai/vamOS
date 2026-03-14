@@ -1,29 +1,26 @@
 # check=error=true
 
-FROM ubuntu:24.04
+FROM alpine:3.23.3
 
 ARG UNAME
 ARG UID
 ARG GID
 
-ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-    build-essential \
-    libssl-dev \
+RUN apk add --no-cache \
+    build-base \
+    e2fsprogs \
+    openssl-dev \
     bc \
     openssl \
     ccache \
-    libcap2-bin \
-    android-sdk-libsparse-utils \
-    && rm -rf /var/lib/apt/lists/*
+    libcap \
+    android-tools
 
 RUN if [ ${UID:-0} -ne 0 ] && [ ${GID:-0} -ne 0 ]; then \
-    userdel -r `getent passwd ${UID} | cut -d : -f 1` > /dev/null 2>&1; \
-    groupdel -f `getent group ${GID} | cut -d : -f 1` > /dev/null 2>&1; \
-    groupadd -g ${GID} -o ${UNAME} && \
-    useradd -u $UID -g $GID ${UNAME} \
+    deluser $(getent passwd ${UID} | cut -d : -f 1) > /dev/null 2>&1; \
+    delgroup $(getent group ${GID} | cut -d : -f 1) > /dev/null 2>&1; \
+    addgroup -g ${GID} ${UNAME} && \
+    adduser -u ${UID} -G ${UNAME} -D ${UNAME} \
 ;fi
 
 RUN CCACHE_PATH=$(which ccache) && \
