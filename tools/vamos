@@ -9,18 +9,18 @@ done
 DIR="$(cd "$(dirname "$SOURCE")/.." >/dev/null && pwd)"
 
 case "${1:-}" in
-  setup)    exec "$DIR/scripts/setup.sh" ;;
+  setup)    exec "$DIR/tools/setup.sh" ;;
   build)
     case "${2:-}" in
-      kernel) exec "$DIR/scripts/build_kernel.sh" ;;
-      system) exec "$DIR/scripts/build_system.sh" ;;
+      kernel) exec "$DIR/tools/build_kernel.sh" ;;
+      system) exec "$DIR/tools/build_system.sh" ;;
       *)      echo "Usage: vamos build <kernel|system>"; exit 1 ;;
     esac ;;
   flash)
     case "${2:-}" in
-      kernel) exec "$DIR/scripts/flash_kernel.sh" ;;
-      system) exec "$DIR/scripts/flash_system.sh" ;;
-      all)    "$DIR/scripts/flash_kernel.sh" && "$DIR/scripts/flash_system.sh" ;;
+      kernel) exec "$DIR/tools/flash_kernel.sh" ;;
+      system) exec "$DIR/tools/flash_system.sh" ;;
+      all)    "$DIR/tools/flash_kernel.sh" && "$DIR/tools/flash_system.sh" ;;
       *)      echo "Usage: vamos flash <kernel|system|all>"; exit 1 ;;
     esac ;;
   profile)
@@ -30,7 +30,7 @@ case "${1:-}" in
       echo "Usage: vamos profile diff <baseline.json> <current.json>"
       exit 1
     fi
-    exec "$DIR/scripts/profile_rootfs.sh" "$@" ;;
+    exec "$DIR/tools/profile_rootfs.sh" "$@" ;;
   *)
     echo "Usage: vamos <setup|build|flash|profile>"
     echo ""

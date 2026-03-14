@@ -9,13 +9,13 @@ on:
     branches: [master]
     paths:
       - 'kernel/**'
-      - 'scripts/build_kernel.sh'
+      - 'tools/build_kernel.sh'
       - 'Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
   pull_request:
     paths:
       - 'kernel/**'
-      - 'scripts/build_kernel.sh'
+      - 'tools/build_kernel.sh'
       - 'Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
 

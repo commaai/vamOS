@@ -16,7 +16,7 @@ DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  "$DIR/scripts/setup.sh"
+  "$DIR/tools/setup.sh"
 fi
 
 # Build docker container

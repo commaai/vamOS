@@ -125,7 +125,7 @@ exec_as_root bash -c "set -e; export ROOTFS_DIR=$ROOTFS_DIR GIT_HASH=$GIT_HASH; 
 echo "Profiling rootfs"
 MOUNT_CONTAINER_ID="$MOUNT_CONTAINER_ID" ROOTFS_DIR="$ROOTFS_DIR" \
   ROOTFS_IMAGE="$ROOTFS_IMAGE" OUTPUT_DIR="$OUTPUT_DIR" \
-  "$DIR/scripts/profile_rootfs.sh"
+  "$DIR/tools/profile_rootfs.sh"
 
 # Unmount image
 echo "Unmount filesystem"
