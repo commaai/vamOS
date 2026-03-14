@@ -22,7 +22,10 @@ fi
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
-docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR"
+docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
+  --build-arg UNAME="$(id -nu)" \
+  --build-arg UID="$(id -u)" \
+  --build-arg GID="$(id -g)"
 
 echo "Starting vamos-builder container"
 CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
@@ -54,7 +57,7 @@ build_kernel() {
   ARCH_HOST=$(uname -m)
   export ARCH=arm64
   if [ "$ARCH_HOST" != "aarch64" ] && [ "$ARCH_HOST" != "arm64" ]; then
-    export CROSS_COMPILE=aarch64-linux-gnu-
+    export CROSS_COMPILE=aarch64-none-elf-
   fi
 
   # ccache
