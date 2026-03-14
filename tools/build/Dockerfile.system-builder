@@ -7,14 +7,14 @@ ARG UID
 ARG GID
 
 RUN apk add --no-cache \
-    build-base \
-    e2fsprogs \
-    openssl-dev \
+    android-tools \
     bc \
-    openssl \
+    build-base \
     ccache \
+    e2fsprogs \
     libcap \
-    android-tools
+    openssl \
+    openssl-dev
 
 RUN if [ ${UID:-0} -ne 0 ] && [ ${GID:-0} -ne 0 ]; then \
     deluser $(getent passwd ${UID} | cut -d : -f 1) > /dev/null 2>&1; \
