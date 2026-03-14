@@ -42,11 +42,6 @@ case "${1:-}" in
     esac ;;
   profile)
     shift
-    if [ "${1:-}" != "diff" ]; then
-      echo "Error: profile collection can only be run during 'vamos build system'"
-      echo "Usage: vamos profile diff <baseline.json> <current.json>"
-      exit 1
-    fi
     exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
   *)
     echo "Usage: vamos <setup|build|flash|profile>"
