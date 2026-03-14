@@ -41,6 +41,10 @@ handle_setup_keys () {
     echo -n 1 > /data/params/d/SshEnabled
     echo -n 1 > /data/params/d/UsbNcmEnabled
     cp /usr/comma/setup_keys /data/params/d/GithubSshKeys
+  elif [[ ! -e /data/continue.sh ]]; then
+    # still in setup — ensure dev access is enabled (handles reboot mid-setup)
+    echo -n 1 > /data/params/d/SshEnabled
+    echo -n 1 > /data/params/d/UsbNcmEnabled
   elif [[ -e /data/params/d/GithubSshKeys && -e /data/continue.sh ]]; then
     if cmp -s /data/params/d/GithubSshKeys /usr/comma/setup_keys; then
       rm /data/params/d/SshEnabled
