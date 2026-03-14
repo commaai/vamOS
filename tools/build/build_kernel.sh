@@ -4,7 +4,7 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
-TOOLS="$DIR/tools/bin"
+TOOLS="$DIR/tools"
 KERNEL_DIR="$DIR/kernel/linux"
 PATCHES_DIR="$DIR/kernel/patches"
 TMP_DIR="/tmp/vamos-build-tmp"
