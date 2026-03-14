@@ -1,6 +1,8 @@
 # vamOS
 a new operating system for comma 3X and comma four
 
+[![fast](docs/fast.png)](https://discord.com/channels/469524606043160576/1262118077017882715/1482214461740683385)
+
 ## Usage
 
 ```

@@ -1,0 +1,8 @@
+.ccache
+build
+!build/downloads
+firmware
+kernel
+output
+
+**/.DS_Store

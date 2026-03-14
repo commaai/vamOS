@@ -87,6 +87,11 @@ fi
 
 # ── Profile mode ───────────────────────────────────────────────────────────────
 
+if [ -z "${MOUNT_CONTAINER_ID:-}" ]; then
+  echo "Error: profile collection can only be run during 'vamos build system'"
+  exit 1
+fi
+
 : "${MOUNT_CONTAINER_ID:?MOUNT_CONTAINER_ID required}"
 : "${ROOTFS_DIR:?ROOTFS_DIR required}"
 : "${ROOTFS_IMAGE:?ROOTFS_IMAGE required}"
