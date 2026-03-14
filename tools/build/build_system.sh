@@ -2,15 +2,16 @@
 set -e
 
 VOID_ROOTFS_URL="https://repo-default.voidlinux.org/live/current/void-aarch64-ROOTFS-20250202.tar.xz"
-VOID_ROOTFS_FILE="void-aarch64-ROOTFS-20250202.tar.xz"
 VOID_ROOTFS_SHA256="01a30f17ae06d4d5b322cd579ca971bc479e02cc284ec1e5a4255bea6bac3ce6"
 
 # Make sure we're in the correct spot
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
-BUILD_DIR="$DIR/build"
-OUTPUT_DIR="$DIR/output"
+DOWNLOADS_DIR="$DIR/build/downloads"
+VOID_ROOTFS_FILE="$DOWNLOADS_DIR/void-aarch64-ROOTFS-20250202.tar.xz"
+BUILD_DIR="$DIR/build/tmp"
+OUTPUT_DIR="$DIR/build"
 
 ROOTFS_DIR="$BUILD_DIR/void-rootfs"
 ROOTFS_IMAGE="$BUILD_DIR/system.img"
@@ -21,7 +22,7 @@ OUT_IMAGE="$OUTPUT_DIR/system.img"
 ROOTFS_IMAGE_SIZE=6G
 
 # Create temp dir if non-existent
-mkdir -p "$BUILD_DIR" "$OUTPUT_DIR"
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR" "$DOWNLOADS_DIR"
 
 # Download Void rootfs if not done already
 if [ ! -f "$VOID_ROOTFS_FILE" ]; then
@@ -90,7 +91,7 @@ echo "Building and extracting vamos docker image"
 docker buildx build -f tools/build/Dockerfile --platform=linux/arm64 \
   --output "type=tar,dest=-" \
   --provenance=false \
-  --build-arg VOID_ROOTFS="$VOID_ROOTFS_FILE" \
+  --build-arg VOID_ROOTFS="${VOID_ROOTFS_FILE#"$DIR/"}" \
   "$DIR" | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
 echo "Build and extraction complete"
 

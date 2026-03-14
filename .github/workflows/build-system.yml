@@ -42,15 +42,17 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: system.img
-          path: output/system.img
+          path: build/system.img
+          if-no-files-found: error
 
       - name: upload rootfs profile
         uses: actions/upload-artifact@v4
         with:
           name: rootfs-profile
           path: |
-            output/rootfs-profile.json
-            output/rootfs-profile.md
+            build/rootfs-profile.json
+            build/rootfs-profile.md
+          if-no-files-found: error
 
       - name: download master baseline
         if: github.event_name == 'pull_request'
@@ -70,8 +72,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate diff (gracefully handles missing baseline)
-          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json output/rootfs-profile.json 2>/dev/null || echo "No baseline available")
-          PROFILE_MD=$(cat output/rootfs-profile.md)
+          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
+          PROFILE_MD=$(cat build/rootfs-profile.md)
 
           # Assemble comment with hidden marker for find-and-update
           printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
