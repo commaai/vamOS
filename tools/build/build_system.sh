@@ -49,14 +49,14 @@ export DOCKER_BUILDKIT=1
 docker buildx build -f tools/build/Dockerfile --check "$DIR"
 
 # Setup mount container for macOS and CI support
-echo "Building system-builder docker image"
-docker build -f tools/build/Dockerfile.system-builder -t vamos-system-builder "$DIR" \
+echo "Building vamos-builder docker image"
+docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
   --build-arg UNAME="$(id -nu)" \
   --build-arg UID="$(id -u)" \
   --build-arg GID="$(id -g)"
 
-echo "Starting system-builder container"
-MOUNT_CONTAINER_ID=$(docker run -d --privileged -v "$DIR:$DIR" vamos-system-builder)
+echo "Starting builder container"
+MOUNT_CONTAINER_ID=$(docker run -d --privileged -v "$DIR:$DIR" vamos-builder)
 
 # Cleanup containers on possible exit
 trap "echo \"Cleaning up containers:\"; \
