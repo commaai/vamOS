@@ -91,13 +91,14 @@ xbps-install -y \
   ModemManager \
   ModemManager-devel \
   cronie \
+
   # terminfo
-  ncurses-term \
-  ghostty-terminfo \
   alacritty-terminfo \
-  kitty-terminfo \
-  foot-terminfo \
   contour-terminfo \
+  foot-terminfo \
+  ghostty-terminfo \
+  kitty-terminfo \
+  ncurses-term
 
 # Create privileged user (use /usr/bin/bash - Void Linux path)
 useradd -m -s /usr/bin/bash $USERNAME
