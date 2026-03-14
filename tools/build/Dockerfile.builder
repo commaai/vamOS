@@ -21,6 +21,7 @@ RUN apk add --no-cache \
     linux-headers \
     openssl \
     openssl-dev \
+    perl \
     python3
 
 # Cross-compiler for x86_64 hosts building aarch64 kernel
