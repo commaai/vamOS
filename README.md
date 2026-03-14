@@ -9,9 +9,7 @@ a new operating system for comma 3X and comma four
 ./vamos build system       # build system.img
 ./vamos flash kernel       # flash boot.img via EDL
 ./vamos flash system       # flash system.img via EDL
-./vamos flash firmware     # flash firmware partitions via EDL
-./vamos flash gpt          # flash GPT partition tables via EDL
-./vamos flash all          # flash gpt + firmware + kernel + system
+./vamos flash all          # flash both
 ./vamos profile diff A B   # diff two rootfs profiles
 ```
 

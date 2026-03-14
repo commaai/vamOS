@@ -4,5 +4,5 @@ set -e
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
-tools/bin/qdl flash system "$DIR/output/system.img"
+tools/bin/qdl flash system $DIR/output/system.img
 tools/bin/qdl reset
