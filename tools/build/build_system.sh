@@ -8,7 +8,8 @@ VOID_ROOTFS_SHA256="01a30f17ae06d4d5b322cd579ca971bc479e02cc284ec1e5a4255bea6bac
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
-VOID_ROOTFS_FILE="$DIR/build/downloads/void-aarch64-ROOTFS-20250202.tar.xz"
+DOWNLOADS_DIR="$DIR/build/downloads"
+VOID_ROOTFS_FILE="$DOWNLOADS_DIR/void-aarch64-ROOTFS-20250202.tar.xz"
 BUILD_DIR="$DIR/build/tmp"
 OUTPUT_DIR="$DIR/build"
 
@@ -21,7 +22,7 @@ OUT_IMAGE="$OUTPUT_DIR/system.img"
 ROOTFS_IMAGE_SIZE=6G
 
 # Create temp dir if non-existent
-mkdir -p "$BUILD_DIR" "$OUTPUT_DIR" "$DIR/build/downloads"
+mkdir -p "$BUILD_DIR" "$OUTPUT_DIR" "$DOWNLOADS_DIR"
 
 # Download Void rootfs if not done already
 if [ ! -f "$VOID_ROOTFS_FILE" ]; then
