@@ -15,5 +15,10 @@ if [ "${1:-}" = "--legacy" ]; then
   fi
   tools/qdl flash boot "$LEGACY_IMG"
 else
-  tools/qdl flash boot "$DIR/output/boot.img"
+  BOOT_IMG="$DIR/output/boot.img"
+  if [ ! -f "$BOOT_IMG" ]; then
+    echo "boot.img not found, building kernel..."
+    "$DIR/vamos" build kernel
+  fi
+  tools/qdl flash boot "$BOOT_IMG"
 fi
