@@ -10,9 +10,11 @@ RUN apk add --no-cache \
     android-tools \
     bash \
     bc \
+    bison \
     build-base \
     ccache \
     e2fsprogs \
+    flex \
     git \
     libcap \
     linux-headers \
