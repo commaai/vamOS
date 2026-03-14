@@ -11,7 +11,8 @@ TMP_DIR="/tmp/vamos-build-tmp"
 OUT_DIR="$DIR/output"
 BOOT_IMG=./boot.img
 
-DEFCONFIG="${DEFCONFIG:-vamos_defconfig}"
+BASE_DEFCONFIG="defconfig"
+CONFIG_FRAGMENT="$DIR/kernel/configs/vamos.config"
 DTB="${DTB:-qcom/sdm845-mtp.dtb}"
 
 # Check submodule initted, need to run setup
@@ -72,9 +73,13 @@ build_kernel() {
   # Build kernel
   cd "$KERNEL_DIR"
 
-  echo "-- Loading $DEFCONFIG --"
-  make defconfig O=out
-  KCONFIG_CONFIG=out/.config scripts/kconfig/merge_config.sh -m out/.config "arch/arm64/configs/$DEFCONFIG"
+  echo "-- Loading base config $BASE_DEFCONFIG --"
+  make O=out "$BASE_DEFCONFIG"
+
+  echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
+  KCONFIG_CONFIG=out/.config \
+    bash scripts/kconfig/merge_config.sh \
+    -m out/.config "$CONFIG_FRAGMENT"
   # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
   # can find the blobs without symlinking into the kernel tree
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
@@ -137,4 +142,4 @@ cleanup() {
 }
 
 # Run build inside container
-docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export DEFCONFIG=$DEFCONFIG DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree); build_kernel"
+docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree); build_kernel"

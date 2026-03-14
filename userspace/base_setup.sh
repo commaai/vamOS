@@ -90,7 +90,13 @@ xbps-install -y \
   libqmi-devel \
   ModemManager \
   ModemManager-devel \
-  cronie
+  cronie \
+  alacritty-terminfo \
+  contour-terminfo \
+  foot-terminfo \
+  ghostty-terminfo \
+  kitty-terminfo \
+  ncurses-term
 
 # Create privileged user (use /usr/bin/bash - Void Linux path)
 useradd -m -s /usr/bin/bash $USERNAME

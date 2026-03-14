@@ -1,5 +1,0 @@
-diff --git a/arch/arm64/configs/vamos_defconfig b/arch/arm64/configs/vamos_defconfig
-new file mode 100644
-index 000000000000..389649f2c5fa
---- /dev/null
-+++ b/arch/arm64/configs/vamos_defconfig
