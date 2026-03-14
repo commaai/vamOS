@@ -47,7 +47,7 @@ case "${1:-}" in
       echo "Usage: vamos profile diff <baseline.json> <current.json>"
       exit 1
     fi
-    exec "$DIR/tools/profile_rootfs.sh" "$@" ;;
+    exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
   *)
     echo "Usage: vamos <setup|build|flash|profile>"
     echo ""

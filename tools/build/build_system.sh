@@ -126,7 +126,7 @@ exec_as_root sh -c "
 echo "Profiling rootfs"
 MOUNT_CONTAINER_ID="$MOUNT_CONTAINER_ID" ROOTFS_DIR="$ROOTFS_DIR" \
   ROOTFS_IMAGE="$ROOTFS_IMAGE" OUTPUT_DIR="$OUTPUT_DIR" \
-  "$DIR/tools/profile_rootfs.sh"
+  "$DIR/vamos" profile
 
 # Unmount image
 echo "Unmount filesystem"

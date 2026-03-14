@@ -11,7 +11,7 @@ on:
       - 'tools/build/Dockerfile'
       - 'tools/build/Dockerfile.system-builder'
       - 'tools/build/build_system.sh'
-      - 'tools/profile_rootfs.sh'
+      - 'tools/profile/**'
       - 'userspace/**'
       - 'VERSION'
       - '.github/workflows/build-system.yml'
@@ -20,7 +20,7 @@ on:
       - 'tools/build/Dockerfile'
       - 'tools/build/Dockerfile.system-builder'
       - 'tools/build/build_system.sh'
-      - 'tools/profile_rootfs.sh'
+      - 'tools/profile/**'
       - 'userspace/**'
       - 'VERSION'
       - '.github/workflows/build-system.yml'
@@ -70,7 +70,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Generate diff (gracefully handles missing baseline)
-          DIFF_MD=$(./tools/profile_rootfs.sh diff baseline/rootfs-profile.json output/rootfs-profile.json 2>/dev/null || echo "No baseline available")
+          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json output/rootfs-profile.json 2>/dev/null || echo "No baseline available")
           PROFILE_MD=$(cat output/rootfs-profile.md)
 
           # Assemble comment with hidden marker for find-and-update
