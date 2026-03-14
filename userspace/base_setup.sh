@@ -91,8 +91,6 @@ xbps-install -y \
   ModemManager \
   ModemManager-devel \
   cronie \
-
-  # terminfo
   alacritty-terminfo \
   contour-terminfo \
   foot-terminfo \
