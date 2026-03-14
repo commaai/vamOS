@@ -1,5 +1,5 @@
 .ccache/
-build/
+/build/
 output/
 
 **/.DS_Store

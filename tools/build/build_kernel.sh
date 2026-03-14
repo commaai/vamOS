@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e
 
-DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." >/dev/null && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
 
 TOOLS="$DIR/tools"
@@ -22,7 +22,7 @@ fi
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
-docker build -f Dockerfile.builder -t vamos-builder "$DIR"
+docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR"
 
 echo "Starting vamos-builder container"
 CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)

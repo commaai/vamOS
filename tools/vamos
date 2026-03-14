@@ -12,8 +12,8 @@ case "${1:-}" in
   setup)    exec "$DIR/tools/setup.sh" ;;
   build)
     case "${2:-}" in
-      kernel) exec "$DIR/tools/build_kernel.sh" ;;
-      system) exec "$DIR/tools/build_system.sh" ;;
+      kernel) exec "$DIR/tools/build/build_kernel.sh" ;;
+      system) exec "$DIR/tools/build/build_system.sh" ;;
       *)      echo "Usage: vamos build <kernel|system>"; exit 1 ;;
     esac ;;
   flash)

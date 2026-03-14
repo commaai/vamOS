@@ -9,14 +9,14 @@ on:
     branches: [master]
     paths:
       - 'kernel/**'
-      - 'tools/build_kernel.sh'
-      - 'Dockerfile.builder'
+      - 'tools/build/build_kernel.sh'
+      - 'tools/build/Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
   pull_request:
     paths:
       - 'kernel/**'
-      - 'tools/build_kernel.sh'
-      - 'Dockerfile.builder'
+      - 'tools/build/build_kernel.sh'
+      - 'tools/build/Dockerfile.builder'
       - '.github/workflows/build-kernel.yml'
 
 jobs:

@@ -8,18 +8,18 @@ on:
   push:
     branches: [master]
     paths:
-      - 'Dockerfile'
-      - 'Dockerfile.system-builder'
-      - 'tools/build_system.sh'
+      - 'tools/build/Dockerfile'
+      - 'tools/build/Dockerfile.system-builder'
+      - 'tools/build/build_system.sh'
       - 'tools/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
       - '.github/workflows/build-system.yml'
   pull_request:
     paths:
-      - 'Dockerfile'
-      - 'Dockerfile.system-builder'
-      - 'tools/build_system.sh'
+      - 'tools/build/Dockerfile'
+      - 'tools/build/Dockerfile.system-builder'
+      - 'tools/build/build_system.sh'
       - 'tools/profile_rootfs.sh'
       - 'userspace/**'
       - 'VERSION'
