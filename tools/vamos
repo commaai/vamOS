@@ -18,10 +18,12 @@ case "${1:-}" in
     esac ;;
   flash)
     case "${2:-}" in
-      kernel) exec "$DIR/tools/flash_kernel.sh" ;;
-      system) exec "$DIR/tools/flash_system.sh" ;;
-      all)    "$DIR/tools/flash_kernel.sh" && "$DIR/tools/flash_system.sh" ;;
-      *)      echo "Usage: vamos flash <kernel|system|all>"; exit 1 ;;
+      kernel)   exec "$DIR/tools/flash_kernel.sh" ;;
+      system)   exec "$DIR/tools/flash_system.sh" ;;
+      firmware) exec "$DIR/tools/flash_firmware.sh" ;;
+      gpt)      exec "$DIR/tools/flash_gpt.sh" ;;
+      all)      "$DIR/tools/flash_gpt.sh" && "$DIR/tools/flash_firmware.sh" && "$DIR/tools/flash_kernel.sh" && "$DIR/tools/flash_system.sh" ;;
+      *)        echo "Usage: vamos flash <kernel|system|firmware|gpt|all>"; exit 1 ;;
     esac ;;
   profile)
     shift
@@ -39,7 +41,9 @@ case "${1:-}" in
     echo "  build system       Build the system image (output/system.img)"
     echo "  flash kernel       Flash boot.img to device via EDL"
     echo "  flash system       Flash system.img to device via EDL"
-    echo "  flash all          Flash kernel + system"
+    echo "  flash firmware     Flash firmware partitions to device via EDL"
+    echo "  flash gpt          Flash GPT partition tables to device via EDL"
+    echo "  flash all          Flash gpt + firmware + kernel + system"
     echo "  profile [diff]     Profile rootfs or diff two profiles"
     exit 1 ;;
 esac
