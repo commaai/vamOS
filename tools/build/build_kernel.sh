@@ -7,8 +7,8 @@ cd "$DIR"
 TOOLS="$DIR/tools/bin"
 KERNEL_DIR="$DIR/kernel/linux"
 PATCHES_DIR="$DIR/kernel/patches"
-TMP_DIR="/tmp/vamos-build-tmp"
-OUT_DIR="$DIR/output"
+TMP_DIR="$DIR/build/tmp"
+OUT_DIR="$DIR/build"
 BOOT_IMG=./boot.img
 
 BASE_DEFCONFIG="defconfig"

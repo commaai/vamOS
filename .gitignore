@@ -1,6 +1,5 @@
 .ccache/
 /build/
-output/
 
 **/.DS_Store
 **/*.tar.xz
