@@ -1,0 +1,10 @@
+#!/bin/sh
+exec 2>&1
+# Create ssh host keys if needed (on first boot)
+mkdir -p /data/etc/ssh
+if [ ! -f /data/etc/ssh/ssh_host_ed25519_key ]; then
+  ssh-keygen -t ed25519 -f /data/etc/ssh/ssh_host_ed25519_key -N ""
+  ssh-keygen -t rsa -b 4096 -f /data/etc/ssh/ssh_host_rsa_key -N ""
+  ssh-keygen -t ecdsa -f /data/etc/ssh/ssh_host_ecdsa_key -N ""
+fi
+exec /usr/bin/sshd -D

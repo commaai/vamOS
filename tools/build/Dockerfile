@@ -67,31 +67,12 @@ RUN cd /tmp/vamos/uv && \
     uv sync --frozen --inexact
 
 # Root filesystem overlay — all userspace files at their final paths
+# Symlinks, service enablement, scripts, and permissions are in the overlay.
+# See userspace/root/ for the full filesystem layout.
 COPY ./userspace/root/ /
-
-# USB scripts expect /sbin/usb but files are in /usr/bin/usb
-RUN ln -sf /usr/bin/usb /sbin/usb
 
 # Fix ownership on home directory (overlay COPY runs as root)
 RUN chown -R comma:comma /home/comma
-# Void's default .bashrc doesn't source .bash_aliases
-RUN printf '\nif [ -f ~/.bash_aliases ]; then\n    . ~/.bash_aliases\nfi\n' >> /home/$USERNAME/.bashrc
-RUN mkdir -p /root/.config
-
-# Enable runit services
-RUN for svc in \
-  ipa_fws adbd brightnessd fs_setup gpio init-qcom lte \
-  avahi-ssh-publish power_monitor power_drop_monitor \
-  screen_calibration serial-hostname \
-  sound varwatch busybox-ntpd \
-  irsc_util leprop usb adsp cdsp \
-  rmt_storage init_mss pdmapper tftp_server \
-  comma modemmanager magic \
-  ssh-param-watcher adb-param-watcher \
-  rsyslogd iptables cnss_daemon polkitd \
-  agetty-ttyMSM0 agetty-ttyAMA0; do \
-    ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
-  done
 
 # Remove udevd service - we start udevd in runit stage 1, no need for service
 RUN rm -f /etc/runit/runsvdir/default/udevd
@@ -99,59 +80,24 @@ RUN rm -f /etc/runit/runsvdir/default/udevd
 # Make logs readable by comma user (for journalctl shim)
 RUN sed -i 's/FileCreateMode 0640/FileCreateMode 0644/' /etc/rsyslog.conf
 
-# Set executable permissions
-RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_adb.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
-RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
-
-# Shutdown wrappers - send wall broadcast like systemd does on Ubuntu
-# Only poweroff and reboot: halt/shutdown must NOT be wrapped because Void's
-# /usr/bin/shutdown script calls halt/reboot internally, causing cascading walls
-RUN chmod +x /usr/local/sbin/poweroff && \
-    ln -sf poweroff /usr/local/sbin/reboot
-
-# NetworkManager connection permissions
+# NetworkManager connection permissions (git can't store 600)
 RUN chmod 600 /usr/lib/NetworkManager/system-connections/*.nmconnection
-
-# Void's iptables service expects iptables.rules
-RUN ln -s /etc/iptables/rules.v4 /etc/iptables/iptables.rules
 
 # MOTD - profile.d runs update-motd.d scripts into /run/motd, pam_motd displays it
 RUN sed -i 's|motd=/etc/motd|motd=/run/motd|' /etc/pam.d/system-login
 
-# Hourly logrotate cron job
-RUN chmod 755 /etc/cron.hourly/logrotate
-
-# Mount point directories (empty, populated by fstab mounts at runtime)
-# These must exist for the kernel/firmware to mount partitions
-RUN mkdir -p /dsp /bt_firmware /firmware && \
-    chown comma:comma /dsp /bt_firmware /firmware
-
-# /system/persist structure (copied to /data on first boot by fs_setup.sh)
-RUN mkdir -p /system/persist/hlos_rfs/shared \
-             /system/persist/rfs/mdm/adsp \
-             /system/persist/rfs/mdm/mpss \
-             /system/persist/rfs/msm/adsp \
-             /system/persist/rfs/msm/mpss \
-             /system/persist/rfs/shared
+# Mount point ownership (directories created by overlay, ownership set here)
+RUN chown comma:comma /dsp /bt_firmware /firmware
 
 # Prefer ipv4 over ipv6
 RUN echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
 
-# Compatibility symlinks for Qualcomm binaries and prebuilt wheels
-# pdmappersvc needs libjson-c.so.2 but Void has libjson-c.so.5
-RUN ln -sf /usr/lib/libjson-c.so.5 /usr/lib/libjson-c.so.2
+# Compatibility symlink for prebuilt wheels
 # raylib wheel needs libffi.so.6 but Void has newer version
 RUN ln -sf $(ls /usr/lib/libffi.so.* 2>/dev/null | grep -v '.so.6' | head -1) /usr/lib/libffi.so.6
 
 # ldconfig
 RUN ldconfig
-
-# Rootfs development/eval tools
-COPY ./userspace/eval/rootfs-init.sh /usr/local/bin/
-COPY ./userspace/eval/rootfs-manifest.sh /usr/local/bin/
-COPY ./userspace/eval/rootfs-diff.sh /usr/local/bin/
-COPY ./userspace/eval/rootfs-export.sh /usr/local/bin/
-RUN chmod +x /usr/local/bin/rootfs-*.sh
 
 # Read-only rootfs setup
 COPY ./userspace/readonly_setup.sh /tmp/vamos/
@@ -197,45 +143,6 @@ RUN echo ttyMSM0 >> /etc/securetty
 # Use pre-computed hash for reliability: password is "comma"
 RUN usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' comma && \
     usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' root
-
-# USB gadget: disable ffs.adb in boot-time 9024 script (set_adb.sh handles it later)
-# USB networking (NCM) disabled — use WiFi. See set_adb_ncm.sh to re-enable.
-# RUN sed -i 's/gsi.rndis/ncm.0/g' /usr/bin/usb/compositions/9024
-RUN sed -i 's/.*ffs.adb.*configs.*/#\0/' /usr/bin/usb/compositions/9024
-
-# DEBUG: SSH setup - sshd_config expects keys in /data/etc/ssh/
-# The /data partition is mounted at runtime from /dev/sda12
-# We need to create the ssh directory structure on first boot
-RUN mkdir -p /var/chroot/ssh
-
-# DEBUG: Custom sshd run script - /data is mounted in runit stage 1
-RUN echo '#!/bin/sh' > /etc/sv/sshd/run && \
-    echo 'exec 2>&1' >> /etc/sv/sshd/run && \
-    echo '# Create ssh host keys if needed (on first boot)' >> /etc/sv/sshd/run && \
-    echo 'mkdir -p /data/etc/ssh' >> /etc/sv/sshd/run && \
-    echo 'if [ ! -f /data/etc/ssh/ssh_host_ed25519_key ]; then' >> /etc/sv/sshd/run && \
-    echo '  ssh-keygen -t ed25519 -f /data/etc/ssh/ssh_host_ed25519_key -N ""' >> /etc/sv/sshd/run && \
-    echo '  ssh-keygen -t rsa -b 4096 -f /data/etc/ssh/ssh_host_rsa_key -N ""' >> /etc/sv/sshd/run && \
-    echo '  ssh-keygen -t ecdsa -f /data/etc/ssh/ssh_host_ecdsa_key -N ""' >> /etc/sv/sshd/run && \
-    echo 'fi' >> /etc/sv/sshd/run && \
-    echo 'exec /usr/bin/sshd -D' >> /etc/sv/sshd/run
-
-# DEBUG: Fix iptables to allow SSH (insert before wwan0 DROP rule)
-RUN sed -i '/-A INPUT -i wwan0 -j DROP/i -A INPUT -p tcp --dport 22 -j ACCEPT' /etc/iptables/rules.v4 || true
-
-# USB networking disabled — use WiFi. See userspace/files/set_adb_ncm.sh to re-enable.
-# RUN echo '[connection]' > /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'id=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'type=ethernet' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'interface-name=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'autoconnect=true' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv4]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=manual' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'addresses=192.168.7.1/24' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv6]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=disabled' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     chmod 600 /usr/lib/NetworkManager/system-connections/usb0.nmconnection
-# RUN sed -i '/echo \$1 > UDC/a\\tip addr add 192.168.7.1/24 dev usb0 2>/dev/null || true\n\tip link set usb0 up' /usr/bin/usb/compositions/9024
 
 RUN ldconfig
 

@@ -129,7 +129,7 @@ run_configfs() {
 	echo "RNDIS" > configs/c.1/strings/0x409/configuration
 	ln -s functions/gsi.rndis configs/c.1/f1
 	# Only add ADB if available
-	[ -d functions/ffs.adb ] && [ -e /dev/usb-ffs/adb/ep0 ] && ln -s functions/ffs.adb configs/c.1/f2
+	#[ -d functions/ffs.adb ] && [ -e /dev/usb-ffs/adb/ep0 ] && ln -s functions/ffs.adb configs/c.1/f2
 	echo 0xA0 > configs/c.1/bmAttributes
 	echo "binding UDC with Gadget..." $1
 	echo $1 > UDC
