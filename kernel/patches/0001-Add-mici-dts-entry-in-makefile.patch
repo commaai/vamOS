@@ -1,7 +1,7 @@
 From 028e4f587364d096fbbd25b48c22cad71d0c3880 Mon Sep 17 00:00:00 2001
 From: Robin Reckmann <robin.reckmann@gmail.com>
 Date: Sat, 14 Mar 2026 18:53:20 +0900
-Subject: [PATCH] Add comma4 dts entry in makefile
+Subject: [PATCH] Add mici dts entry in makefile
 
 ---
  arch/arm64/boot/dts/qcom/Makefile | 1 +
@@ -15,7 +15,7 @@ index 296688f7c..5f05ce5a1 100644
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm636-sony-xperia-ganges-mermaid.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm660-xiaomi-lavender.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm670-google-sargo.dtb
-+dtb-$(CONFIG_ARCH_QCOM)	+= sdm845-comma4.dtb
++dtb-$(CONFIG_ARCH_QCOM)	+= sdm845-mici.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm845-db845c.dtb
  
  sdm845-db845c-navigation-mezzanine-dtbs	:= sdm845-db845c.dtb sdm845-db845c-navigation-mezzanine.dtbo
