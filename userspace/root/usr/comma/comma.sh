@@ -38,13 +38,17 @@ handle_setup_keys () {
       ln -s /data/params/d_tmp /data/params/d
     fi
 
-    echo -n 1 > /data/params/d/AdbEnabled
     echo -n 1 > /data/params/d/SshEnabled
+    echo -n 1 > /data/params/d/UsbNcmEnabled
     cp /usr/comma/setup_keys /data/params/d/GithubSshKeys
+  elif [[ ! -e /data/continue.sh ]]; then
+    # still in setup — ensure dev access is enabled (handles reboot mid-setup)
+    echo -n 1 > /data/params/d/SshEnabled
+    echo -n 1 > /data/params/d/UsbNcmEnabled
   elif [[ -e /data/params/d/GithubSshKeys && -e /data/continue.sh ]]; then
     if cmp -s /data/params/d/GithubSshKeys /usr/comma/setup_keys; then
-      rm /data/params/d/AdbEnabled
       rm /data/params/d/SshEnabled
+      rm /data/params/d/UsbNcmEnabled
       rm /data/params/d/GithubSshKeys
     fi
   fi

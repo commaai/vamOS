@@ -80,14 +80,14 @@ RUN mkdir -p /root/.config
 
 # Enable runit services
 RUN for svc in \
-  ipa_fws adbd brightnessd fs_setup gpio init-qcom lte \
+  ipa_fws brightnessd fs_setup gpio init-qcom lte \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
   irsc_util leprop usb adsp cdsp \
   rmt_storage init_mss pdmapper tftp_server \
   comma modemmanager magic \
-  ssh-param-watcher adb-param-watcher \
+  ssh-param-watcher ncm-param-watcher dnsmasq \
   rsyslogd iptables cnss_daemon polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
@@ -100,7 +100,7 @@ RUN rm -f /etc/runit/runsvdir/default/udevd
 RUN sed -i 's/FileCreateMode 0640/FileCreateMode 0644/' /etc/rsyslog.conf
 
 # Set executable permissions
-RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_adb.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
+RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_ncm.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
 RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
 
 # Shutdown wrappers - send wall broadcast like systemd does on Ubuntu
@@ -198,11 +198,6 @@ RUN echo ttyMSM0 >> /etc/securetty
 RUN usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' comma && \
     usermod -p '$6$vamosdev$NmMcideymvdAilEr.m7OeTX.fnt3H4UmcgheKB39rkrmebVfvZIUE17zjgtOxi7K07uGicamzFFbkFLE3EjQj/' root
 
-# USB gadget: disable ffs.adb in boot-time 9024 script (set_adb.sh handles it later)
-# USB networking (NCM) disabled — use WiFi. See set_adb_ncm.sh to re-enable.
-# RUN sed -i 's/gsi.rndis/ncm.0/g' /usr/bin/usb/compositions/9024
-RUN sed -i 's/.*ffs.adb.*configs.*/#\0/' /usr/bin/usb/compositions/9024
-
 # DEBUG: SSH setup - sshd_config expects keys in /data/etc/ssh/
 # The /data partition is mounted at runtime from /dev/sda12
 # We need to create the ssh directory structure on first boot
@@ -222,20 +217,6 @@ RUN echo '#!/bin/sh' > /etc/sv/sshd/run && \
 
 # DEBUG: Fix iptables to allow SSH (insert before wwan0 DROP rule)
 RUN sed -i '/-A INPUT -i wwan0 -j DROP/i -A INPUT -p tcp --dport 22 -j ACCEPT' /etc/iptables/rules.v4 || true
-
-# USB networking disabled — use WiFi. See userspace/files/set_adb_ncm.sh to re-enable.
-# RUN echo '[connection]' > /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'id=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'type=ethernet' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'interface-name=usb0' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'autoconnect=true' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv4]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=manual' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'addresses=192.168.7.1/24' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo '[ipv6]' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     echo 'method=disabled' >> /usr/lib/NetworkManager/system-connections/usb0.nmconnection && \
-#     chmod 600 /usr/lib/NetworkManager/system-connections/usb0.nmconnection
-# RUN sed -i '/echo \$1 > UDC/a\\tip addr add 192.168.7.1/24 dev usb0 2>/dev/null || true\n\tip link set usb0 up' /usr/bin/usb/compositions/9024
 
 RUN ldconfig
 

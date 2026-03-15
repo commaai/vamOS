@@ -71,7 +71,6 @@ case "$1" in
 		mkdir configs/c.1/strings/0x409
 		mkdir functions/mass_storage.0
 		mkdir functions/mass_storage.1
-		mkdir functions/ffs.adb
 		mkdir functions/diag.diag
 		mkdir functions/cser.dun.0
 		mkdir functions/cser.nmea.1
@@ -105,9 +104,6 @@ case "$1" in
 		echo "$product_string" > /sys/class/android_usb/android0/iProduct
 	fi
 
-	# mount functionfs
-	mkdir -p /dev/usb-ffs/adb
-	mount -o uid=2000,gid=2000 -t functionfs adb /dev/usb-ffs/adb
 	mount -o remount,gid=5,mode=620 /dev/pts
 
 	case `source /sbin/usb/target` in
