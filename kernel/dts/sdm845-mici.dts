@@ -4,8 +4,8 @@
 #include "sdm845.dtsi"
 
 / {
-	model = "comma.ai comma four";
-	compatible = "comma,comma4", "qcom,sdm845";
+	model = "comma.ai mici";
+	compatible = "comma,mici", "qcom,sdm845";
 
 	aliases {
 		serial0 = &uart9;
