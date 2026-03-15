@@ -39,15 +39,81 @@ if [ "$(shasum -a 256 "$VOID_ROOTFS_FILE" | awk '{print $1}')" != "$VOID_ROOTFS_
   exit 1
 fi
 
+# Generate Dockerfile with xbps-src stages spliced in
+generate_dockerfile() {
+  local src_dockerfile="$DIR/tools/build/Dockerfile"
+  local generated="$BUILD_DIR/Dockerfile.generated"
+  local packages_dir="$DIR/tools/build/packages"
+  local stages_file="$BUILD_DIR/.xbps-stages"
+  local install_file="$BUILD_DIR/.xbps-install"
+
+  # Start with empty marker files
+  : > "$stages_file"
+  : > "$install_file"
+
+  if [ -d "$packages_dir" ] && [ "$(ls -A "$packages_dir" 2>/dev/null)" ]; then
+    # xbps-src base stage
+    cat >> "$stages_file" <<'STAGE_BASE'
+# --- xbps-src base ---
+FROM void-base AS xbps-src-base
+RUN xbps-install -Sy base-devel git
+RUN git clone --depth 1 https://github.com/void-linux/void-packages.git /void-packages
+RUN touch /.xbps_chroot_init && \
+    mkdir -p /etc/xbps && \
+    echo 'XBPS_CFLAGS="-O2 -pipe"' > /etc/xbps/xbps-src.conf && \
+    echo 'XBPS_LDFLAGS="-Wl,--as-needed"' >> /etc/xbps/xbps-src.conf
+STAGE_BASE
+
+    for pkg_file in "$packages_dir"/*; do
+      local pkg_name pkg_opts
+      pkg_name="$(basename "$pkg_file")"
+      pkg_opts="$(tr -d '[:space:]' < "$pkg_file")"
+
+      # Package build stage
+      echo "" >> "$stages_file"
+      echo "# --- Package: $pkg_name ---" >> "$stages_file"
+      echo "FROM xbps-src-base AS xbps-pkg-$pkg_name" >> "$stages_file"
+      if [ -n "$pkg_opts" ]; then
+        echo "RUN SOURCE_DATE_EPOCH=0 IN_CHROOT=1 /void-packages/xbps-src -o '$pkg_opts' pkg $pkg_name" >> "$stages_file"
+      else
+        echo "RUN SOURCE_DATE_EPOCH=0 IN_CHROOT=1 /void-packages/xbps-src pkg $pkg_name" >> "$stages_file"
+      fi
+      echo "RUN mkdir -p /output && cp /host/binpkgs/*.xbps /output/ 2>/dev/null; true" >> "$stages_file"
+
+      # Install block for final stage
+      cat >> "$install_file" <<INSTALL_EOF
+COPY --from=xbps-pkg-$pkg_name /output/ /tmp/xbps-packages/
+RUN cd /tmp/xbps-packages && \\
+    xbps-rindex -a *.xbps && \\
+    xbps-install -y --repository=/tmp/xbps-packages -f $pkg_name && \\
+    rm -rf /tmp/xbps-packages
+INSTALL_EOF
+    done
+  fi
+
+  # Replace markers with generated content (or strip them if empty)
+  awk '
+    /^# __XBPS_SRC_STAGES__$/ { while ((getline line < "'"$stages_file"'") > 0) print line; next }
+    /^# __XBPS_SRC_INSTALL__$/ { while ((getline line < "'"$install_file"'") > 0) print line; next }
+    { print }
+  ' "$src_dockerfile" > "$generated"
+
+  rm -f "$stages_file" "$install_file"
+  echo "$generated"
+}
+
 # Setup qemu multiarch
 if [ "$(uname -m)" = "x86_64" ]; then
   echo "Registering emulator"
   docker run --rm --privileged tonistiigi/binfmt --install all
 fi
 
+# Generate Dockerfile with xbps-src stages
+GENERATED_DOCKERFILE="$(generate_dockerfile)"
+
 # Check Dockerfile
 export DOCKER_BUILDKIT=1
-docker buildx build -f tools/build/Dockerfile --check "$DIR"
+docker buildx build -f "$GENERATED_DOCKERFILE" --check "$DIR"
 
 # Setup mount container for macOS and CI support
 echo "Building vamos-builder docker image"
@@ -88,7 +154,7 @@ echo \"Cleaning up containers:\"; \
 docker container rm -f $MOUNT_CONTAINER_ID" EXIT
 
 echo "Building and extracting vamos docker image"
-docker buildx build -f tools/build/Dockerfile --platform=linux/arm64 \
+docker buildx build -f "$GENERATED_DOCKERFILE" --platform=linux/arm64 \
   --output "type=tar,dest=-" \
   --provenance=false \
   --build-arg VOID_ROOTFS="${VOID_ROOTFS_FILE#"$DIR/"}" \

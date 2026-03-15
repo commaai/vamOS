@@ -19,10 +19,14 @@ ARG USERNAME=comma
 COPY ./userspace/base_setup.sh /tmp/vamos/
 RUN /tmp/vamos/base_setup.sh
 
+# __XBPS_SRC_STAGES__
+
 # ################### #
 # ###### vamOS ###### #
 # ################### #
 FROM void-base
+
+# __XBPS_SRC_INSTALL__
 
 ARG USERNAME=comma
 
