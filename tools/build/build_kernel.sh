@@ -14,7 +14,7 @@ BOOT_IMG=./boot.img
 BASE_DEFCONFIG="defconfig"
 CONFIG_FRAGMENT="$DIR/kernel/configs/vamos.config"
 
-DTS_FILE="$DIR/kernel/dts/sdm845-comma4.dts"
+DTS_FILE="$DIR/kernel/dts/sdm845-mici.dts"
 DTB="qcom/$(basename "${DTS_FILE%.dts}.dtb")"
 
 # Check submodule initted, need to run setup
