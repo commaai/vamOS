@@ -24,7 +24,7 @@
 # (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-# DESCRIPTION: RNDIS + ADB [Android]
+# DESCRIPTION: NCM USB Networking
 
 echo "Switching to composition number 0x9024" > /dev/kmsg
 
@@ -115,24 +115,12 @@ run_9650() {
 }
 
 run_configfs() {
-	if [ $from_adb = "n" ]
-	then
-		pkill adbd 2>/dev/null || true
-		[ -x /etc/launch_adbd ] && /etc/launch_adbd start
-		sleep 1
-	fi
 	cd /sys/kernel/config/usb_gadget/g1
 	rm configs/c*/f* 2> /dev/null
 	rm -rf configs/c.2 configs/c.3 2> /dev/null
 	echo 0x05c6 > idVendor
 	echo 0x9024 > idProduct
-	echo "RNDIS" > configs/c.1/strings/0x409/configuration
-	ln -s functions/gsi.rndis configs/c.1/f1
-	# Only add ADB if available
-	[ -d functions/ffs.adb ] && [ -e /dev/usb-ffs/adb/ep0 ] && ln -s functions/ffs.adb configs/c.1/f2
 	echo 0xA0 > configs/c.1/bmAttributes
-	echo "binding UDC with Gadget..." $1
-	echo $1 > UDC
 	cd /
 }
 
