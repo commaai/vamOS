@@ -20,6 +20,7 @@ enable_ncm() {
   # Set USB device name
   mkdir -p strings/0x409
   tr -d '\0' < /sys/firmware/devicetree/base/model > strings/0x409/product
+  sed -n 's/.*androidboot.serialno=\([^ ]*\).*/\1/p' /proc/cmdline > strings/0x409/serialnumber
 
   # Add NCM function to gadget config
   ln -s functions/ncm.0 configs/c.1/f1 2>/dev/null || true
