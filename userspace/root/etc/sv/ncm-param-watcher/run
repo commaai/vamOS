@@ -12,7 +12,11 @@ get_value() {
 }
 
 # Run once at startup
-/usr/comma/set_ncm.sh 2>/dev/null || true
+# TODO: remove the force on once productionized
+echo -n 1 > $WATCH_FILE
+/usr/comma/set_ncm.sh
+exec sleep infinity
+
 get_value > "$STATE_FILE"
 
 # Wait for the params directory to exist

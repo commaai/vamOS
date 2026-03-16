@@ -84,6 +84,7 @@ while true; do
   pkill -f "$SETUP"
   handle_setup_keys
 
+
   if [ -f $CONTINUE ]; then
     exec "$CONTINUE"
   fi

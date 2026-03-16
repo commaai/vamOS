@@ -1,3 +1,8 @@
 #!/bin/sh
+# Kill the tmux session so a clean restart can create a new one
+sudo -u comma /usr/bin/tmux kill-session -t comma 2>/dev/null || true
+
 # Delay restart to avoid spamming console on failure
-sleep 5
+if [ "$1" -ne 0 ] 2>/dev/null; then
+  sleep 5
+fi

@@ -4,7 +4,14 @@
 
 GADGET=/sys/kernel/config/usb_gadget/g1
 
+ensure_configfs() {
+  while [ ! -d "$GADGET/configs/c.1" ]; do
+    sleep .5
+  done
+}
+
 enable_ncm() {
+  ensure_configfs
   cd $GADGET
 
   # Unbind gadget
@@ -29,6 +36,7 @@ enable_ncm() {
 }
 
 disable_ncm() {
+  ensure_configfs
   cd $GADGET
 
   sv down dnsmasq
@@ -44,6 +52,7 @@ disable_ncm() {
 }
 
 NCM_PARAM="/data/params/d/UsbNcmEnabled"
+
 if [ -f "$NCM_PARAM" ] && [ "$(< $NCM_PARAM)" == "1" ]; then
   echo "Enabling USB NCM"
   enable_ncm
