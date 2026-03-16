@@ -29,7 +29,7 @@ enable_ncm() {
     ip link show usb0 > /dev/null 2>&1 && break
     sleep 0.1
   done
-  ip addr add 192.168.42.2/24 dev usb0 2>/dev/null || true
+  ip addr add 10.10.10.10/24 dev usb0 2>/dev/null || true
   ip link set usb0 up
 
   sv up dnsmasq
