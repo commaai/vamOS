@@ -1,0 +1,70 @@
+From: Trey Moen <trey@moen.ai>
+Date: Sun, 15 Mar 2026 20:32:18 -0700
+Subject: [PATCH] Enable reboot edl for emergency download mode
+
+Export qcom_scm_set_download_mode() so the msm-poweroff restart handler
+can enable full-dump download mode before pulling PS_HOLD low when the
+user issues `reboot edl`.  This causes the SoC to enter Qualcomm
+Emergency Download (EDL / QDL / 9008) mode on reset.
+
+---
+ drivers/firmware/qcom/qcom_scm.c       | 3 ++-
+ drivers/power/reset/msm-poweroff.c     | 6 ++++++
+ include/linux/firmware/qcom/qcom_scm.h | 1 +
+ 3 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index e777b7cb9..85ffd71f7 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -539,7 +539,7 @@ static int qcom_scm_io_rmw(phys_addr_t addr, unsigned int mask, unsigned int val
+ 	return qcom_scm_io_writel(addr, new);
+ }
+
+-static void qcom_scm_set_download_mode(u32 dload_mode)
++void qcom_scm_set_download_mode(u32 dload_mode)
+ {
+ 	int ret = 0;
+
+@@ -557,6 +557,7 @@ static void qcom_scm_set_download_mode(u32 dload_mode)
+ 	if (ret)
+ 		dev_err(__scm->dev, "failed to set download mode: %d\n", ret);
+ }
++EXPORT_SYMBOL_GPL(qcom_scm_set_download_mode);
+
+ /**
+  * qcom_scm_pas_init_image() - Initialize peripheral authentication service
+diff --git a/drivers/power/reset/msm-poweroff.c b/drivers/power/reset/msm-poweroff.c
+index c7eb6dc8e..970789265 100644
+--- a/drivers/power/reset/msm-poweroff.c
++++ b/drivers/power/reset/msm-poweroff.c
+@@ -12,11 +12,17 @@
+ #include <linux/module.h>
+ #include <linux/reboot.h>
+ #include <linux/pm.h>
++#include <linux/firmware/qcom/qcom_scm.h>
+
+ static void __iomem *msm_ps_hold;
+
++#define QCOM_DLOAD_FULLDUMP	1
++
+ static int do_msm_poweroff(struct sys_off_data *data)
+ {
++	if (data->cmd && !strcmp(data->cmd, "edl"))
++		qcom_scm_set_download_mode(QCOM_DLOAD_FULLDUMP);
++
+ 	writel(0, msm_ps_hold);
+ 	mdelay(10000);
+
+diff --git a/include/linux/firmware/qcom/qcom_scm.h b/include/linux/firmware/qcom/qcom_scm.h
+index a55ca7712..3b459a582 100644
+--- a/include/linux/firmware/qcom/qcom_scm.h
++++ b/include/linux/firmware/qcom/qcom_scm.h
+@@ -63,6 +63,7 @@ bool qcom_scm_is_available(void);
+
+ int qcom_scm_set_cold_boot_addr(void *entry);
+ int qcom_scm_set_warm_boot_addr(void *entry);
++void qcom_scm_set_download_mode(u32 dload_mode);
+ void qcom_scm_cpu_power_down(u32 flags);
+ int qcom_scm_set_remote_state(u32 state, u32 id);
+
