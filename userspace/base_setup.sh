@@ -9,6 +9,10 @@ touch /TICI
 # TODO: rename once openpilot supports
 touch /AGNOS
 
+mkdir -p /etc/xbps.d
+cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/
+sed -i 's|https://repo-default.voidlinux.org|https://mirrors.cicku.me/voidlinux|g' /etc/xbps.d/*-repository-*.conf
+
 # Update xbps first, then package database
 xbps-install -Syu xbps -y
 xbps-install -Syu
