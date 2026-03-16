@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -euo pipefail
 
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." >/dev/null && pwd)"
 cd "$DIR"
@@ -25,4 +25,5 @@ else
   fi
   tools/bin/qdl flash boot "$BOOT_IMG"
 fi
+
 tools/bin/qdl reset
