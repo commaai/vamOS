@@ -63,7 +63,7 @@ build_kernel() {
   ARCH_HOST=$(uname -m)
   export ARCH=arm64
   if [ "$ARCH_HOST" != "aarch64" ] && [ "$ARCH_HOST" != "arm64" ]; then
-    export CROSS_COMPILE=aarch64-none-elf-
+    export CROSS_COMPILE=aarch64-linux-gnu-
   fi
 
   # ccache
@@ -77,6 +77,9 @@ build_kernel() {
 
   # Build kernel
   cd "$KERNEL_DIR"
+
+  # Clean host-built scripts so they get rebuilt for the container
+  rm -rf out/scripts
 
   echo "-- Loading base config $BASE_DEFCONFIG --"
   make O=out "$BASE_DEFCONFIG"
