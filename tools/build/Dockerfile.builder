@@ -1,40 +1,40 @@
 # check=error=true
 
-FROM alpine:3.23.3
+FROM ghcr.io/void-linux/void-glibc-full:latest
 
 ARG UNAME
 ARG UID
 ARG GID
 
-RUN apk add --no-cache \
+RUN mkdir -p /etc/xbps.d && \
+    cp /usr/share/xbps.d/*-repository-*.conf /etc/xbps.d/ && \
+    sed -i 's|https://repo-default.voidlinux.org|https://mirrors.cicku.me/voidlinux|g' /etc/xbps.d/*-repository-*.conf
+
+RUN xbps-install -Sy && \
+    xbps-install -y \
     android-tools \
+    base-devel \
     bash \
-    bc \
-    bison \
-    build-base \
     ccache \
     e2fsprogs \
-    findutils \
-    flex \
     git \
-    libcap \
-    linux-headers \
-    openssl \
-    openssl-dev \
-    perl \
-    python3
+    kmod \
+    libcap-progs \
+    openssl-devel \
+    python3 && \
+    xbps-remove -O
 
 # Cross-compiler for x86_64 hosts building aarch64 kernel
-# gcc-aarch64-none-elf is bare-metal but works for kernel (freestanding code)
 RUN if [ "$(uname -m)" != "aarch64" ]; then \
-    apk add --no-cache gcc-aarch64-none-elf binutils-aarch64-none-elf; \
+        xbps-install -y cross-aarch64-linux-gnu && \
+        xbps-remove -O; \
     fi
 
 RUN if [ ${UID:-0} -ne 0 ] && [ ${GID:-0} -ne 0 ]; then \
-    deluser $(getent passwd ${UID} | cut -d : -f 1) > /dev/null 2>&1; \
-    delgroup $(getent group ${GID} | cut -d : -f 1) > /dev/null 2>&1; \
-    addgroup -g ${GID} ${UNAME} && \
-    adduser -u ${UID} -G ${UNAME} -D ${UNAME} \
-;fi
+        userdel $(getent passwd ${UID} | cut -d : -f 1)  > /dev/null 2>&1; \
+        groupdel $(getent group ${GID} | cut -d : -f 1)  > /dev/null 2>&1; \
+        groupadd -g ${GID} ${UNAME} && \
+        useradd -u ${UID} -g ${GID} ${UNAME}; \
+    fi
 
 ENTRYPOINT ["tail", "-f", "/dev/null"]
