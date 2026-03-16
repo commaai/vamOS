@@ -1,6 +1,6 @@
 # check=error=true
 
-FROM ghcr.io/void-linux/void-glibc-full:latest
+FROM ghcr.io/void-linux/void-glibc-busybox:20260301R1
 
 ARG UNAME
 ARG UID
@@ -21,7 +21,8 @@ RUN xbps-install -Sy && \
     kmod \
     libcap-progs \
     openssl-devel \
-    python3 && \
+    python3 \
+    shadow && \
     xbps-remove -O
 
 # Cross-compiler for x86_64 hosts building aarch64 kernel
