@@ -1,4 +1,4 @@
-name: build system
+name: build
 
 concurrency:
   group: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && github.run_id || github.head_ref || github.ref }}-${{ github.workflow }}-${{ github.event_name }}
@@ -7,27 +7,40 @@ concurrency:
 on:
   push:
     branches: [master]
-    paths:
-      - 'tools/build/Dockerfile'
-      - 'tools/build/Dockerfile.system-builder'
-      - 'tools/build/build_system.sh'
-      - 'tools/profile/**'
-      - 'userspace/**'
-      - 'VERSION'
-      - '.github/workflows/build-system.yml'
   pull_request:
-    paths:
-      - 'tools/build/Dockerfile'
-      - 'tools/build/Dockerfile.system-builder'
-      - 'tools/build/build_system.sh'
-      - 'tools/profile/**'
-      - 'userspace/**'
-      - 'VERSION'
-      - '.github/workflows/build-system.yml'
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: get kernel submodule ref
+        id: kernel-submodule
+        run: echo "ref=$(git ls-tree HEAD | awk '$4 == "kernel"' | awk '{print $3}')" | tee -a $GITHUB_OUTPUT
+
+      - name: restore ccache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-kernel-${{ steps.kernel-submodule.outputs.ref }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-kernel-${{ steps.kernel-submodule.outputs.ref }}-
+            ccache-kernel-
+
+      - name: build kernel
+        run: ./vamos build kernel
+
+      - name: upload boot.img
+        uses: actions/upload-artifact@v4
+        with:
+          name: boot.img
+          path: build/boot.img
+          if-no-files-found: error
+
+  build-system:
+    runs-on: ubuntu-24.04-arm
+    needs: build-kernel
     permissions:
       pull-requests: write
     steps:
@@ -60,7 +73,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p baseline
-          RUN_ID=$(gh run list --workflow=build-system.yml --branch=master \
+          RUN_ID=$(gh run list --workflow=build.yml --branch=master \
             --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
           if [ -n "$RUN_ID" ]; then
             gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
