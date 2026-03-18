@@ -75,6 +75,8 @@ build_kernel() {
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
 
+  export LOCALVERSION="-vamos"
+
   # Build kernel
   cd "$KERNEL_DIR"
 
@@ -91,7 +93,7 @@ build_kernel() {
   make olddefconfig O=out
 
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) O=out Image.gz "$DTB"
+  make -j$(nproc) O=out Image.gz modules "$DTB"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
@@ -130,6 +132,8 @@ build_kernel() {
   mv $BOOT_IMG "$OUT_DIR/"
   echo "-- Done! boot.img: $OUT_DIR/boot.img --"
   ls -lh "$OUT_DIR/boot.img"
+
+  package_xbps
 }
 
 clean_kernel_tree() {
@@ -156,5 +160,46 @@ install_dts() {
   cp "$DTS_FILE" "$KERNEL_DIR/arch/arm64/boot/dts/qcom/"
 }
 
+package_xbps() {
+  cd "$KERNEL_DIR"
+
+  local kernel_release="$(make -s O=out kernelrelease)"
+  local xbps_version="$(printf '%s' "$kernel_release" | sed 's/[-_]/./g')"
+  local xbps_pkgver="${xbps_version}_1"
+  local target_arch="aarch64"
+
+  local xbps_stage_root="$TMP_DIR/xbps"
+  local xbps_repo_dir="$OUT_DIR/xbps"
+  local modules_stage_dir="$xbps_stage_root/modules"
+
+  echo "-- Preparing XBPS packages for $kernel_release --"
+
+  rm -rf "$xbps_stage_root"
+  mkdir -p "$modules_stage_dir" "$xbps_repo_dir"
+  rm -f "$xbps_repo_dir"/*.xbps
+
+  # Stage kernel modules package
+  mkdir -p "$modules_stage_dir/usr/lib"
+
+  make O=out ARCH=arm64 INSTALL_MOD_PATH="$modules_stage_dir/usr" modules_install
+  depmod -b "$modules_stage_dir/usr" -F "out/System.map" "$kernel_release"
+
+  rm -f "$modules_stage_dir/usr/lib/modules/$kernel_release/build"
+  rm -f "$modules_stage_dir/usr/lib/modules/$kernel_release/source"
+
+  # Create XBPS packages
+  cd "$xbps_repo_dir"
+
+  xbps-create -A "$target_arch" \
+    -n "vamos-kernel-modules-$xbps_pkgver" \
+    -s "vamos kernel modules ($kernel_release)" \
+    -m "vamOS <vamos@vamos>" \
+    -S "Kernel modules for vamos" \
+    "$modules_stage_dir"
+
+  echo "-- Created XBPS packages in $xbps_repo_dir --"
+  ls -lh "$xbps_repo_dir"
+}
+
 # Run build inside container
-docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DTS_FILE='$DTS_FILE' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree install_dts); build_kernel"
+docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DTS_FILE='$DTS_FILE' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree install_dts package_xbps); build_kernel"

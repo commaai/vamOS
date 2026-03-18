@@ -47,3 +47,10 @@ jobs:
           name: boot.img
           path: build/boot.img
           if-no-files-found: error
+
+      - name: upload kernel modules
+        uses: actions/upload-artifact@v4
+        with:
+          name: vamos-kernel-modules-6.18.0.vamos_1.aarch64.xbps
+          path: build/xbps/vamos-kernel-modules-6.18.0.vamos_1.aarch64.xbps
+          if-no-files-found: error

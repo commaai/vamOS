@@ -17,12 +17,15 @@ RUN apk add --no-cache \
     findutils \
     flex \
     git \
+    kmod \
     libcap \
     linux-headers \
     openssl \
     openssl-dev \
     perl \
-    python3
+    python3 \
+    xbps \
+    zstd
 
 # Cross-compiler for x86_64 hosts building aarch64 kernel
 # gcc-aarch64-none-elf is bare-metal but works for kernel (freestanding code)
