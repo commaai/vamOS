@@ -14,8 +14,11 @@ BOOT_IMG=./boot.img
 BASE_DEFCONFIG="defconfig"
 CONFIG_FRAGMENT="$DIR/kernel/configs/vamos.config"
 
-DTS_FILE="$DIR/kernel/dts/sdm845-mici.dts"
-DTB="qcom/$(basename "${DTS_FILE%.dts}.dtb")"
+COMMON_DTSI="$DIR/kernel/dts/sdm845-comma-common.dtsi"
+DTS_FILES=(
+  "$DIR/kernel/dts/sdm845-comma-mici.dts"
+  "$DIR/kernel/dts/sdm845-comma-tizi.dts"
+)
 
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
@@ -90,19 +93,29 @@ build_kernel() {
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
   make olddefconfig O=out
 
+  local dtb_targets=()
+  local dts_name
+  local IMAGE_GZ_DTB
+
+  for dts in "${DTS_FILES[@]}"; do
+    dts_name="$(basename "$dts")"
+    dtb_targets+=("qcom/${dts_name%.dts}.dtb")
+  done
+
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) O=out Image.gz "$DTB"
+  make -j$(nproc) O=out Image.gz "${dtb_targets[@]}"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
-  DTB_PATH="out/arch/arm64/boot/dts/$DTB"
-  if [ ! -f "$DTB_PATH" ]; then
-    echo "ERROR: DTB not found at $DTB_PATH"
-    find out/arch/arm64/boot/dts -name '*.dtb' 2>/dev/null | head -20
-    exit 1
-  fi
+  IMAGE_GZ_DTB="$TMP_DIR/Image.gz-dtb"
+  cp out/arch/arm64/boot/Image.gz "$IMAGE_GZ_DTB"
 
-  cat out/arch/arm64/boot/Image.gz "$DTB_PATH" > "$TMP_DIR/Image.gz-dtb"
+  for dts in "${DTS_FILES[@]}"; do
+    dts_name="$(basename "$dts")"
+    dtb_path="out/arch/arm64/boot/dts/qcom/${dts_name%.dts}.dtb"
+    cat "$dtb_path" >> "$IMAGE_GZ_DTB"
+  done
+
   cd "$TMP_DIR"
 
   # Create boot.img
@@ -147,14 +160,40 @@ cleanup() {
 }
 
 install_dts() {
-  local dts_name dtb_name
+  local dst_dir="$KERNEL_DIR/arch/arm64/boot/dts/qcom"
 
-  dts_name="$(basename "$DTS_FILE")"
-  dtb_name="${dts_name%.dts}.dtb"
+  echo "-- Installing DTS/DTSI files --"
 
-  echo "-- Installing DTS $dts_name --"
-  cp "$DTS_FILE" "$KERNEL_DIR/arch/arm64/boot/dts/qcom/"
+  cp "$COMMON_DTSI" "$dst_dir/"
+  for dts in "${DTS_FILES[@]}"; do
+    cp "$dts" "$dst_dir/"
+  done
 }
 
 # Run build inside container
-docker exec -u "$(id -u):$(id -g)" $CONTAINER_ID bash -c "set -e; export BASE_DEFCONFIG='$BASE_DEFCONFIG' CONFIG_FRAGMENT='$CONFIG_FRAGMENT' DTS_FILE='$DTS_FILE' DIR=$DIR TOOLS=$TOOLS KERNEL_DIR=$KERNEL_DIR PATCHES_DIR=$PATCHES_DIR TMP_DIR=$TMP_DIR OUT_DIR=$OUT_DIR BOOT_IMG=$BOOT_IMG DTB=$DTB; $(declare -f apply_patches build_kernel clean_kernel_tree install_dts); build_kernel"
+docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash <<EOF
+set -e
+
+BASE_DEFCONFIG='$BASE_DEFCONFIG'
+CONFIG_FRAGMENT='$CONFIG_FRAGMENT'
+COMMON_DTSI='$COMMON_DTSI'
+DIR='$DIR'
+TOOLS='$TOOLS'
+KERNEL_DIR='$KERNEL_DIR'
+PATCHES_DIR='$PATCHES_DIR'
+TMP_DIR='$TMP_DIR'
+OUT_DIR='$OUT_DIR'
+BOOT_IMG='$BOOT_IMG'
+
+DTS_FILES=(
+  '${DTS_FILES[0]}'
+  '${DTS_FILES[1]}'
+)
+
+$(declare -f apply_patches)
+$(declare -f build_kernel)
+$(declare -f clean_kernel_tree)
+$(declare -f install_dts)
+
+build_kernel
+EOF
