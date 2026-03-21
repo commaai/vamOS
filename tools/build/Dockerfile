@@ -69,9 +69,6 @@ RUN cd /tmp/vamos/uv && \
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
 
-# USB scripts expect /sbin/usb but files are in /usr/bin/usb
-RUN ln -sf /usr/bin/usb /sbin/usb
-
 # Fix ownership on home directory (overlay COPY runs as root)
 RUN chown -R comma:comma /home/comma
 # Void's default .bashrc doesn't source .bash_aliases
@@ -84,7 +81,7 @@ RUN for svc in \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
-  irsc_util leprop usb adsp cdsp \
+  irsc_util leprop adsp cdsp \
   rmt_storage init_mss pdmapper tftp_server \
   comma modemmanager magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \

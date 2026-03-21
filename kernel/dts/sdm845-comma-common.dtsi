@@ -366,3 +366,26 @@
 	vdda-phy-max-microamp = <62900>;
 	vdda-pll-max-microamp = <18300>;
 };
+
+&usb_1 {
+	status = "okay";
+};
+
+&usb_1_dwc3 {
+	dr_mode = "peripheral";
+};
+
+&usb_1_hsphy {
+	status = "okay";
+
+	vdd-supply = <&vdd_qusb_hs0>;
+	vdda-phy-dpdm-supply = <&vdda_qusb_hs0_3p1>;
+	vdda-pll-supply = <&vdda_qusb_hs0_1p8>;
+};
+
+&usb_1_qmpphy {
+	status = "okay";
+
+	vdda-phy-supply = <&vdda_usb1_ss_1p2>;
+	vdda-pll-supply = <&vdda_usb1_ss_core>;
+};

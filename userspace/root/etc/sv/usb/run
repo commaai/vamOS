@@ -1,9 +1,0 @@
-#!/bin/sh
-# usb - USB gadget setup (runs once)
-exec 2>&1
-
-sv check leprop > /dev/null || exit 1
-
-# One-shot service - run once then sleep forever
-/etc/initscripts/usb start
-exec sleep infinity
