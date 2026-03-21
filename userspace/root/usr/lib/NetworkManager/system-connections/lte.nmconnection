@@ -4,6 +4,7 @@ uuid=6586fb1f-4a66-46d4-9164-0100b73750ee
 type=gsm
 permissions=
 autoconnect=true
+autoconnect-priority=-1
 autoconnect-retries=100
 metered=1
 
