@@ -1,0 +1,56 @@
+From 6904c4272c3e773f2cd6460b3f35848e67978470 Mon Sep 17 00:00:00 2001
+From: Robin Reckmann <robin.reckmann@gmail.com>
+Date: Sun, 22 Mar 2026 08:54:38 -0700
+Subject: [PATCH 5/5] Input: edt-ft5x06 - add support for FocalTech FT3367
+ touchscreen
+
+Add device data for the FocalTech FT3367 10-point multitouch controller
+as found on the comma.ai comma 4. Also switch probe type to
+PROBE_FORCE_SYNCHRONOUS to ensure the touchscreen is available at boot.
+---
+ drivers/input/touchscreen/edt-ft5x06.c | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/input/touchscreen/edt-ft5x06.c b/drivers/input/touchscreen/edt-ft5x06.c
+index bf498bd4d..50f60eb52 100644
+--- a/drivers/input/touchscreen/edt-ft5x06.c
++++ b/drivers/input/touchscreen/edt-ft5x06.c
+@@ -1475,6 +1475,10 @@ static const struct edt_i2c_chip_data edt_ft5x06_data = {
+ 	.max_support_points = 5,
+ };
+ 
++static const struct edt_i2c_chip_data edt_ft3367_data = {
++	.max_support_points = 10,
++};
++
+ static const struct edt_i2c_chip_data edt_ft5452_data = {
+ 	.max_support_points = 5,
+ };
+@@ -1503,6 +1507,7 @@ static const struct i2c_device_id edt_ft5x06_ts_id[] = {
+ 	{ .name = "edt-ft5x06", .driver_data = (long)&edt_ft5x06_data },
+ 	{ .name = "edt-ft5506", .driver_data = (long)&edt_ft5506_data },
+ 	{ .name = "ev-ft5726", .driver_data = (long)&edt_ft5506_data },
++	{ .name = "ft3367", .driver_data = (long)&edt_ft3367_data },
+ 	{ .name = "ft5452", .driver_data = (long)&edt_ft5452_data },
+ 	/* Note no edt- prefix for compatibility with the ft6236.c driver */
+ 	{ .name = "ft6236", .driver_data = (long)&edt_ft6236_data },
+@@ -1519,6 +1524,7 @@ static const struct of_device_id edt_ft5x06_of_match[] = {
+ 	{ .compatible = "edt,edt-ft5406", .data = &edt_ft5x06_data },
+ 	{ .compatible = "edt,edt-ft5506", .data = &edt_ft5506_data },
+ 	{ .compatible = "evervision,ev-ft5726", .data = &edt_ft5506_data },
++	{ .compatible = "focaltech,ft3367", .data = &edt_ft3367_data },
+ 	{ .compatible = "focaltech,ft5426", .data = &edt_ft5506_data },
+ 	{ .compatible = "focaltech,ft5452", .data = &edt_ft5452_data },
+ 	/* Note focaltech vendor prefix for compatibility with ft6236.c */
+@@ -1536,7 +1542,7 @@ static struct i2c_driver edt_ft5x06_ts_driver = {
+ 		.dev_groups = edt_ft5x06_groups,
+ 		.of_match_table = edt_ft5x06_of_match,
+ 		.pm = pm_sleep_ptr(&edt_ft5x06_ts_pm_ops),
+-		.probe_type = PROBE_PREFER_ASYNCHRONOUS,
++		.probe_type = PROBE_FORCE_SYNCHRONOUS,
+ 	},
+ 	.id_table = edt_ft5x06_ts_id,
+ 	.probe    = edt_ft5x06_ts_probe,
+-- 
+2.46.0
+
