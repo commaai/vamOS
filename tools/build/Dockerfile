@@ -145,10 +145,6 @@ RUN chmod +x /usr/local/bin/rootfs-*.sh
 COPY ./userspace/readonly_setup.sh /tmp/vamos/
 RUN /tmp/vamos/readonly_setup.sh
 
-# GPU: Mesa freedreno (replaces proprietary Qualcomm Adreno blobs)
-# raylib is rebuilt against GLVND/Mesa (-l:libEGL.so.1 -l:libGLESv2.so.2 -l:libgbm.so.1)
-# mesa-dri provides the freedreno DRI driver (msm_dri.so)
-
 # Drop non-English locales, man/doc/info pages, and xbps cache
 RUN find /usr/share/locale -maxdepth 1 -mindepth 1 ! -name en_US ! -name en -exec rm -rf {} + && \
     rm -rf /usr/share/man /usr/share/doc /usr/share/info && \
