@@ -351,17 +351,6 @@
 	status = "okay";
 };
 
-&i2c10 {
-	status = "okay";
-	clock-frequency = <100000>;
-
-	ina231@40 {
-		compatible = "ti,ina231";
-		reg = <0x40>;
-		shunt-resistor = <30000>;
-	};
-};
-
 &ufs_mem_hc {
 	status = "okay";
 
