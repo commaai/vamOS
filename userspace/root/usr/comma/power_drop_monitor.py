@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import glob
 import os
 import signal
 import time
@@ -10,22 +11,23 @@ import subprocess
 ALERT_VOLTAGE_THRESHOLD_mV = 4000
 
 def get_tlmm_base():
-  import glob
   bases = glob.glob("/sys/bus/platform/devices/3400000.pinctrl/gpio/*/base")
   if bases:
-    return int(open(bases[0]).read().strip())
+    with open(bases[0]) as f:
+      return int(f.read().strip())
   return 0
 
 TLMM_BASE = get_tlmm_base()
 
 def get_pm8998_base():
   """Find PM8998 PMIC GPIO chip base (SPMI USID 0, GPIO @ 0xc000)"""
-  import glob
   for chip in sorted(glob.glob("/sys/class/gpio/gpiochip*")):
     try:
-      label = open(os.path.join(chip, "label")).read().strip()
+      with open(os.path.join(chip, "label")) as f:
+        label = f.read().strip()
       if ("spmi" in label and "pmic@0" in label and "gpio" in label) or ("pm8998" in label and "gpio" in label):
-        return int(open(os.path.join(chip, "base")).read().strip())
+        with open(os.path.join(chip, "base")) as f:
+          return int(f.read().strip())
     except (IOError, ValueError):
       continue
   return 0
@@ -39,21 +41,21 @@ INA231_MASK_CONFIG = (1 << 12) # Bus undervoltage, not latching
 INA231_BUS_VOLTAGE_LSB_mV = 1.25
 
 def find_ina231_hwmon():
-  import glob
   for hwmon in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
     try:
-      if open(os.path.join(hwmon, "name")).read().strip() == "ina231":
-        return hwmon
+      with open(os.path.join(hwmon, "name")) as f:
+        if f.read().strip() == "ina231":
+          return hwmon
     except (IOError, ValueError):
       continue
   return None
 
 def find_ina231_i2c_bus():
-  import glob
   for dev in sorted(glob.glob("/sys/bus/i2c/devices/*-0040")):
     try:
-      if open(os.path.join(dev, "name")).read().strip() == "ina231":
-        return int(os.path.basename(dev).split("-")[0])
+      with open(os.path.join(dev, "name")) as f:
+        if f.read().strip() == "ina231":
+          return int(os.path.basename(dev).split("-")[0])
     except (IOError, ValueError):
       continue
   return 0
