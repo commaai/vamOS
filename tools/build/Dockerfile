@@ -128,9 +128,6 @@ RUN chmod 755 /etc/cron.hourly/logrotate
 RUN mkdir -p /dsp /bt_firmware /firmware && \
     chown comma:comma /dsp /bt_firmware /firmware
 
-# rmtfs storage (modem EFS, persisted across reboots)
-RUN mkdir -p /var/lib/rmtfs
-
 # /system/persist structure (copied to /data on first boot by fs_setup.sh)
 RUN mkdir -p /system/persist/hlos_rfs/shared \
              /system/persist/rfs/mdm/adsp \
