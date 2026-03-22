@@ -62,7 +62,7 @@ xbps-install -y \
   libarchive-devel \
   libcurl-devel \
   libffi-devel \
-  libgpiod \
+  libgpiod-tools \
   liblzma-devel \
   libomp-devel \
   libtool \

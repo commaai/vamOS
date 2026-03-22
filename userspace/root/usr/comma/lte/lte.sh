@@ -1,10 +1,4 @@
 #!/bin/bash
-source /usr/comma/gpio_base.sh
-
-HUB_RST_N=30
-LTE_RST_N=50
-LTE_BOOT=52
-LTE_PWRKEY=116
 
 function is_modem_up {
   if lsusb -d "0x05c6:" >/dev/null 2>&1 || lsusb -d "0x2c7c:" >/dev/null 2>&1; then
@@ -16,16 +10,16 @@ function is_modem_up {
 
 function reset {
   echo " Resetting..."
-  gpio $LTE_RST_N 1
+  gpioset -t0 LTE_RST_N=1
   sleep 1
-  gpio $LTE_RST_N 0
+  gpioset -t0 LTE_RST_N=0
 }
 
 function power_button {
   echo " Pulsing power button..."
-  gpio $LTE_PWRKEY 1
+  gpioset -t0 LTE_PWRKEY=1
   sleep 1
-  gpio $LTE_PWRKEY 0
+  gpioset -t0 LTE_PWRKEY=0
 }
 
 function is_online {
@@ -61,7 +55,7 @@ function is_offline {
 }
 
 # Boot into the regular mode
-gpio $LTE_BOOT 0
+gpioset -t0 LTE_BOOT=0
 
 case "$1" in
   start)

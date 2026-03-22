@@ -1,4 +1,4 @@
 #!/bin/sh
 # One-shot service - run once then sleep forever
-/usr/comma/gpio.sh
+/usr/comma/usb_hub_gpio.sh
 exec sleep infinity
