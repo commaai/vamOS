@@ -19,10 +19,24 @@ RUN apk add --no-cache \
     git \
     libcap \
     linux-headers \
+    lz4-dev \
     openssl \
     openssl-dev \
     perl \
-    python3
+    python3 \
+    util-linux-dev \
+    xz-dev
+
+# Build erofs-utils from source (not packaged in Alpine)
+RUN git clone https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git /tmp/erofs-utils \
+    && cd /tmp/erofs-utils \
+    && git checkout v1.8.5 \
+    && apk add --no-cache autoconf automake libtool \
+    && autoreconf -fi \
+    && ./configure --enable-lz4 --enable-lzma --disable-fuse \
+    && make -j$(nproc) \
+    && make install \
+    && rm -rf /tmp/erofs-utils
 
 # Cross-compiler for x86_64 hosts building aarch64 kernel
 # gcc-aarch64-none-elf is bare-metal but works for kernel (freestanding code)
