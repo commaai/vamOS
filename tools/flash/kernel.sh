@@ -25,5 +25,3 @@ else
   fi
   tools/bin/qdl flash boot "$BOOT_IMG"
 fi
-
-tools/bin/qdl reset
