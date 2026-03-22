@@ -1,0 +1,38 @@
+From 33151966779ce3c8a43a6542f82ec057f69707e2 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Sat, 21 Mar 2026 21:36:54 -0700
+Subject: [PATCH 3/3] clk: qcom: dispcc-sdm845: use no_init_park ops for
+ display clocks
+
+Use clk_rcg2_shared_no_init_park_ops for MDP and rotation clock
+sources to preserve the bootloader's display clock configuration
+during kernel init, avoiding display artifacts during handoff.
+---
+ drivers/clk/qcom/dispcc-sdm845.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/clk/qcom/dispcc-sdm845.c b/drivers/clk/qcom/dispcc-sdm845.c
+index 2f9e9665d..94d6ea5f3 100644
+--- a/drivers/clk/qcom/dispcc-sdm845.c
++++ b/drivers/clk/qcom/dispcc-sdm845.c
+@@ -266,7 +266,7 @@ static struct clk_rcg2 disp_cc_mdss_mdp_clk_src = {
+ 		.name = "disp_cc_mdss_mdp_clk_src",
+ 		.parent_data = disp_cc_parent_data_3,
+ 		.num_parents = ARRAY_SIZE(disp_cc_parent_data_3),
+-		.ops = &clk_rcg2_shared_ops,
++		.ops = &clk_rcg2_shared_no_init_park_ops,
+ 	},
+ };
+ 
+@@ -319,7 +319,7 @@ static struct clk_rcg2 disp_cc_mdss_rot_clk_src = {
+ 		.name = "disp_cc_mdss_rot_clk_src",
+ 		.parent_data = disp_cc_parent_data_3,
+ 		.num_parents = ARRAY_SIZE(disp_cc_parent_data_3),
+-		.ops = &clk_rcg2_shared_ops,
++		.ops = &clk_rcg2_shared_no_init_park_ops,
+ 	},
+ };
+ 
+-- 
+2.46.0
+
