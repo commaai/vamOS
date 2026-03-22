@@ -67,8 +67,8 @@ RUN cd /tmp/vamos/uv && \
     uv sync --frozen --inexact
 
 # Install firmware from upstream linux-firmware (ath10k WiFi + modem)
-COPY ./firmware/linux-firmware/ath10k/WCN3990/hw1.0 /lib/firmware/ath10k/WCN3990/hw1.0
-COPY ./firmware/linux-firmware/qcom/sdm845 /lib/firmware/qcom/sdm845
+COPY ./kernel/firmware/ath10k/WCN3990/hw1.0 /lib/firmware/ath10k/WCN3990/hw1.0
+COPY ./kernel/firmware/qcom/sdm845 /lib/firmware/qcom/sdm845
 RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sdm845/wlanmdsp.mbn
 
 # Root filesystem overlay — all userspace files at their final paths
