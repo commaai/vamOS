@@ -1,7 +1,7 @@
 From 3a17e6b748137cce7b0d6ed41b16cfa0d2e92397 Mon Sep 17 00:00:00 2001
-From: Trey Moen <trey@moen.ai>
+From: Robin Reckmann <robin.reckmann@gmail.com>
 Date: Sat, 21 Mar 2026 21:36:54 -0700
-Subject: [PATCH 2/3] drm/panel: add Samsung EA8074 DSI command mode panel
+Subject: drm/panel: add Samsung EA8074 DSI command mode panel
  driver
 
 Add support for the Samsung EA8074 1080x2160 AMOLED DSI command mode
