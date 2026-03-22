@@ -1,8 +1,13 @@
 #!/bin/bash
 
+# Get TLMM GPIO chip base
+TLMM_BASE=$(cat /sys/bus/platform/devices/3400000.pinctrl/gpio/*/base 2>/dev/null | head -1)
+TLMM_BASE=${TLMM_BASE:-0}
+
 function gpio {
-  echo "out" > /sys/class/gpio/gpio$1/direction
-  echo $2 > /sys/class/gpio/gpio$1/value
+  local pin=$((TLMM_BASE + $1))
+  echo "out" > /sys/class/gpio/gpio$pin/direction
+  echo $2 > /sys/class/gpio/gpio$pin/value
 }
 
 HUB_RST_N=30

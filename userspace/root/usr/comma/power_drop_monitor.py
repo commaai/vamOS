@@ -9,14 +9,58 @@ import subprocess
 
 ALERT_VOLTAGE_THRESHOLD_mV = 4000
 
-POWER_ALERT_GPIO_PIN = 1264
-INA231_BUS = 0
+def get_tlmm_base():
+  import glob
+  bases = glob.glob("/sys/bus/platform/devices/3400000.pinctrl/gpio/*/base")
+  if bases:
+    return int(open(bases[0]).read().strip())
+  return 0
+
+TLMM_BASE = get_tlmm_base()
+
+def get_pm8998_base():
+  """Find PM8998 PMIC GPIO chip base (SPMI USID 0, GPIO @ 0xc000)"""
+  import glob
+  for chip in sorted(glob.glob("/sys/class/gpio/gpiochip*")):
+    try:
+      label = open(os.path.join(chip, "label")).read().strip()
+      if ("spmi" in label and "pmic@0" in label and "gpio" in label) or ("pm8998" in label and "gpio" in label):
+        return int(open(os.path.join(chip, "base")).read().strip())
+    except (IOError, ValueError):
+      continue
+  return 0
+
+PM8998_BASE = get_pm8998_base()
+POWER_ALERT_GPIO_PIN = PM8998_BASE + 3  # PM8998_GPIO4 (0-indexed offset 3)
 INA231_ADDRESS = 0x40
 INA231_MASK_REG = 0x06
 INA231_LIMIT_REG = 0x07
 INA231_MASK_CONFIG = (1 << 12) # Bus undervoltage, not latching
 INA231_BUS_VOLTAGE_LSB_mV = 1.25
-VOLTAGE_FILE = "/sys/class/hwmon/hwmon1/in1_input"
+
+def find_ina231_hwmon():
+  import glob
+  for hwmon in sorted(glob.glob("/sys/class/hwmon/hwmon*")):
+    try:
+      if open(os.path.join(hwmon, "name")).read().strip() == "ina231":
+        return hwmon
+    except (IOError, ValueError):
+      continue
+  return None
+
+def find_ina231_i2c_bus():
+  import glob
+  for dev in sorted(glob.glob("/sys/bus/i2c/devices/*-0040")):
+    try:
+      if open(os.path.join(dev, "name")).read().strip() == "ina231":
+        return int(os.path.basename(dev).split("-")[0])
+    except (IOError, ValueError):
+      continue
+  return 0
+
+INA231_BUS = find_ina231_i2c_bus()
+INA231_HWMON = find_ina231_hwmon()
+VOLTAGE_FILE = os.path.join(INA231_HWMON, "in1_input") if INA231_HWMON else "/sys/class/hwmon/hwmon1/in1_input"
 PARAM_FILE = "/data/params/d/LastPowerDropDetected"
 COMMA_CGROUP_PROCS = "/sys/fs/cgroup/comma/cgroup.procs"
 COMMA_SV_CONTROL = "/run/runit/service/comma/supervise/control"
@@ -51,8 +95,10 @@ def read_voltage_mV():
   with open(VOLTAGE_FILE, "r") as f:
     return int(f.read().strip())
 
+CURRENT_FILE = os.path.join(INA231_HWMON, "curr1_input") if INA231_HWMON else "/sys/class/hwmon/hwmon1/curr1_input"
+
 def read_current_mA():
-  with open("/sys/class/hwmon/hwmon1/curr1_input", "r") as f:
+  with open(CURRENT_FILE, "r") as f:
     return int(f.read().strip())
 
 def update_param(stage, v_initial, i_initial, v_final, i_final):
@@ -107,8 +153,9 @@ def perform_controlled_shutdown():
   # SIGKILL all processes in the comma cgroup (comma/run puts all openpilot procs in this cgroup)
   [os.kill(int(p), signal.SIGKILL) for p in open(COMMA_CGROUP_PROCS).read().split() if p.strip()]
   # Tell panda SoC is off so it doesn't spin up the fan
-  write_once("/sys/class/gpio/gpio49/direction", "out")
-  write_once("/sys/class/gpio/gpio49/value", "0")
+  som_st_io = TLMM_BASE + 49
+  write_once(f"/sys/class/gpio/gpio{som_st_io}/direction", "out")
+  write_once(f"/sys/class/gpio/gpio{som_st_io}/value", "0")
   # Wait for all processes to fully exit before syncing (kernel resource cleanup takes ~150-400ms)
   while open(COMMA_CGROUP_PROCS).read().strip():
     time.sleep(0.001)
