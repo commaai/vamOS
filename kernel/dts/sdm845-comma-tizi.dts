@@ -8,3 +8,14 @@
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 };
+
+&i2c10 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	ina231@40 {
+		compatible = "ti,ina231";
+		reg = <0x40>;
+		shunt-resistor = <30000>;
+	};
+};
