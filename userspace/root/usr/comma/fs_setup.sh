@@ -17,6 +17,9 @@ chmod 1777 /var/tmp
 mkdir -p /var/lib/logrotate
 chmod 0755 /var/lib/logrotate
 
+mkdir -p /var/lib/rmtfs
+chmod 0755 /var/lib/rmtfs
+
 mkdir -p /var/spool/cron/atjobs
 chmod 0755 /var/spool /var/spool/cron /var/spool/cron/atjobs
 

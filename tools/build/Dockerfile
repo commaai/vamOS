@@ -66,6 +66,11 @@ RUN cd /tmp/vamos/uv && \
     MAKEFLAGS="-j$(nproc)" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
     uv sync --frozen --inexact
 
+# Install firmware from upstream linux-firmware (ath10k WiFi + modem)
+COPY ./firmware/linux-firmware/ath10k/WCN3990/hw1.0 /lib/firmware/ath10k/WCN3990/hw1.0
+COPY ./firmware/linux-firmware/qcom/sdm845 /lib/firmware/qcom/sdm845
+RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sdm845/wlanmdsp.mbn
+
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
 
@@ -82,10 +87,10 @@ RUN for svc in \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
   irsc_util leprop adsp cdsp \
-  rmt_storage init_mss pdmapper tftp_server \
+  qrtr-ns rmtfs tqftpserv pd-mapper \
   comma modemmanager magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
-  rsyslogd iptables cnss_daemon polkitd \
+  rsyslogd iptables polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
   done
@@ -123,6 +128,9 @@ RUN chmod 755 /etc/cron.hourly/logrotate
 RUN mkdir -p /dsp /bt_firmware /firmware && \
     chown comma:comma /dsp /bt_firmware /firmware
 
+# rmtfs storage (modem EFS, persisted across reboots)
+RUN mkdir -p /var/lib/rmtfs
+
 # /system/persist structure (copied to /data on first boot by fs_setup.sh)
 RUN mkdir -p /system/persist/hlos_rfs/shared \
              /system/persist/rfs/mdm/adsp \
@@ -134,9 +142,7 @@ RUN mkdir -p /system/persist/hlos_rfs/shared \
 # Prefer ipv4 over ipv6
 RUN echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
 
-# Compatibility symlinks for Qualcomm binaries and prebuilt wheels
-# pdmappersvc needs libjson-c.so.2 but Void has libjson-c.so.5
-RUN ln -sf /usr/lib/libjson-c.so.5 /usr/lib/libjson-c.so.2
+# Compatibility symlinks for prebuilt wheels
 # raylib wheel needs libffi.so.6 but Void has newer version
 RUN ln -sf $(ls /usr/lib/libffi.so.* 2>/dev/null | grep -v '.so.6' | head -1) /usr/lib/libffi.so.6
 

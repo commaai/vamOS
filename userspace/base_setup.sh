@@ -87,6 +87,12 @@ xbps-install -y \
   squashfs-tools \
   tmux \
   traceroute \
+  iw \
+  qrtr-ns \
+  rmtfs \
+  tqftpserv \
+  pd-mapper \
+  wireless-regdb \
   wireless_tools \
   wpa_supplicant \
   zlib-devel \

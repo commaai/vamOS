@@ -371,7 +371,7 @@
 
 &mss_pil {
 	status = "okay";
-	firmware-name = "mba.mbn", "modem.mdt";
+	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem_nm.mbn";
 };
 
 &wifi {

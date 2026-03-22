@@ -2,6 +2,7 @@
 build
 !build/downloads
 firmware
+!firmware/linux-firmware
 kernel
 output
 
