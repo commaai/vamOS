@@ -70,6 +70,7 @@ xbps-install -y \
   llvm \
   logrotate \
   lz4 \
+  mesa-dri \
   nano \
   ncurses-devel \
   net-tools \

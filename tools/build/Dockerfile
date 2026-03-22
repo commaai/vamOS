@@ -32,13 +32,6 @@ RUN cd /tmp/vamos/irsc_util && \
     gcc -Wall -O2 -o /usr/bin/irsc_util irsc_util.c && \
     rm -rf /tmp/vamos/irsc_util
 
-# libqmi, ModemManager are from Void repos (in base_setup.sh)
-# lpac, qt, weston, gcc-arm-none-eabi - removed, now vendored via commaai/dependencies
-
-# Mesa DRI drivers (freedreno for Qualcomm Adreno GPU)
-# Required for EGL/GBM to work with the display
-RUN yes | xbps-install -Sy mesa-dri
-
 # Extra packages (nice-to-haves for development)
 RUN xbps-install -y \
   bash-completion \
