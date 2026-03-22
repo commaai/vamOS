@@ -380,17 +380,6 @@
 	vdda-pll-max-microamp = <18300>;
 };
 
-&i2c10 {
-	status = "okay";
-	clock-frequency = <100000>;
-
-	ina231@40 {
-		compatible = "ti,ina231";
-		reg = <0x40>;
-		shunt-resistor = <30000>;
-	};
-};
-
 &mss_pil {
 	status = "okay";
 	firmware-name = "mba.mbn", "modem.mdt";
