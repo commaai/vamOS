@@ -1,9 +1,5 @@
 #!/bin/bash
-
-function gpio {
-  echo "out" > /sys/class/gpio/gpio$1/direction
-  echo $2 > /sys/class/gpio/gpio$1/value
-}
+source /usr/comma/gpio_base.sh
 
 pins=(
 # 27  # SW_3V3_EN
@@ -19,11 +15,21 @@ pins=(
 33  # GPS_SAFEBOOT_N
 32  # GPS_RST_N
 52  # LTE_BOOT
-1264  # POWER ALERT
 )
 
+# PM8998 GPIO4 = INA231 POWER ALERT (not a TLMM pin, separate GPIO chip)
+if [ "$PM8998_BASE" -gt 0 ]; then
+  POWER_ALERT_PIN=$((PM8998_BASE + 3))
+  echo "POWER_ALERT (gpio$POWER_ALERT_PIN)"
+  echo $POWER_ALERT_PIN > /sys/class/gpio/export
+  until [ -d /sys/class/gpio/gpio$POWER_ALERT_PIN ]; do sleep .05; done
+  chown root:gpio /sys/class/gpio/gpio$POWER_ALERT_PIN/direction /sys/class/gpio/gpio$POWER_ALERT_PIN/value 2>/dev/null
+  chmod 660 /sys/class/gpio/gpio$POWER_ALERT_PIN/direction /sys/class/gpio/gpio$POWER_ALERT_PIN/value 2>/dev/null
+fi
+
 for p in ${pins[@]}; do
-  echo $p
+  pin=$((TLMM_BASE + p))
+  echo "$p (gpio$pin)"
 
   # this is SSD_3v3 EN on tici
   if [ "$p" -eq 41 ] && grep -q "comma tici" /sys/firmware/devicetree/base/model; then
@@ -31,15 +37,15 @@ for p in ${pins[@]}; do
     continue
   fi
 
-  echo $p > /sys/class/gpio/export
-  until [ -d /sys/class/gpio/gpio$p ]
+  echo $pin > /sys/class/gpio/export
+  until [ -d /sys/class/gpio/gpio$pin ]
   do
     sleep .05
   done
   # eudev doesn't apply GROUP/MODE from udev rules to sysfs GPIO files
   # like systemd-udevd does, so set permissions manually after export
-  chown root:gpio /sys/class/gpio/gpio$p/direction /sys/class/gpio/gpio$p/value 2>/dev/null
-  chmod 660 /sys/class/gpio/gpio$p/direction /sys/class/gpio/gpio$p/value 2>/dev/null
+  chown root:gpio /sys/class/gpio/gpio$pin/direction /sys/class/gpio/gpio$pin/value 2>/dev/null
+  chmod 660 /sys/class/gpio/gpio$pin/direction /sys/class/gpio/gpio$pin/value 2>/dev/null
 done
 
 
