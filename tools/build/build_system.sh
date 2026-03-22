@@ -10,7 +10,7 @@ cd "$DIR"
 
 DOWNLOADS_DIR="$DIR/build/downloads"
 VOID_ROOTFS_FILE="$DOWNLOADS_DIR/void-aarch64-ROOTFS-20250202.tar.xz"
-BUILD_DIR="$DIR/build/tmp"
+BUILD_DIR="$DIR/build/tmp-system"
 OUTPUT_DIR="$DIR/build"
 
 ROOTFS_DIR="$BUILD_DIR/void-rootfs"
