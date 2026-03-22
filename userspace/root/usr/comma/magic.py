@@ -50,13 +50,26 @@ def updater_weston():
       except Exception:
         pass
 
+def find_backlight():
+  bl_dir = "/sys/class/backlight"
+  try:
+    entries = os.listdir(bl_dir)
+  except OSError:
+    return None
+  for name in entries:
+    return os.path.join(bl_dir, name)
+  return None
+
 def power_screen():
   try:
-    with open("/sys/class/backlight/panel0-backlight/bl_power", "w") as f:
+    bl = find_backlight()
+    if not bl:
+      return
+    with open(os.path.join(bl, "bl_power"), "w") as f:
       f.write("0")
-    with open("/sys/class/backlight/panel0-backlight/max_brightness") as f:
+    with open(os.path.join(bl, "max_brightness")) as f:
       max_brightness = int((int(f.read().strip()) / 100) * 65)
-    with open("/sys/class/backlight/panel0-backlight/brightness", "w") as f:
+    with open(os.path.join(bl, "brightness"), "w") as f:
       f.write(str(max_brightness))
   except Exception:
     pass

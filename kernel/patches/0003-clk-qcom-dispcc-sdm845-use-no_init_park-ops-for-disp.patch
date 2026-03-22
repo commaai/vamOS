@@ -1,7 +1,7 @@
 From 33151966779ce3c8a43a6542f82ec057f69707e2 Mon Sep 17 00:00:00 2001
-From: Robin Reckmann <robin.reckmann@gmail.com>
+From: Trey Moen <trey@moen.ai>
 Date: Sat, 21 Mar 2026 21:36:54 -0700
-Subject: clk: qcom: dispcc-sdm845: use no_init_park ops for
+Subject: [PATCH 3/3] clk: qcom: dispcc-sdm845: use no_init_park ops for
  display clocks
 
 Use clk_rcg2_shared_no_init_park_ops for MDP and rotation clock

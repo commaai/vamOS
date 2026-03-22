@@ -12,4 +12,4 @@ mkdir -p /data/misc/display
 echo 0 > /data/misc/display/sdm_dbg_cfg.txt 2>/dev/null || true
 echo 0 > /data/misc/display/gbm_dbg_cfg.txt 2>/dev/null || true
 
-exec chpst -u comma:comma:gpu:video /usr/local/venv/bin/python -u /usr/comma/magic.py
+exec /usr/local/venv/bin/python -u /usr/comma/magic.py
