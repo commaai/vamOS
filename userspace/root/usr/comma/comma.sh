@@ -61,7 +61,7 @@ if [ ! -f /tmp/booted ]; then
     echo "launching system reset, reset trigger present"
     rm -f $RESET_TRIGGER
     $RESET
-  elif (( "$(cat /sys/class/input/input2/device/touch_count)" > 4 )); then
+  elif (( "$(cat /sys/class/input/input0/device/touch_count)" > 4 )); then
     echo "launching system reset, got taps"
     $RESET --tap-reset
   elif ! mountpoint -q /data; then
