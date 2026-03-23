@@ -137,6 +137,9 @@ RUN echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
 RUN ln -sf /usr/lib/libjson-c.so.5 /usr/lib/libjson-c.so.2
 # raylib wheel needs libffi.so.6 but Void has newer version
 RUN ln -sf $(ls /usr/lib/libffi.so.* 2>/dev/null | grep -v '.so.6' | head -1) /usr/lib/libffi.so.6
+# TODO: remove once no more openpilot libraries build against the _adreno names
+RUN ln -sf /usr/lib/libGLESv2.so.2 /usr/lib/libGLESv2_adreno.so && \
+    ln -sf /usr/lib/libEGL.so.1 /usr/lib/libEGL_adreno.so
 
 # ldconfig
 RUN ldconfig
