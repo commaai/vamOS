@@ -3,6 +3,7 @@ build
 !build/downloads
 firmware
 kernel
+!kernel/firmware
 output
 
 **/.DS_Store
