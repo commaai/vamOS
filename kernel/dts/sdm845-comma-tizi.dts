@@ -14,6 +14,7 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pm8998_gpios 10 0>;
+		enable-active-high;
 	};
 };
 
@@ -47,6 +48,10 @@
 &mdss_dsi0_phy {
 	status = "okay";
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
+};
+
+&qupv3_id_0 {
+	status = "okay";
 };
 
 &i2c5 {
@@ -60,38 +65,6 @@
 		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
 		vdd-supply = <&tp3v3>;
 	};
-};
-
-&mdss {
-	status = "okay";
-};
-
-&mdss_dsi0 {
-	status = "okay";
-	vdda-supply = <&vdda_mipi_dsi0_1p2>;
-
-	panel@0 {
-		compatible = "samsung,ea8074";
-		reg = <0>;
-		vddio-supply = <&vreg_l14a_1p88>;
-		reset-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
-
-		port {
-			panel_in: endpoint {
-				remote-endpoint = <&mdss_dsi0_out>;
-			};
-		};
-	};
-};
-
-&mdss_dsi0_out {
-	remote-endpoint = <&panel_in>;
-	data-lanes = <0 1 2 3>;
-};
-
-&mdss_dsi0_phy {
-	status = "okay";
-	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
 
 &i2c10 {
