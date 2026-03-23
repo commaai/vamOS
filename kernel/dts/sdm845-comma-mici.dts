@@ -3,7 +3,7 @@
 #include "sdm845-comma-common.dtsi"
 
 / {
-	model = "comma.ai mici";
+	model = "comma mici";
 	compatible = "comma,mici", "qcom,sdm845";
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x22 0>;
