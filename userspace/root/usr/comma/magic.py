@@ -122,6 +122,7 @@ def main():
 
   server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
   server.bind(SOCK_PATH)
+  os.chmod(SOCK_PATH, 0o777)
   server.settimeout(0.1)
   server.listen(1)
 
