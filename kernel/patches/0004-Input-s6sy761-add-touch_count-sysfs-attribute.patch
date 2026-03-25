@@ -1,0 +1,41 @@
+diff --git a/drivers/input/touchscreen/s6sy761.c b/drivers/input/touchscreen/s6sy761.c
+index e1518a75a..2d38133d9 100644
+--- a/drivers/input/touchscreen/s6sy761.c
++++ b/drivers/input/touchscreen/s6sy761.c
+@@ -108,6 +108,8 @@ struct s6sy761_data {
+ 
+ 	u16 devid;
+ 	u8 tx_channel;
++
++	u64 touch_count;
+ };
+ 
+ /*
+@@ -165,6 +167,7 @@ static void s6sy761_report_release(struct s6sy761_data *sdata,
+ {
+ 	input_mt_slot(sdata->input, tid);
+ 	input_mt_report_slot_state(sdata->input, MT_TOOL_FINGER, false);
++	sdata->touch_count++;
+ 
+ 	input_sync(sdata->input);
+ }
+@@ -282,8 +285,19 @@ static ssize_t s6sy761_sysfs_devid(struct device *dev,
+ 
+ static DEVICE_ATTR(devid, 0444, s6sy761_sysfs_devid, NULL);
+ 
++static ssize_t s6sy761_sysfs_touch_count(struct device *dev,
++				struct device_attribute *attr, char *buf)
++{
++	struct s6sy761_data *sdata = dev_get_drvdata(dev);
++
++	return sprintf(buf, "%llu\n", sdata->touch_count);
++}
++
++static DEVICE_ATTR(touch_count, 0444, s6sy761_sysfs_touch_count, NULL);
++
+ static struct attribute *s6sy761_sysfs_attrs[] = {
+ 	&dev_attr_devid.attr,
++	&dev_attr_touch_count.attr,
+ 	NULL
+ };
+ ATTRIBUTE_GROUPS(s6sy761_sysfs);
