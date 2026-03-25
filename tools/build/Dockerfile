@@ -35,9 +35,11 @@ RUN cd /tmp/vamos/irsc_util && \
 # libqmi, ModemManager are from Void repos (in base_setup.sh)
 # lpac, qt, weston, gcc-arm-none-eabi - removed, now vendored via commaai/dependencies
 
-# Mesa DRI drivers (freedreno for Qualcomm Adreno GPU)
-# Required for EGL/GBM to work with the display
-RUN yes | xbps-install -Sy mesa-dri
+# Build EDL reboot helper
+COPY ./userspace/reboot_edl/reboot_edl.c /tmp/vamos/reboot_edl.c
+RUN mkdir -p /usr/local/libexec && \
+    gcc -Wall -Wextra -Werror -O2 -o /usr/local/libexec/reboot-edl /tmp/vamos/reboot_edl.c && \
+    rm /tmp/vamos/reboot_edl.c
 
 # Extra packages (nice-to-haves for development)
 RUN xbps-install -y \
@@ -91,8 +93,8 @@ RUN for svc in \
   qrtr-ns rmtfs tqftpserv pd-mapper \
   comma modemmanager bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
-  rsyslogd nftables polkitd \
-  agetty-ttyMSM0 agetty-ttyAMA0; do \
+  rsyslogd nftables cnss_daemon polkitd \
+  sshd agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
   done
 
@@ -136,9 +138,14 @@ RUN mkdir -p /system/persist/hlos_rfs/shared \
 # Prefer ipv4 over ipv6
 RUN echo "precedence ::ffff:0:0/96 100" >> /etc/gai.conf
 
-# Compatibility symlinks for prebuilt wheels
+# Compatibility symlinks
+# pdmappersvc needs libjson-c.so.2 but Void has libjson-c.so.5
+RUN ln -sf /usr/lib/libjson-c.so.5 /usr/lib/libjson-c.so.2
 # raylib wheel needs libffi.so.6 but Void has newer version
 RUN ln -sf $(ls /usr/lib/libffi.so.* 2>/dev/null | grep -v '.so.6' | head -1) /usr/lib/libffi.so.6
+# TODO: remove once no more openpilot libraries build against the _adreno names
+RUN ln -sf /usr/lib/libGLESv2.so.2 /usr/lib/libGLESv2_adreno.so && \
+    ln -sf /usr/lib/libEGL.so.1 /usr/lib/libEGL_adreno.so
 
 # ldconfig
 RUN ldconfig
@@ -153,29 +160,6 @@ RUN chmod +x /usr/local/bin/rootfs-*.sh
 # Read-only rootfs setup
 COPY ./userspace/readonly_setup.sh /tmp/vamos/
 RUN /tmp/vamos/readonly_setup.sh
-
-# TODO: Remove Qualcomm GPU blobs by rebuilding pyray/raylib against Mesa
-# Currently raylib is compiled directly against libEGL_adreno.so/libGLESv2_adreno.so
-# To use open-source Mesa freedreno instead:
-#   1. Rebuild pyray wheel linking against GLVND (-lEGL -lGLESv2) not Adreno directly
-#   2. Remove display blobs (userspace/root/usr/lib/)
-#   3. Keep mesa-dri package (provides freedreno via msm_dri.so)
-# This would eliminate all proprietary GPU dependencies
-
-# Fix EGL/GBM library symlinks for Adreno GPU
-# openpilot accesses eglCreateImageKHR from libEGL.so via cffi, but glvnd doesn't
-# export extension functions (must use eglGetProcAddress). Bypass glvnd dispatcher.
-# Old: just symlinked to glvnd (libEGL.so.1.1.0 from mesa)
-#   ln -sf libEGL.so.1.1.0 /usr/lib/libEGL.so
-# New: replace glvnd with libEGL_adreno.so which exports eglCreateImageKHR
-# Also replace libwayland-egl with Qualcomm's version (has WlEglWindow* symbols)
-RUN cp /usr/lib/libEGL_adreno.so /usr/lib/libEGL.so.1.1.0 && \
-    ln -sf libEGL.so.1.1.0 /usr/lib/libEGL.so && \
-    ln -sf libEGL.so.1.1.0 /usr/lib/libEGL.so.1 && \
-    rm -f /usr/lib/libEGL.so.1.0 /usr/lib/libEGL.so.1.0.0 && \
-    rm -f /usr/lib/libwayland-egl.so.1 /usr/lib/libwayland-egl.so.1.* && \
-    cp /usr/lib/libwayland-egl-qcom.so /usr/lib/libwayland-egl.so.1 && \
-    ln -sf libwayland-egl.so.1 /usr/lib/libwayland-egl.so
 
 # Drop non-English locales, man/doc/info pages, and xbps cache
 RUN find /usr/share/locale -maxdepth 1 -mindepth 1 ! -name en_US ! -name en -exec rm -rf {} + && \
