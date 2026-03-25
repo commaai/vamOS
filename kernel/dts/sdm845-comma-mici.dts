@@ -22,7 +22,7 @@
 
 &mdss_dsi0 {
 	panel@0 {
-		compatible = "comma,bantian";
+		compatible = "dwo,do0200fat07";
 
 		reg = <0>;
 

@@ -1,55 +1,55 @@
-From 1ac4bef4039ea01e8ab0e1e75fdbe22cf00f584f Mon Sep 17 00:00:00 2001
+From afef331e1a2be2ef2f4f25ee9dfc711aadb5f2b8 Mon Sep 17 00:00:00 2001
 From: Robin Reckmann <robin.reckmann@gmail.com>
-Date: Tue, 24 Mar 2026 22:06:22 +0900
-Subject: drm/panel: add comma bantian panel driver
+Date: Thu, 26 Mar 2026 00:24:06 +0900
+Subject: drm/panel: add dwo do0200fat07 panel driver
 
-Add support for the comma bantian 240x536 panel found on the comma four.
+Add support for the dwo do0200fat07 240x536 panel found on the comma mici.
 ---
- drivers/gpu/drm/panel/Kconfig               |  10 +
- drivers/gpu/drm/panel/Makefile              |   1 +
- drivers/gpu/drm/panel/panel-comma-bantian.c | 320 ++++++++++++++++++++
- 3 files changed, 331 insertions(+)
- create mode 100644 drivers/gpu/drm/panel/panel-comma-bantian.c
+ drivers/gpu/drm/panel/Kconfig                 |  10 +
+ drivers/gpu/drm/panel/Makefile                |   1 +
+ drivers/gpu/drm/panel/panel-dwo-do0200fat07.c | 333 ++++++++++++++++++
+ 3 files changed, 344 insertions(+)
+ create mode 100644 drivers/gpu/drm/panel/panel-dwo-do0200fat07.c
 
 diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
-index 407c5f6a2..fd931a2dc 100644
+index 407c5f6a2..e1b9fe7a0 100644
 --- a/drivers/gpu/drm/panel/Kconfig
 +++ b/drivers/gpu/drm/panel/Kconfig
 @@ -105,6 +105,16 @@ config DRM_PANEL_BOE_TV101WUM_LL2
  	  Say Y here if you want to support for BOE TV101WUM-LL2
  	  WUXGA PANEL DSI Video Mode panel
  
-+config DRM_PANEL_COMMA_BANTIAN
-+   tristate "COMMA BANTIAN panel"
++config DRM_PANEL_DWO_DO0200FAT07
++   tristate "DWO DO0200FAT07 panel"
 +   depends on OF
 +   depends on DRM_MIPI_DSI
 +   depends on BACKLIGHT_CLASS_DEVICE
 +   select VIDEOMODE_HELPERS
 +   help
-+     Say Y here if you want to enable support for the COMMA BANTIAN
++     Say Y here if you want to enable support for the DWo DO0200FAT07
 +     panel.
 +
  config DRM_PANEL_EBBG_FT8719
  	tristate "EBBG FT8719 panel driver"
  	depends on OF
 diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
-index 3615a761b..a2eeb1d32 100644
+index 3615a761b..22c99d088 100644
 --- a/drivers/gpu/drm/panel/Makefile
 +++ b/drivers/gpu/drm/panel/Makefile
 @@ -9,6 +9,7 @@ obj-$(CONFIG_DRM_PANEL_BOE_TD4320) += panel-boe-td4320.o
  obj-$(CONFIG_DRM_PANEL_BOE_TH101MB31UIG002_28A) += panel-boe-th101mb31ig002-28a.o
  obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_LL2) += panel-boe-tv101wum-ll2.o
  obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_NL6) += panel-boe-tv101wum-nl6.o
-+obj-$(CONFIG_DRM_PANEL_COMMA_BANTIAN) += panel-comma-bantian.o
++obj-$(CONFIG_DRM_PANEL_DWO_DO0200FAT07) += panel-dwo-do0200fat07.o
  obj-$(CONFIG_DRM_PANEL_DSI_CM) += panel-dsi-cm.o
  obj-$(CONFIG_DRM_PANEL_LVDS) += panel-lvds.o
  obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o
-diff --git a/drivers/gpu/drm/panel/panel-comma-bantian.c b/drivers/gpu/drm/panel/panel-comma-bantian.c
+diff --git a/drivers/gpu/drm/panel/panel-dwo-do0200fat07.c b/drivers/gpu/drm/panel/panel-dwo-do0200fat07.c
 new file mode 100644
-index 000000000..0160e5bb0
+index 000000000..eee54b45a
 --- /dev/null
-+++ b/drivers/gpu/drm/panel/panel-comma-bantian.c
-@@ -0,0 +1,320 @@
++++ b/drivers/gpu/drm/panel/panel-dwo-do0200fat07.c
+@@ -0,0 +1,333 @@
 +// SPDX-License-Identifier: GPL-2.0-only
 +// Copyright (c) 2026 Robin Reckmann <robin.reckmann@gmail.com>
 +
@@ -67,7 +67,7 @@ index 000000000..0160e5bb0
 +#include <drm/drm_panel.h>
 +#include <drm/drm_probe_helper.h>
 +
-+struct comma_bantian {
++struct dwo_do0200fat07 {
 +	struct drm_panel panel;
 +	struct mipi_dsi_device *dsi;
 +	struct gpio_desc *reset_gpio;
@@ -76,13 +76,13 @@ index 000000000..0160e5bb0
 +	enum drm_panel_orientation orientation;
 +};
 +
-+static inline struct comma_bantian *
-+to_comma_bantian(struct drm_panel *panel)
++static inline struct dwo_do0200fat07 *
++to_dwo_do0200fat07(struct drm_panel *panel)
 +{
-+	return container_of(panel, struct comma_bantian, panel);
++	return container_of(panel, struct dwo_do0200fat07, panel);
 +}
 +
-+static void comma_bantian_reset(struct comma_bantian *ctx)
++static void dwo_do0200fat07_reset(struct dwo_do0200fat07 *ctx)
 +{
 +	gpiod_set_value_cansleep(ctx->reset_gpio, 0);
 +	usleep_range(1000, 2000);
@@ -92,7 +92,7 @@ index 000000000..0160e5bb0
 +	usleep_range(10000, 11000);
 +}
 +
-+static int comma_bantian_power_on(struct comma_bantian *ctx)
++static int dwo_do0200fat07_power_on(struct dwo_do0200fat07 *ctx)
 +{
 +	int ret;
 +
@@ -110,13 +110,13 @@ index 000000000..0160e5bb0
 +	return 0;
 +}
 +
-+static void comma_bantian_power_off(struct comma_bantian *ctx)
++static void dwo_do0200fat07_power_off(struct dwo_do0200fat07 *ctx)
 +{
 +	regulator_disable(ctx->vdd);
 +	regulator_disable(ctx->vddio);
 +}
 +
-+static int comma_bantian_init_sequence(struct comma_bantian *ctx)
++static int dwo_do0200fat07_init_sequence(struct dwo_do0200fat07 *ctx)
 +{
 +	struct mipi_dsi_multi_context dsi_ctx = { .dsi = ctx->dsi };
 +
@@ -129,9 +129,9 @@ index 000000000..0160e5bb0
 +
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, 0xfe, 0x00);
 +
-+	mipi_dsi_dcs_set_pixel_format_multi(&dsi_ctx,
-+						MIPI_DCS_PIXEL_FMT_24BIT |
-+						(MIPI_DCS_PIXEL_FMT_24BIT << 4));
++	mipi_dsi_dcs_set_pixel_format_multi(
++		&dsi_ctx,
++		MIPI_DCS_PIXEL_FMT_24BIT | (MIPI_DCS_PIXEL_FMT_24BIT << 4));
 +	mipi_dsi_dcs_set_display_brightness_multi(&dsi_ctx, 0x0000);
 +
 +	mipi_dsi_dcs_write_seq_multi(&dsi_ctx, MIPI_DCS_SET_ADDRESS_MODE, 0x00);
@@ -147,47 +147,45 @@ index 000000000..0160e5bb0
 +	return dsi_ctx.accum_err;
 +}
 +
-+static int comma_bantian_prepare(struct drm_panel *panel)
++static int dwo_do0200fat07_prepare(struct drm_panel *panel)
 +{
-+	struct comma_bantian *ctx = to_comma_bantian(panel);
++	struct dwo_do0200fat07 *ctx = to_dwo_do0200fat07(panel);
 +	struct device *dev = &ctx->dsi->dev;
 +	int ret;
 +
-+	ret = comma_bantian_power_on(ctx);
++	ret = dwo_do0200fat07_power_on(ctx);
 +	if (ret) {
 +		dev_err(dev, "Failed to power on: %d\n", ret);
 +		return ret;
 +	}
 +
-+	comma_bantian_reset(ctx);
++	dwo_do0200fat07_reset(ctx);
 +
-+	ret = comma_bantian_init_sequence(ctx);
++	ret = dwo_do0200fat07_init_sequence(ctx);
 +	if (ret < 0) {
 +		dev_err(dev, "Failed to initialize panel: %d\n", ret);
 +		gpiod_set_value_cansleep(ctx->reset_gpio, 1);
-+		comma_bantian_power_off(ctx);
++		dwo_do0200fat07_power_off(ctx);
 +		return ret;
 +	}
 +
 +	return 0;
 +}
 +
-+static int comma_bantian_unprepare(struct drm_panel *panel)
++static int dwo_do0200fat07_unprepare(struct drm_panel *panel)
 +{
-+	struct comma_bantian *ctx = to_comma_bantian(panel);
-+	struct mipi_dsi_multi_context c = { .dsi = ctx->dsi };
++	struct dwo_do0200fat07 *ctx = to_dwo_do0200fat07(panel);
 +
-+	mipi_dsi_dcs_enter_sleep_mode_multi(&c);
-+	mipi_dsi_msleep(&c, 120);
 +	gpiod_set_value_cansleep(ctx->reset_gpio, 1);
-+	comma_bantian_power_off(ctx);
++	usleep_range(1000, 2000);
++	dwo_do0200fat07_power_off(ctx);
 +
-+	return c.accum_err;
++	return 0;
 +}
 +
-+static int comma_bantian_enable(struct drm_panel *panel)
++static int dwo_do0200fat07_enable(struct drm_panel *panel)
 +{
-+	struct comma_bantian *ctx = to_comma_bantian(panel);
++	struct dwo_do0200fat07 *ctx = to_dwo_do0200fat07(panel);
 +	struct mipi_dsi_multi_context c = { .dsi = ctx->dsi };
 +
 +	mipi_dsi_dcs_set_display_on_multi(&c);
@@ -196,18 +194,21 @@ index 000000000..0160e5bb0
 +	return c.accum_err;
 +}
 +
-+static int comma_bantian_disable(struct drm_panel *panel)
++static int dwo_do0200fat07_disable(struct drm_panel *panel)
 +{
-+	struct comma_bantian *ctx = to_comma_bantian(panel);
++	struct dwo_do0200fat07 *ctx = to_dwo_do0200fat07(panel);
 +	struct mipi_dsi_multi_context c = { .dsi = ctx->dsi };
 +
 +	mipi_dsi_dcs_set_display_off_multi(&c);
-+	mipi_dsi_usleep_range(&c, 5000, 10000);
++	mipi_dsi_msleep(&c, 20);
++
++	mipi_dsi_dcs_enter_sleep_mode_multi(&c);
++	mipi_dsi_msleep(&c, 120);
 +
 +	return c.accum_err;
 +}
 +
-+static const struct drm_display_mode comma_bantian_mode = {
++static const struct drm_display_mode dwo_do0200fat07_mode = {
 +	.clock = (240 + 20 + 20 + 40) * (536 + 20 + 4 + 12) * 60 / 1000,
 +	.hdisplay = 240,
 +	.hsync_start = 240 + 20,
@@ -217,37 +218,49 @@ index 000000000..0160e5bb0
 +	.vsync_start = 536 + 20,
 +	.vsync_end = 536 + 20 + 4,
 +	.vtotal = 536 + 20 + 4 + 12,
-+	.width_mm = 0,
-+	.height_mm = 0,
++	.width_mm = 20,
++	.height_mm = 44,
 +	.type = DRM_MODE_TYPE_DRIVER,
 +};
 +
-+static int comma_bantian_get_modes(struct drm_panel *panel,
++static int dwo_do0200fat07_get_modes(struct drm_panel *panel,
 +				     struct drm_connector *connector)
 +{
++	struct drm_display_mode *mode;
++
++	mode = drm_mode_duplicate(connector->dev, &dwo_do0200fat07_mode);
++	if (!mode)
++		return -ENOMEM;
++
++	drm_mode_set_name(mode);
++	mode->type = DRM_MODE_TYPE_DRIVER | DRM_MODE_TYPE_PREFERRED;
++	drm_mode_probed_add(connector, mode);
++
 +	connector->display_info.bpc = 8;
-+	return drm_connector_helper_get_modes_fixed(connector,
-+						    &comma_bantian_mode);
++	connector->display_info.width_mm = dwo_do0200fat07_mode.width_mm;
++	connector->display_info.height_mm = dwo_do0200fat07_mode.height_mm;
++
++	return 1;
 +}
 +
 +static enum drm_panel_orientation
-+comma_bantian_get_orientation(struct drm_panel *panel)
++dwo_do0200fat07_get_orientation(struct drm_panel *panel)
 +{
-+	struct comma_bantian *ctx = to_comma_bantian(panel);
++	struct dwo_do0200fat07 *ctx = to_dwo_do0200fat07(panel);
 +
 +	return ctx->orientation;
 +}
 +
-+static const struct drm_panel_funcs comma_bantian_panel_funcs = {
-+	.prepare = comma_bantian_prepare,
-+	.unprepare = comma_bantian_unprepare,
-+	.enable = comma_bantian_enable,
-+	.disable = comma_bantian_disable,
-+	.get_modes = comma_bantian_get_modes,
-+	.get_orientation = comma_bantian_get_orientation,
++static const struct drm_panel_funcs dwo_do0200fat07_panel_funcs = {
++	.prepare = dwo_do0200fat07_prepare,
++	.unprepare = dwo_do0200fat07_unprepare,
++	.enable = dwo_do0200fat07_enable,
++	.disable = dwo_do0200fat07_disable,
++	.get_modes = dwo_do0200fat07_get_modes,
++	.get_orientation = dwo_do0200fat07_get_orientation,
 +};
 +
-+static int comma_bantian_bl_update_status(struct backlight_device *bl)
++static int dwo_do0200fat07_bl_update_status(struct backlight_device *bl)
 +{
 +	struct mipi_dsi_device *dsi = bl_get_data(bl);
 +	u16 brightness = backlight_get_brightness(bl);
@@ -262,12 +275,12 @@ index 000000000..0160e5bb0
 +	return ret;
 +}
 +
-+static const struct backlight_ops comma_bantian_bl_ops = {
-+	.update_status = comma_bantian_bl_update_status,
++static const struct backlight_ops dwo_do0200fat07_bl_ops = {
++	.update_status = dwo_do0200fat07_bl_update_status,
 +};
 +
 +static struct backlight_device *
-+comma_bantian_create_backlight(struct mipi_dsi_device *dsi)
++dwo_do0200fat07_create_backlight(struct mipi_dsi_device *dsi)
 +{
 +	struct device *dev = &dsi->dev;
 +	const struct backlight_properties props = {
@@ -277,17 +290,17 @@ index 000000000..0160e5bb0
 +	};
 +
 +	return devm_backlight_device_register(dev, dev_name(dev), dev, dsi,
-+					      &comma_bantian_bl_ops, &props);
++					      &dwo_do0200fat07_bl_ops, &props);
 +}
 +
-+static int comma_bantian_probe(struct mipi_dsi_device *dsi)
++static int dwo_do0200fat07_probe(struct mipi_dsi_device *dsi)
 +{
 +	struct device *dev = &dsi->dev;
-+	struct comma_bantian *ctx;
++	struct dwo_do0200fat07 *ctx;
 +	int ret;
 +
-+	ctx = devm_drm_panel_alloc(dev, struct comma_bantian, panel,
-+				   &comma_bantian_panel_funcs,
++	ctx = devm_drm_panel_alloc(dev, struct dwo_do0200fat07, panel,
++				   &dwo_do0200fat07_panel_funcs,
 +				   DRM_MODE_CONNECTOR_DSI);
 +	if (IS_ERR(ctx))
 +		return PTR_ERR(ctx);
@@ -317,7 +330,7 @@ index 000000000..0160e5bb0
 +
 +	ctx->panel.prepare_prev_first = true;
 +
-+	ctx->panel.backlight = comma_bantian_create_backlight(dsi);
++	ctx->panel.backlight = dwo_do0200fat07_create_backlight(dsi);
 +	if (IS_ERR(ctx->panel.backlight))
 +		return dev_err_probe(dev, PTR_ERR(ctx->panel.backlight),
 +				     "Failed to create backlight\n");
@@ -339,9 +352,9 @@ index 000000000..0160e5bb0
 +	return 0;
 +}
 +
-+static void comma_bantian_remove(struct mipi_dsi_device *dsi)
++static void dwo_do0200fat07_remove(struct mipi_dsi_device *dsi)
 +{
-+	struct comma_bantian *ctx = mipi_dsi_get_drvdata(dsi);
++	struct dwo_do0200fat07 *ctx = mipi_dsi_get_drvdata(dsi);
 +	int ret;
 +
 +	ret = mipi_dsi_detach(dsi);
@@ -351,24 +364,24 @@ index 000000000..0160e5bb0
 +	drm_panel_remove(&ctx->panel);
 +}
 +
-+static const struct of_device_id comma_bantian_of_match[] = {
-+	{ .compatible = "comma,bantian" },
++static const struct of_device_id dwo_do0200fat07_of_match[] = {
++	{ .compatible = "dwo,do0200fat07" },
 +	{ /* sentinel */ }
 +};
-+MODULE_DEVICE_TABLE(of, comma_bantian_of_match);
++MODULE_DEVICE_TABLE(of, dwo_do0200fat07_of_match);
 +
-+static struct mipi_dsi_driver comma_bantian_driver = {
-+	.probe = comma_bantian_probe,
-+	.remove = comma_bantian_remove,
++static struct mipi_dsi_driver dwo_do0200fat07_driver = {
++	.probe = dwo_do0200fat07_probe,
++	.remove = dwo_do0200fat07_remove,
 +	.driver = {
-+		.name = "panel-comma-bantian",
-+		.of_match_table = comma_bantian_of_match,
++		.name = "panel-dwo-do0200fat07",
++		.of_match_table = dwo_do0200fat07_of_match,
 +	},
 +};
-+module_mipi_dsi_driver(comma_bantian_driver);
++module_mipi_dsi_driver(dwo_do0200fat07_driver);
 +
 +MODULE_AUTHOR("Robin Reckmann <robin.reckmann@gmail.com>");
-+MODULE_DESCRIPTION("DRM driver for comma bantian panel");
++MODULE_DESCRIPTION("DRM driver for DWo DO0200FAT07 panel");
 +MODULE_LICENSE("GPL");
 -- 
 2.53.0
