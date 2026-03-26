@@ -14,7 +14,7 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pm8998_gpios 10 0>;
-		enable-active-high;
+		regulator-boot-on;
 	};
 };
 
