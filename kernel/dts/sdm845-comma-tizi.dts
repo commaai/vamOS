@@ -18,10 +18,6 @@
 	};
 };
 
-&qupv3_id_0 {
-	status = "okay";
-};
-
 &i2c5 {
 	status = "okay";
 	clock-frequency = <100000>;
