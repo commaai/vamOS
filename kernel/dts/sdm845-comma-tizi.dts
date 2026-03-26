@@ -7,6 +7,32 @@
 	compatible = "comma,tizi", "qcom,sdm845";
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
+
+	tp3v3: tp3v3 {
+		compatible = "regulator-fixed";
+		regulator-name = "tp3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pm8998_gpios 10 0>;
+		enable-active-high;
+	};
+};
+
+&qupv3_id_0 {
+	status = "okay";
+};
+
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	touchscreen@17 {
+		compatible = "samsung,s6sy761";
+		reg = <0x17>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		vdd-supply = <&tp3v3>;
+	};
 };
 
 &i2c10 {
