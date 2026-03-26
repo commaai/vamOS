@@ -1,1 +1,1 @@
-OPTS="-r -s -P"
+OPTS="-s -P"
