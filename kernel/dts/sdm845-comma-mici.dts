@@ -20,6 +20,26 @@
 	};
 };
 
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	touchscreen@38 {
+		compatible = "focaltech,ft3168";
+		reg = <0x38>;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 104 GPIO_ACTIVE_LOW>;
+
+		iovcc-supply = <&vreg_s4a_1p8>;
+		vcc-supply = <&lcd3v3>;
+
+		touchscreen-size-x = <240>;
+		touchscreen-size-y = <536>;
+	};
+};
+
 &mdss_dsi0 {
 	panel@0 {
 		compatible = "dwo,do0200fat07";
