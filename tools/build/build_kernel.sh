@@ -7,6 +7,7 @@ cd "$DIR"
 TOOLS="$DIR/tools/bin"
 KERNEL_DIR="$DIR/kernel/linux"
 PATCHES_DIR="$DIR/kernel/patches"
+KBUILD_OUT="$DIR/build/kernel-out"
 TMP_DIR="$DIR/build/tmp-kernel"
 OUT_DIR="$DIR/build"
 BOOT_IMG=./boot.img
@@ -25,6 +26,32 @@ if [ ! -f "$KERNEL_DIR/Makefile" ]; then
   "$DIR/vamos" setup
 fi
 
+clean_kernel_tree() {
+  git -C "$KERNEL_DIR" reset --hard HEAD >/dev/null 2>&1 || true
+  git -C "$KERNEL_DIR" clean -fd >/dev/null 2>&1 || true
+}
+
+apply_patches() {
+  cd "$KERNEL_DIR"
+
+  echo "-- Resetting kernel submodule to clean state --"
+  clean_kernel_tree
+
+  if [ -d "$PATCHES_DIR" ] && ls "$PATCHES_DIR"/*.patch 1>/dev/null 2>&1; then
+    echo "-- Applying patches --"
+    for patch in "$PATCHES_DIR"/*.patch; do
+      echo "Applying $(basename "$patch")"
+      git apply --check --whitespace=error "$patch"
+      git apply --whitespace=error "$patch"
+    done
+  fi
+
+  cd "$DIR"
+}
+
+# Reset kernel source and apply patches before starting container
+apply_patches
+
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
@@ -38,27 +65,7 @@ CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" v
 
 trap cleanup EXIT
 
-apply_patches() {
-  cd "$KERNEL_DIR"
-
-  # Reset submodule to committed state for deterministic builds
-  echo "-- Resetting kernel submodule to clean state --"
-  clean_kernel_tree
-
-  if [ -d "$PATCHES_DIR" ] && ls "$PATCHES_DIR"/*.patch 1>/dev/null 2>&1; then
-    echo "-- Applying patches --"
-    for patch in "$PATCHES_DIR"/*.patch; do
-      echo "Applying $(basename "$patch")"
-      git apply --check --whitespace=error "$patch"
-      git apply --whitespace=error "$patch"
-    done
-  fi
-}
-
 build_kernel() {
-  # Apply patches to kernel tree
-  apply_patches
-
   # Install the device tree files
   install_dts
 
@@ -69,9 +76,13 @@ build_kernel() {
     export CROSS_COMPILE=aarch64-none-elf-
   fi
 
-  # ccache
+  # ccache (use CC= directly instead of PATH symlinks for reliability)
   export CCACHE_DIR="$DIR/.ccache"
-  export PATH="/usr/lib/ccache/bin:$PATH"
+  if [ -n "$CROSS_COMPILE" ]; then
+    CC_CMD="ccache ${CROSS_COMPILE}gcc"
+  else
+    CC_CMD="ccache gcc"
+  fi
 
   # Reproducible builds
   export KBUILD_BUILD_USER="vamos"
@@ -81,17 +92,19 @@ build_kernel() {
   # Build kernel
   cd "$KERNEL_DIR"
 
+  mkdir -p "$KBUILD_OUT"
+
   echo "-- Loading base config $BASE_DEFCONFIG --"
-  make O=out "$BASE_DEFCONFIG"
+  make CC="$CC_CMD" O="$KBUILD_OUT" "$BASE_DEFCONFIG"
 
   echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
-  KCONFIG_CONFIG=out/.config \
+  KCONFIG_CONFIG="$KBUILD_OUT/.config" \
     bash scripts/kconfig/merge_config.sh \
-    -m out/.config "$CONFIG_FRAGMENT"
+    -m "$KBUILD_OUT/.config" "$CONFIG_FRAGMENT"
   # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
   # can find the blobs without symlinking into the kernel tree
-  echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
-  make olddefconfig O=out
+  echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> "$KBUILD_OUT/.config"
+  make CC="$CC_CMD" O="$KBUILD_OUT" olddefconfig
 
   local dtb_targets=()
   local dts_name
@@ -103,16 +116,16 @@ build_kernel() {
   done
 
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) O=out Image.gz "${dtb_targets[@]}"
+  make CC="$CC_CMD" -j$(nproc) O="$KBUILD_OUT" Image.gz "${dtb_targets[@]}"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
   IMAGE_GZ_DTB="$TMP_DIR/Image.gz-dtb"
-  cp out/arch/arm64/boot/Image.gz "$IMAGE_GZ_DTB"
+  cp "$KBUILD_OUT/arch/arm64/boot/Image.gz" "$IMAGE_GZ_DTB"
 
   for dts in "${DTS_FILES[@]}"; do
     dts_name="$(basename "$dts")"
-    dtb_path="out/arch/arm64/boot/dts/qcom/${dts_name%.dts}.dtb"
+    dtb_path="$KBUILD_OUT/arch/arm64/boot/dts/qcom/${dts_name%.dts}.dtb"
     cat "$dtb_path" >> "$IMAGE_GZ_DTB"
   done
 
@@ -143,11 +156,6 @@ build_kernel() {
   mv $BOOT_IMG "$OUT_DIR/"
   echo "-- Done! boot.img: $OUT_DIR/boot.img --"
   ls -lh "$OUT_DIR/boot.img"
-}
-
-clean_kernel_tree() {
-  git -C "$KERNEL_DIR" reset --hard HEAD >/dev/null 2>&1 || true
-  git -C "$KERNEL_DIR" clean -fd >/dev/null 2>&1 || true
 }
 
 cleanup() {
@@ -181,6 +189,7 @@ DIR='$DIR'
 TOOLS='$TOOLS'
 KERNEL_DIR='$KERNEL_DIR'
 PATCHES_DIR='$PATCHES_DIR'
+KBUILD_OUT='$KBUILD_OUT'
 TMP_DIR='$TMP_DIR'
 OUT_DIR='$OUT_DIR'
 BOOT_IMG='$BOOT_IMG'
@@ -190,9 +199,7 @@ DTS_FILES=(
   '${DTS_FILES[1]}'
 )
 
-$(declare -f apply_patches)
 $(declare -f build_kernel)
-$(declare -f clean_kernel_tree)
 $(declare -f install_dts)
 
 build_kernel
