@@ -1,0 +1,105 @@
+diff --git a/drivers/media/platform/qcom/camss/camss-csid-gen2.c b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
+index 2a1746dcc1c5..ca1a82ae8036 100644
+--- a/drivers/media/platform/qcom/camss/camss-csid-gen2.c
++++ b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
+@@ -120,6 +120,20 @@
+ #define CSID_RDI_RPP_LINE_DROP_PERIOD(rdi)		((csid_is_lite(csid) ? 0x230 : 0x330)\
+ 							+ 0x100 * (rdi))
+ 
++/* IPP (Image Pixel Path) registers - PIX output to VFE CAMIF.
++ * Same bit layout as RDI, but at fixed offset 0x200 (full CSID only). */
++#define CSID_IPP_CFG0			0x200
++#define CSID_IPP_CFG1			0x204
++#define CSID_IPP_CTRL			0x208
++#define CSID_IPP_FRM_DROP_PATTERN	0x20C
++#define CSID_IPP_FRM_DROP_PERIOD	0x210
++#define CSID_IPP_IRQ_SUBSAMPLE_PATTERN	0x214
++#define CSID_IPP_IRQ_SUBSAMPLE_PERIOD	0x218
++#define CSID_IPP_PIX_DROP_PATTERN	0x224
++#define CSID_IPP_PIX_DROP_PERIOD	0x228
++#define CSID_IPP_LINE_DROP_PATTERN	0x22C
++#define CSID_IPP_LINE_DROP_PERIOD	0x230
++
+ #define CSID_TPG_CTRL		0x600
+ #define		TPG_CTRL_TEST_EN		0
+ #define		TPG_CTRL_FS_PKT_EN		1
+@@ -322,6 +336,57 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8
+ 	writel_relaxed(val, csid->base + CSID_RDI_CFG0(vc));
+ }
+ 
++/*
++ * Configure the IPP (Image Pixel Path) for PIX output to VFE CAMIF.
++ * Same register layout as RDI but at offset 0x200, and uses actual
++ * decode format (not PAYLOAD_ONLY) so the VFE ISP can process pixel data.
++ * Only available on full CSID (not lite).
++ */
++static void __csid_configure_ipp_stream(struct csid_device *csid, u8 enable, u8 vc)
++{
++	struct v4l2_mbus_framefmt *input_format = &csid->fmt[MSM_CSID_PAD_FIRST_SRC + vc];
++	const struct csid_format_info *format = csid_get_fmt_entry(csid->res->formats->formats,
++								   csid->res->formats->nformats,
++								   input_format->code);
++	u32 val;
++	u8 dt_id = vc & 0x03;
++
++	if (csid_is_lite(csid))
++		return;
++
++	val = 1 << RDI_CFG0_BYTE_CNTR_EN;
++	val |= 1 << RDI_CFG0_FORMAT_MEASURE_EN;
++	val |= 1 << RDI_CFG0_TIMESTAMP_EN;
++	/* Use actual decode format for PIX path (not PAYLOAD_ONLY) */
++	val |= format->decode_format << RDI_CFG0_DECODE_FORMAT;
++	val |= format->data_type << RDI_CFG0_DATA_TYPE;
++	val |= vc << RDI_CFG0_VIRTUAL_CHANNEL;
++	val |= dt_id << RDI_CFG0_DT_ID;
++	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
++
++	val = 2 << RDI_CFG1_TIMESTAMP_STB_SEL;
++	writel_relaxed(val, csid->base + CSID_IPP_CFG1);
++
++	writel_relaxed(1, csid->base + CSID_IPP_FRM_DROP_PERIOD);
++	writel_relaxed(0, csid->base + CSID_IPP_FRM_DROP_PATTERN);
++	writel_relaxed(1, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PERIOD);
++	writel_relaxed(0, csid->base + CSID_IPP_IRQ_SUBSAMPLE_PATTERN);
++	writel_relaxed(1, csid->base + CSID_IPP_PIX_DROP_PERIOD);
++	writel_relaxed(0, csid->base + CSID_IPP_PIX_DROP_PATTERN);
++	writel_relaxed(1, csid->base + CSID_IPP_LINE_DROP_PERIOD);
++	writel_relaxed(0, csid->base + CSID_IPP_LINE_DROP_PATTERN);
++	writel_relaxed(0, csid->base + CSID_IPP_CTRL);
++
++	/* Enable IPP path */
++	val = readl_relaxed(csid->base + CSID_IPP_CFG0);
++	val |= enable << RDI_CFG0_ENABLE;
++	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
++
++	dev_info(csid->camss->dev,
++		 "CSID IPP configured: vc=%d dt=0x%x decode_fmt=%d enable=%d\n",
++		 vc, format->data_type, format->decode_format, enable);
++}
++
+ static void csid_configure_stream(struct csid_device *csid, u8 enable)
+ {
+ 	struct csid_testgen_config *tg = &csid->testgen;
+@@ -333,6 +398,21 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
+ 				__csid_configure_testgen(csid, enable, i);
+ 
+ 			__csid_configure_rdi_stream(csid, enable, i);
++			/* Also configure IPP (PIX) path for VC0 on full CSIDs */
++			if (i == 0 && !csid_is_lite(csid)) {
++				int ipp_val;
++
++				__csid_configure_ipp_stream(csid, enable, i);
++				/* Resume/halt IPP path */
++				if (enable)
++					ipp_val = HALT_CMD_RESUME_AT_FRAME_BOUNDARY
++						  << RDI_CTRL_HALT_CMD;
++				else
++					ipp_val = HALT_CMD_HALT_AT_FRAME_BOUNDARY
++						  << RDI_CTRL_HALT_CMD;
++				writel_relaxed(ipp_val,
++					       csid->base + CSID_IPP_CTRL);
++			}
+ 			__csid_configure_rx(csid, &csid->phy, i);
+ 			__csid_ctrl_rdi(csid, enable, i);
+ 		}

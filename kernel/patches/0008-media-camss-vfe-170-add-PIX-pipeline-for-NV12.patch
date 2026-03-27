@@ -1,5 +1,5 @@
 diff --git a/drivers/media/platform/qcom/camss/camss-vfe-17x.c b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-index e5ee7e717b3b..0fd26b23c5db 100644
+index e5ee7e717b3b..47d2ebedc1e9 100644
 --- a/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 +++ b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 @@ -14,6 +14,8 @@
@@ -20,7 +20,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  #define		STATUS0_COMP_RESET_DONE		BIT(0)
  #define		STATUS0_COMP_REG_UPDATE0_DONE	BIT(1)
  #define		STATUS0_COMP_REG_UPDATE1_DONE	BIT(2)
-@@ -181,6 +185,197 @@ static inline void vfe_reg_set(struct vfe_device *vfe, u32 reg, u32 set_bits)
+@@ -181,6 +185,211 @@ static inline void vfe_reg_set(struct vfe_device *vfe, u32 reg, u32 set_bits)
  	writel_relaxed(bits | set_bits, vfe->base + reg);
  }
  
@@ -39,6 +39,9 @@ index e5ee7e717b3b..0fd26b23c5db 100644
 +				  u32 in_w, u32 in_h,
 +				  u32 out_w, u32 out_h)
 +{
++	dev_info(vfe->camss->dev, "PIX ISP configure: in=%ux%u out=%ux%u\n",
++		 in_w, in_h, out_w, out_h);
++
 +	/* Clear status registers */
 +	writel_relaxed(~0u, vfe->base + 0x2c);
 +	writel_relaxed(~0u, vfe->base + 0x30);
@@ -46,9 +49,20 @@ index e5ee7e717b3b..0fd26b23c5db 100644
 +	writel_relaxed(~0u, vfe->base + 0x38);
 +	writel_relaxed(~0u, vfe->base + 0x3c);
 +
-+	/* CAMIF: clear status, enable VFE + bus output */
++	/* VFE core config: pixel_pattern=0 (RGGB), composite_reg_update=1 */
++	writel_relaxed(CFG_PIXEL_PATTERN_YCBYCR | CFG_COMPOSITE_REG_UPDATE_EN,
++		       vfe->base + VFE_CORE_CFG);
++
++	/* CAMIF: clear status, configure for external input (from CSID PIX)
++	 * 0x478 CMD: bit 2 = clear status
++	 * 0x47c CFG: input_mux_sel[6:5]=0 (external), pixel_pattern[2:0]=0
++	 *            raw_crop_en[22]=1
++	 */
 +	writel_relaxed(0x00000004, vfe->base + 0x478);
-+	writel_relaxed(0x004000c0, vfe->base + 0x47c);
++	writel_relaxed(0x00400000, vfe->base + 0x47c);
++
++	/* Epoch config (half frame) */
++	writel_relaxed(((in_h / 2) << 16) | 0x0014, vfe->base + 0x4a0);
 +	writel_relaxed(0x00000000, vfe->base + 0x488);
 +	writel_relaxed(0x00000000, vfe->base + 0x48c);
 +	writel_relaxed(0x00000f0f, vfe->base + 0x490);
@@ -218,7 +232,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  static void vfe_global_reset(struct vfe_device *vfe)
  {
  	u32 reset_bits = GLOBAL_RESET_CMD_CORE		|
-@@ -266,21 +461,23 @@ static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
+@@ -266,21 +475,23 @@ static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
  
  static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
  {
@@ -248,7 +262,38 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  }
  
  static void vfe_enable_irq_common(struct vfe_device *vfe)
-@@ -389,6 +586,7 @@ static int vfe_get_output(struct vfe_line *line)
+@@ -330,10 +541,17 @@ static irqreturn_t vfe_isr(int irq, void *dev)
+ 	struct vfe_device *vfe = dev;
+ 	u32 status0, status1, vfe_bus_status[VFE_LINE_NUM_MAX];
+ 	int i, wm;
++	static int isr_debug_count;
+ 
+ 	status0 = readl_relaxed(vfe->base + VFE_IRQ_STATUS_0);
+ 	status1 = readl_relaxed(vfe->base + VFE_IRQ_STATUS_1);
+ 
++	if (isr_debug_count < 20) {
++		isr_debug_count++;
++		dev_info(vfe->camss->dev, "VFE ISR: s0=0x%08x s1=0x%08x\n",
++			 status0, status1);
++	}
++
+ 	writel_relaxed(status0, vfe->base + VFE_IRQ_CLEAR_0);
+ 	writel_relaxed(status1, vfe->base + VFE_IRQ_CLEAR_1);
+ 
+@@ -345,6 +563,12 @@ static irqreturn_t vfe_isr(int irq, void *dev)
+ 	/* Enforce ordering between IRQ reading and interpretation */
+ 	wmb();
+ 
++	if (isr_debug_count <= 20) {
++		for (i = VFE_LINE_RDI0; i < vfe->res->line_num; i++)
++			dev_info(vfe->camss->dev, "  bus[%d]=0x%08x\n",
++				 i, vfe_bus_status[i]);
++	}
++
+ 	writel_relaxed(CMD_GLOBAL_CLEAR, vfe->base + VFE_IRQ_CMD);
+ 	writel_relaxed(1, vfe->base + VFE_BUS_IRQ_CLEAR_GLOBAL);
+ 
+@@ -389,6 +613,7 @@ static int vfe_get_output(struct vfe_line *line)
  	struct vfe_output *output;
  	unsigned long flags;
  	int wm_idx;
@@ -256,7 +301,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  
  	spin_lock_irqsave(&vfe->output_lock, flags);
  
-@@ -398,14 +596,17 @@ static int vfe_get_output(struct vfe_line *line)
+@@ -398,14 +623,17 @@ static int vfe_get_output(struct vfe_line *line)
  		goto error;
  	}
  
@@ -280,7 +325,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  
  	output->drop_update_idx = 0;
  
-@@ -414,7 +615,8 @@ static int vfe_get_output(struct vfe_line *line)
+@@ -414,7 +642,8 @@ static int vfe_get_output(struct vfe_line *line)
  	return 0;
  
  error_get_wm:
@@ -290,7 +335,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  	output->state = VFE_OUTPUT_OFF;
  error:
  	spin_unlock_irqrestore(&vfe->output_lock, flags);
-@@ -446,6 +648,25 @@ static int vfe_enable(struct vfe_line *line)
+@@ -446,6 +675,25 @@ static int vfe_enable(struct vfe_line *line)
  	if (ret < 0)
  		goto error_get_output;
  
@@ -316,7 +361,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  	ret = vfe_enable_output_v2(line);
  	if (ret < 0)
  		goto error_enable_output;
-@@ -513,6 +734,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -513,6 +761,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	unsigned long flags;
  	u32 index;
  	u64 ts = ktime_get_ns();
@@ -324,7 +369,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  
  	spin_lock_irqsave(&vfe->output_lock, flags);
  
-@@ -523,6 +745,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -523,6 +772,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	}
  	output = &vfe->line[vfe->wm_output_map[wm]].output;
  
@@ -338,7 +383,7 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  	ready_buf = output->buf[0];
  	if (!ready_buf) {
  		dev_err_ratelimited(vfe->camss->dev,
-@@ -540,10 +769,20 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -540,10 +796,20 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  
  	output->buf[index] = vfe_buf_get_pending(output);
  
