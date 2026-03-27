@@ -1,13 +1,19 @@
 diff --git a/drivers/media/platform/qcom/camss/camss-csid-gen2.c b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
-index 2a1746dcc1c5..ca1a82ae8036 100644
+index 2a1746dcc1c5..28b5d4f5caba 100644
 --- a/drivers/media/platform/qcom/camss/camss-csid-gen2.c
 +++ b/drivers/media/platform/qcom/camss/camss-csid-gen2.c
-@@ -120,6 +120,20 @@
+@@ -120,6 +120,26 @@
  #define CSID_RDI_RPP_LINE_DROP_PERIOD(rdi)		((csid_is_lite(csid) ? 0x230 : 0x330)\
  							+ 0x100 * (rdi))
  
 +/* IPP (Image Pixel Path) registers - PIX output to VFE CAMIF.
 + * Same bit layout as RDI, but at fixed offset 0x200 (full CSID only). */
++/* IPP IRQ registers (full CSID only, not lite) */
++#define CSID_IPP_IRQ_STATUS		0x30
++#define CSID_IPP_IRQ_MASK		0x34
++#define CSID_IPP_IRQ_CLEAR		0x38
++#define CSID_IPP_IRQ_SET		0x3C
++
 +#define CSID_IPP_CFG0			0x200
 +#define CSID_IPP_CFG1			0x204
 +#define CSID_IPP_CTRL			0x208
@@ -23,7 +29,7 @@ index 2a1746dcc1c5..ca1a82ae8036 100644
  #define CSID_TPG_CTRL		0x600
  #define		TPG_CTRL_TEST_EN		0
  #define		TPG_CTRL_FS_PKT_EN		1
-@@ -322,6 +336,57 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8
+@@ -322,6 +342,65 @@ static void __csid_configure_rdi_stream(struct csid_device *csid, u8 enable, u8
  	writel_relaxed(val, csid->base + CSID_RDI_CFG0(vc));
  }
  
@@ -53,6 +59,8 @@ index 2a1746dcc1c5..ca1a82ae8036 100644
 +	val |= format->data_type << RDI_CFG0_DATA_TYPE;
 +	val |= vc << RDI_CFG0_VIRTUAL_CHANNEL;
 +	val |= dt_id << RDI_CFG0_DT_ID;
++	/* PIX store enable (bit 7) - required for IPP to output data */
++	val |= 1 << 7;
 +	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
 +
 +	val = 2 << RDI_CFG1_TIMESTAMP_STB_SEL;
@@ -73,6 +81,12 @@ index 2a1746dcc1c5..ca1a82ae8036 100644
 +	val |= enable << RDI_CFG0_ENABLE;
 +	writel_relaxed(val, csid->base + CSID_IPP_CFG0);
 +
++	/* Enable IPP IRQs */
++	if (enable)
++		writel_relaxed(0x7FFF, csid->base + CSID_IPP_IRQ_MASK);
++	else
++		writel_relaxed(0, csid->base + CSID_IPP_IRQ_MASK);
++
 +	dev_info(csid->camss->dev,
 +		 "CSID IPP configured: vc=%d dt=0x%x decode_fmt=%d enable=%d\n",
 +		 vc, format->data_type, format->decode_format, enable);
@@ -81,7 +95,7 @@ index 2a1746dcc1c5..ca1a82ae8036 100644
  static void csid_configure_stream(struct csid_device *csid, u8 enable)
  {
  	struct csid_testgen_config *tg = &csid->testgen;
-@@ -333,6 +398,21 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
+@@ -333,6 +412,21 @@ static void csid_configure_stream(struct csid_device *csid, u8 enable)
  				__csid_configure_testgen(csid, enable, i);
  
  			__csid_configure_rdi_stream(csid, enable, i);
@@ -103,3 +117,34 @@ index 2a1746dcc1c5..ca1a82ae8036 100644
  			__csid_configure_rx(csid, &csid->phy, i);
  			__csid_ctrl_rdi(csid, enable, i);
  		}
+@@ -356,9 +450,10 @@ static int csid_configure_testgen_pattern(struct csid_device *csid, s32 val)
+ static irqreturn_t csid_isr(int irq, void *dev)
+ {
+ 	struct csid_device *csid = dev;
+-	u32 val;
++	u32 val, ipp_irq;
+ 	u8 reset_done;
+ 	int i;
++	static int csid_isr_debug;
+ 
+ 	val = readl_relaxed(csid->base + CSID_TOP_IRQ_STATUS);
+ 	writel_relaxed(val, csid->base + CSID_TOP_IRQ_CLEAR);
+@@ -367,6 +462,18 @@ static irqreturn_t csid_isr(int irq, void *dev)
+ 	val = readl_relaxed(csid->base + CSID_CSI2_RX_IRQ_STATUS);
+ 	writel_relaxed(val, csid->base + CSID_CSI2_RX_IRQ_CLEAR);
+ 
++	/* Read and clear IPP IRQ status (full CSID only) */
++	ipp_irq = 0;
++	if (!csid_is_lite(csid)) {
++		ipp_irq = readl_relaxed(csid->base + CSID_IPP_IRQ_STATUS);
++		writel_relaxed(ipp_irq, csid->base + CSID_IPP_IRQ_CLEAR);
++		if (ipp_irq && csid_isr_debug < 10) {
++			csid_isr_debug++;
++			dev_info(csid->camss->dev,
++				 "CSID IPP IRQ: 0x%08x\n", ipp_irq);
++		}
++	}
++
+ 	/* Read and clear IRQ status for each enabled RDI channel */
+ 	for (i = 0; i < MSM_CSID_MAX_SRC_STREAMS; i++)
+ 		if (csid->phy.en_vc & BIT(i)) {
