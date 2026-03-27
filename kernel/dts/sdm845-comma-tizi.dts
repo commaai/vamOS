@@ -8,6 +8,10 @@
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 
+	aliases {
+		i2c2 = &i2c5;
+	};
+
 	lcd3v3: lcd3v3 {
 		status = "ok";
 		compatible = "regulator-fixed";
