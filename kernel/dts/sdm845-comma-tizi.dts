@@ -7,16 +7,57 @@
 	compatible = "comma,tizi", "qcom,sdm845";
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
+
+	lcd3v3: lcd3v3 {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "lcd3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pm8998_gpios 13 0>;
+		regulator-boot-on;
+	};
+
+	tp3v3: tp3v3 {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "tp3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pm8998_gpios 10 0>;
+		enable-active-high;
+		regulator-boot-on;
+	};
 };
 
-&mdss {
+&i2c5 {
 	status = "okay";
+	clock-frequency = <100000>;
+
+	touchscreen@17 {
+		compatible = "samsung,s6sy761";
+		reg = <0x17>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		vdd-supply = <&tp3v3>;
+		avdd-supply = <&tp3v3>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2160>;
+	};
+};
+
+&i2c10 {
+	status = "okay";
+	clock-frequency = <100000>;
+
+	ina231@40 {
+		compatible = "ti,ina231";
+		reg = <0x40>;
+		shunt-resistor = <30000>;
+	};
 };
 
 &mdss_dsi0 {
-	status = "okay";
-	vdda-supply = <&vdda_mipi_dsi0_1p2>;
-
 	panel@0 {
 		compatible = "samsung,ea8074";
 		reg = <0>;
@@ -34,20 +75,4 @@
 &mdss_dsi0_out {
 	remote-endpoint = <&panel_in>;
 	data-lanes = <0 1 2 3>;
-};
-
-&mdss_dsi0_phy {
-	status = "okay";
-	vdds-supply = <&vdda_mipi_dsi0_pll>;
-};
-
-&i2c10 {
-	status = "okay";
-	clock-frequency = <100000>;
-
-	ina231@40 {
-		compatible = "ti,ina231";
-		reg = <0x40>;
-		shunt-resistor = <30000>;
-	};
 };
