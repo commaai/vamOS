@@ -8,15 +8,27 @@
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 
+	lcd3v3: lcd3v3 {
+		status = "ok";
+		compatible = "regulator-fixed";
+		regulator-name = "tp3v3";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpio = <&pm8998_gpios 13 0>;
+		regulator-boot-on;
+		regulator-always-on;
+	};
+
 	tp3v3: tp3v3 {
+		status = "ok";
 		compatible = "regulator-fixed";
 		regulator-name = "tp3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pm8998_gpios 10 0>;
 		enable-active-high;
+		enable-at-boot;
 		regulator-boot-on;
-		regulator-always-on;
 	};
 };
 
