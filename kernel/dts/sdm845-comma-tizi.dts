@@ -8,30 +8,24 @@
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 
-	aliases {
-		i2c2 = &i2c5;
-	};
-
 	lcd3v3: lcd3v3 {
-		status = "ok";
+		status = "okay";
 		compatible = "regulator-fixed";
-		regulator-name = "tp3v3";
+		regulator-name = "lcd3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pm8998_gpios 13 0>;
 		regulator-boot-on;
-		regulator-always-on;
 	};
 
 	tp3v3: tp3v3 {
-		status = "ok";
+		status = "okay";
 		compatible = "regulator-fixed";
 		regulator-name = "tp3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpio = <&pm8998_gpios 10 0>;
 		enable-active-high;
-		enable-at-boot;
 		regulator-boot-on;
 	};
 };
@@ -46,6 +40,9 @@
 		interrupt-parent = <&tlmm>;
 		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
 		vdd-supply = <&tp3v3>;
+		avdd-supply = <&tp3v3>;
+		touchscreen-size-x = <1080>;
+		touchscreen-size-y = <2160>;
 	};
 };
 
