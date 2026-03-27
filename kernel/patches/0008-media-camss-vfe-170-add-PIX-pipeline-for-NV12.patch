@@ -363,15 +363,16 @@ index e5ee7e717b3b..0fd26b23c5db 100644
  	spin_unlock_irqrestore(&vfe->output_lock, flags);
  
 diff --git a/drivers/media/platform/qcom/camss/camss-vfe.c b/drivers/media/platform/qcom/camss/camss-vfe.c
-index dff8d0a1e8c2..674a25206c96 100644
+index dff8d0a1e8c2..d5c627da51b0 100644
 --- a/drivers/media/platform/qcom/camss/camss-vfe.c
 +++ b/drivers/media/platform/qcom/camss/camss-vfe.c
-@@ -277,10 +277,28 @@ const struct camss_formats vfe_formats_rdi_845 = {
+@@ -277,10 +277,46 @@ const struct camss_formats vfe_formats_rdi_845 = {
  	.formats = formats_rdi_845
  };
  
 -/* TODO: Replace with pix formats */
 +static const struct camss_format_info formats_pix_845[] = {
++	/* YUV passthrough */
 +	{ MEDIA_BUS_FMT_YUYV8_1_5X8, 8, V4L2_PIX_FMT_NV12, 1,
 +	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
 +	{ MEDIA_BUS_FMT_YVYU8_1_5X8, 8, V4L2_PIX_FMT_NV12, 1,
@@ -388,6 +389,23 @@ index dff8d0a1e8c2..674a25206c96 100644
 +	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
 +	{ MEDIA_BUS_FMT_VYUY8_1_5X8, 8, V4L2_PIX_FMT_NV21, 1,
 +	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	/* Bayer in -> NV12 out (IFE PIX pipeline debayer) */
++	{ MEDIA_BUS_FMT_SGRBG12_1X12, 12, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SRGGB12_1X12, 12, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SBGGR12_1X12, 12, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SGBRG12_1X12, 12, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SGRBG10_1X10, 10, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SRGGB10_1X10, 10, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SBGGR10_1X10, 10, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
++	{ MEDIA_BUS_FMT_SGBRG10_1X10, 10, V4L2_PIX_FMT_NV12, 1,
++	  PER_PLANE_DATA(0, 1, 1, 2, 3, 8) },
 +};
 +
  const struct camss_formats vfe_formats_pix_845 = {
@@ -398,31 +416,76 @@ index dff8d0a1e8c2..674a25206c96 100644
  };
  
  static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
-@@ -539,15 +557,20 @@ int vfe_enable_output_v2(struct vfe_line *line)
+@@ -351,6 +387,26 @@ static u32 vfe_src_pad_code(struct vfe_line *line, u32 sink_code,
+ 	case CAMSS_8775P:
+ 	case CAMSS_X1E80100:
+ 		switch (sink_code) {
++		case MEDIA_BUS_FMT_SBGGR12_1X12:
++		case MEDIA_BUS_FMT_SGBRG12_1X12:
++		case MEDIA_BUS_FMT_SGRBG12_1X12:
++		case MEDIA_BUS_FMT_SRGGB12_1X12:
++		case MEDIA_BUS_FMT_SBGGR10_1X10:
++		case MEDIA_BUS_FMT_SGBRG10_1X10:
++		case MEDIA_BUS_FMT_SGRBG10_1X10:
++		case MEDIA_BUS_FMT_SRGGB10_1X10:
++		{
++			/* Bayer in -> NV12/NV21 out via IFE PIX pipeline */
++			u32 src_code[] = {
++				MEDIA_BUS_FMT_YUYV8_1_5X8,
++				MEDIA_BUS_FMT_YVYU8_1_5X8,
++				MEDIA_BUS_FMT_UYVY8_1_5X8,
++				MEDIA_BUS_FMT_VYUY8_1_5X8,
++			};
++
++			return camss_format_find_code(src_code, ARRAY_SIZE(src_code),
++						      index, src_req_code);
++		}
+ 		case MEDIA_BUS_FMT_YUYV8_1X16:
+ 		{
+ 			u32 src_code[] = {
+@@ -539,15 +595,34 @@ int vfe_enable_output_v2(struct vfe_line *line)
  	output->wait_reg_update = 0;
  	reinit_completion(&output->reg_update);
  
 -	ops->vfe_wm_start(vfe, output->wm_idx[0], line);
-+	/* PIX WMs already started in vfe_enable; only start RDI WM here */
-+	if (line->id != VFE_LINE_PIX)
-+		ops->vfe_wm_start(vfe, output->wm_idx[0], line);
- 
- 	for (i = 0; i < 2; i++) {
++	/* Get first buffer and write its address BEFORE enabling the WM,
++	 * so the hardware doesn't DMA to a stale/uninitialized address. */
++	output->buf[0] = vfe_buf_get_pending(output);
++	if (output->buf[0]) {
 +		unsigned int j;
-+
- 		output->buf[i] = vfe_buf_get_pending(output);
- 		if (!output->buf[i])
- 			break;
+ 
+-	for (i = 0; i < 2; i++) {
+-		output->buf[i] = vfe_buf_get_pending(output);
+-		if (!output->buf[i])
+-			break;
  		output->gen2.active_num++;
 -		ops->vfe_wm_update(vfe, output->wm_idx[0],
 -				   output->buf[i]->addr[0], line);
 +		for (j = 0; j < output->wm_num; j++)
 +			ops->vfe_wm_update(vfe, output->wm_idx[j],
-+					   output->buf[i]->addr[j], line);
++					   output->buf[0]->addr[j], line);
++	}
++
++	/* Now enable WMs (address is already programmed) */
++	if (line->id != VFE_LINE_PIX)
++		ops->vfe_wm_start(vfe, output->wm_idx[0], line);
++
++	/* Apply first buffer + WM enable atomically */
++	ops->reg_update(vfe, line->id);
++
++	/* Queue second buffer if available */
++	output->buf[1] = vfe_buf_get_pending(output);
++	if (output->buf[1]) {
++		unsigned int j;
++
++		output->gen2.active_num++;
++		for (j = 0; j < output->wm_num; j++)
++			ops->vfe_wm_update(vfe, output->wm_idx[j],
++					   output->buf[1]->addr[j], line);
  		ops->reg_update(vfe, line->id);
  	}
  
-@@ -581,9 +604,12 @@ int vfe_queue_buffer_v2(struct camss_video *vid,
+@@ -581,9 +656,12 @@ int vfe_queue_buffer_v2(struct camss_video *vid,
  
  	if (output->state == VFE_OUTPUT_ON &&
  	    output->gen2.active_num < 2) {
