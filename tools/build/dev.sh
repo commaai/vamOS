@@ -57,9 +57,11 @@ run() {
 
 case "${1:-module}" in
   module|camss)
-    echo "Building CAMSS module..."
+    echo "Building camera modules..."
     run "$MAKE -j\$(nproc) M=drivers/media/platform/qcom/camss modules"
+    run "$MAKE -j\$(nproc) M=drivers/media/i2c modules"
     ls -lh "$MODULE_KO"
+    find "$KBUILD_OUT/drivers/media/i2c" -name "ox03c10.ko" -exec ls -lh {} \; 2>/dev/null
     ;;
 
   kernel)
