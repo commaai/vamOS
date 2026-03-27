@@ -1,0 +1,1822 @@
+diff --git a/drivers/media/i2c/ox03c10.c b/drivers/media/i2c/ox03c10.c
+new file mode 100644
+index 000000000000..7ab7ac1cd35e
+--- /dev/null
++++ b/drivers/media/i2c/ox03c10.c
+@@ -0,0 +1,1779 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * OmniVision OX03C10 CMOS Image Sensor Driver
++ *
++ * Minimal V4L2 sensor driver for the OX03C10 (1928x1208, 12-bit RAW,
++ * 4-lane MIPI CSI-2). Register init sequence from openpilot camerad.
++ */
++
++#include <linux/clk.h>
++#include <linux/delay.h>
++#include <linux/gpio/consumer.h>
++#include <linux/i2c.h>
++#include <linux/module.h>
++#include <linux/pm_runtime.h>
++#include <linux/regulator/consumer.h>
++
++#include <media/v4l2-cci.h>
++#include <media/v4l2-ctrls.h>
++#include <media/v4l2-device.h>
++#include <media/v4l2-event.h>
++#include <media/v4l2-fwnode.h>
++
++/* MIPI link frequency for 4-lane 12-bit @ 1200 Mbps/lane */
++#define OX03C10_LINK_FREQ		600000000ULL
++#define OX03C10_PIXEL_RATE		88000000ULL
++
++/* Chip ID: 0x300a = high byte (0x58), 0x300b = low byte (0x03) */
++#define OX03C10_REG_CHIP_ID_H		CCI_REG8(0x300a)
++#define OX03C10_REG_CHIP_ID_L		CCI_REG8(0x300b)
++#define OX03C10_CHIP_ID_H		0x58
++#define OX03C10_CHIP_ID_L		0x03
++
++/* Streaming control */
++#define OX03C10_REG_MODE_SELECT		CCI_REG8(0x0100)
++#define OX03C10_MODE_STANDBY		0x00
++#define OX03C10_MODE_STREAMING		0x01
++
++/* Software reset */
++#define OX03C10_REG_SW_RESET		CCI_REG8(0x0103)
++
++/* Exposure (HCG coarse) */
++#define OX03C10_REG_EXPOSURE_H		CCI_REG8(0x3501)
++#define OX03C10_REG_EXPOSURE_L		CCI_REG8(0x3502)
++
++/* Analog gain */
++#define OX03C10_REG_AGAIN_H		CCI_REG8(0x3508)
++#define OX03C10_REG_AGAIN_L		CCI_REG8(0x3509)
++
++/* Frame length (VTS) */
++#define OX03C10_REG_VTS_H		CCI_REG8(0x380e)
++#define OX03C10_REG_VTS_L		CCI_REG8(0x380f)
++
++#define OX03C10_NATIVE_WIDTH		1928
++#define OX03C10_NATIVE_HEIGHT		1208
++
++#define OX03C10_EXPOSURE_MIN		2
++#define OX03C10_EXPOSURE_MAX		2016
++#define OX03C10_EXPOSURE_DEFAULT	5
++
++/* Analog gain: register value 0x100 = 1x, 0xF80 = 15.5x */
++#define OX03C10_AGAIN_MIN		0x100
++#define OX03C10_AGAIN_MAX		0xF80
++#define OX03C10_AGAIN_DEFAULT		0x100
++
++#define OX03C10_VTS_DEFAULT		0x0815
++#define OX03C10_VTS_MAX			0xFFFF
++
++#define to_ox03c10(_sd) container_of(_sd, struct ox03c10, sd)
++
++struct ox03c10_reg_list {
++	u32 num_of_regs;
++	const struct cci_reg_sequence *regs;
++};
++
++struct ox03c10_mode {
++	u32 width;
++	u32 height;
++	u32 link_freq_index;
++	u32 code;
++	u32 hblank;
++	u32 vblank;
++	const struct ox03c10_reg_list reg_list;
++};
++
++/*
++ * Full init register sequence, converted from openpilot
++ * ox03c10_registers.h init_array_ox03c10[].
++ * All registers are 8-bit writes (data_word=false in openpilot).
++ */
++static const struct cci_reg_sequence ox03c10_mode_default[] = {
++	/* Software reset */
++	{ CCI_REG8(0x0103), 0x01 },
++	{ CCI_REG8(0x0107), 0x01 },
++
++	/* TPM */
++	{ CCI_REG8(0x4d5a), 0x1a },
++	{ CCI_REG8(0x4d09), 0xff },
++	{ CCI_REG8(0x4d09), 0xdf },
++
++	/* PLL setup */
++	{ CCI_REG8(0x0301), 0xc8 },
++	{ CCI_REG8(0x0303), 0x01 },
++	{ CCI_REG8(0x0304), 0x01 },
++	{ CCI_REG8(0x0305), 0x2c },
++	{ CCI_REG8(0x0306), 0x04 },
++	{ CCI_REG8(0x0307), 0x01 },
++	{ CCI_REG8(0x0316), 0x00 },
++	{ CCI_REG8(0x0317), 0x00 },
++	{ CCI_REG8(0x0318), 0x00 },
++	{ CCI_REG8(0x0323), 0x05 },
++	{ CCI_REG8(0x0324), 0x01 },
++	{ CCI_REG8(0x0325), 0x2c },
++
++	/* SCLK/PCLK */
++	{ CCI_REG8(0x0400), 0xe0 },
++	{ CCI_REG8(0x0401), 0x80 },
++	{ CCI_REG8(0x0403), 0xde },
++	{ CCI_REG8(0x0404), 0x34 },
++	{ CCI_REG8(0x0405), 0x3b },
++	{ CCI_REG8(0x0406), 0xde },
++	{ CCI_REG8(0x0407), 0x08 },
++	{ CCI_REG8(0x0408), 0xe0 },
++	{ CCI_REG8(0x0409), 0x7f },
++	{ CCI_REG8(0x040a), 0xde },
++	{ CCI_REG8(0x040b), 0x34 },
++	{ CCI_REG8(0x040c), 0x47 },
++	{ CCI_REG8(0x040d), 0xd8 },
++	{ CCI_REG8(0x040e), 0x08 },
++
++	/* xchk */
++	{ CCI_REG8(0x2803), 0xfe },
++	{ CCI_REG8(0x280b), 0x00 },
++	{ CCI_REG8(0x280c), 0x79 },
++
++	/* SC ctrl */
++	{ CCI_REG8(0x3001), 0x03 },
++	{ CCI_REG8(0x3002), 0xfc },
++	{ CCI_REG8(0x3005), 0x80 },
++	{ CCI_REG8(0x3007), 0x01 },
++	{ CCI_REG8(0x3008), 0x80 },
++
++	/* FSIN (frame sync) with external pulses */
++	{ CCI_REG8(0x3009), 0x02 },
++	{ CCI_REG8(0x3015), 0x02 },
++	{ CCI_REG8(0x383e), 0x80 },
++	{ CCI_REG8(0x3881), 0x04 },
++	{ CCI_REG8(0x3882), 0x08 },
++	{ CCI_REG8(0x3883), 0x0d },
++	{ CCI_REG8(0x3836), 0x1f },
++	{ CCI_REG8(0x3837), 0x40 },
++
++	{ CCI_REG8(0x3892), 0x44 },
++	{ CCI_REG8(0x3823), 0x41 },
++
++	/* 4-lane MIPI */
++	{ CCI_REG8(0x3012), 0x41 },
++	{ CCI_REG8(0x3020), 0x05 },
++
++	/* Undocumented but required registers (0x37xx) */
++	{ CCI_REG8(0x3700), 0x28 },
++	{ CCI_REG8(0x3701), 0x15 },
++	{ CCI_REG8(0x3702), 0x19 },
++	{ CCI_REG8(0x3703), 0x23 },
++	{ CCI_REG8(0x3704), 0x0a },
++	{ CCI_REG8(0x3705), 0x00 },
++	{ CCI_REG8(0x3706), 0x3e },
++	{ CCI_REG8(0x3707), 0x0d },
++	{ CCI_REG8(0x3708), 0x50 },
++	{ CCI_REG8(0x3709), 0x5a },
++	{ CCI_REG8(0x370a), 0x00 },
++	{ CCI_REG8(0x370b), 0x96 },
++	{ CCI_REG8(0x3711), 0x11 },
++	{ CCI_REG8(0x3712), 0x13 },
++	{ CCI_REG8(0x3717), 0x02 },
++	{ CCI_REG8(0x3718), 0x73 },
++	{ CCI_REG8(0x372c), 0x40 },
++	{ CCI_REG8(0x3733), 0x01 },
++	{ CCI_REG8(0x3738), 0x36 },
++	{ CCI_REG8(0x3739), 0x36 },
++	{ CCI_REG8(0x373a), 0x25 },
++	{ CCI_REG8(0x373b), 0x25 },
++	{ CCI_REG8(0x373f), 0x21 },
++	{ CCI_REG8(0x3740), 0x21 },
++	{ CCI_REG8(0x3741), 0x21 },
++	{ CCI_REG8(0x3742), 0x21 },
++	{ CCI_REG8(0x3747), 0x28 },
++	{ CCI_REG8(0x3748), 0x28 },
++	{ CCI_REG8(0x3749), 0x19 },
++	{ CCI_REG8(0x3755), 0x1a },
++	{ CCI_REG8(0x3756), 0x0a },
++	{ CCI_REG8(0x3757), 0x1c },
++	{ CCI_REG8(0x3765), 0x19 },
++	{ CCI_REG8(0x3766), 0x05 },
++	{ CCI_REG8(0x3767), 0x05 },
++	{ CCI_REG8(0x3768), 0x13 },
++	{ CCI_REG8(0x376c), 0x07 },
++	{ CCI_REG8(0x3778), 0x20 },
++	{ CCI_REG8(0x377c), 0xc8 },
++	{ CCI_REG8(0x3781), 0x02 },
++	{ CCI_REG8(0x3783), 0x02 },
++	{ CCI_REG8(0x379c), 0x58 },
++	{ CCI_REG8(0x379e), 0x00 },
++	{ CCI_REG8(0x379f), 0x00 },
++	{ CCI_REG8(0x37a0), 0x00 },
++	{ CCI_REG8(0x37bc), 0x22 },
++	{ CCI_REG8(0x37c0), 0x01 },
++	{ CCI_REG8(0x37c4), 0x3e },
++	{ CCI_REG8(0x37c5), 0x3e },
++	{ CCI_REG8(0x37c6), 0x2a },
++	{ CCI_REG8(0x37c7), 0x28 },
++	{ CCI_REG8(0x37c8), 0x02 },
++	{ CCI_REG8(0x37c9), 0x12 },
++	{ CCI_REG8(0x37cb), 0x29 },
++	{ CCI_REG8(0x37cd), 0x29 },
++	{ CCI_REG8(0x37d2), 0x00 },
++	{ CCI_REG8(0x37d3), 0x73 },
++	{ CCI_REG8(0x37d6), 0x00 },
++	{ CCI_REG8(0x37d7), 0x6b },
++	{ CCI_REG8(0x37dc), 0x00 },
++	{ CCI_REG8(0x37df), 0x54 },
++	{ CCI_REG8(0x37e2), 0x00 },
++	{ CCI_REG8(0x37e3), 0x00 },
++	{ CCI_REG8(0x37f8), 0x00 },
++	{ CCI_REG8(0x37f9), 0x01 },
++	{ CCI_REG8(0x37fa), 0x00 },
++	{ CCI_REG8(0x37fb), 0x19 },
++
++	/* Undocumented 0x3cxx registers */
++	{ CCI_REG8(0x3c03), 0x01 },
++	{ CCI_REG8(0x3c04), 0x01 },
++	{ CCI_REG8(0x3c06), 0x21 },
++	{ CCI_REG8(0x3c08), 0x01 },
++	{ CCI_REG8(0x3c09), 0x01 },
++	{ CCI_REG8(0x3c0a), 0x01 },
++	{ CCI_REG8(0x3c0b), 0x21 },
++	{ CCI_REG8(0x3c13), 0x21 },
++	{ CCI_REG8(0x3c14), 0x82 },
++	{ CCI_REG8(0x3c16), 0x13 },
++	{ CCI_REG8(0x3c21), 0x00 },
++	{ CCI_REG8(0x3c22), 0xf3 },
++	{ CCI_REG8(0x3c37), 0x12 },
++	{ CCI_REG8(0x3c38), 0x31 },
++	{ CCI_REG8(0x3c3c), 0x00 },
++	{ CCI_REG8(0x3c3d), 0x03 },
++	{ CCI_REG8(0x3c44), 0x16 },
++	{ CCI_REG8(0x3c5c), 0x8a },
++	{ CCI_REG8(0x3c5f), 0x03 },
++	{ CCI_REG8(0x3c61), 0x80 },
++	{ CCI_REG8(0x3c6f), 0x2b },
++	{ CCI_REG8(0x3c70), 0x5f },
++	{ CCI_REG8(0x3c71), 0x2c },
++	{ CCI_REG8(0x3c72), 0x2c },
++	{ CCI_REG8(0x3c73), 0x2c },
++	{ CCI_REG8(0x3c76), 0x12 },
++
++	/* PEC checks */
++	{ CCI_REG8(0x3182), 0x12 },
++
++	{ CCI_REG8(0x320e), 0x00 },
++	{ CCI_REG8(0x320f), 0x00 },
++	{ CCI_REG8(0x3211), 0x61 },
++	{ CCI_REG8(0x3215), 0xcd },
++	{ CCI_REG8(0x3219), 0x08 },
++
++	/* HCG fine exposure */
++	{ CCI_REG8(0x3506), 0x20 },
++	{ CCI_REG8(0x3507), 0x00 },
++	/* HCG digital gain */
++	{ CCI_REG8(0x350a), 0x01 },
++	{ CCI_REG8(0x350b), 0x00 },
++	{ CCI_REG8(0x350c), 0x00 },
++
++	/* LCG fine exposure */
++	{ CCI_REG8(0x3586), 0x40 },
++	{ CCI_REG8(0x3587), 0x00 },
++	/* LCG digital gain */
++	{ CCI_REG8(0x358a), 0x01 },
++	{ CCI_REG8(0x358b), 0x00 },
++	{ CCI_REG8(0x358c), 0x00 },
++
++	/* SPD fine exposure */
++	{ CCI_REG8(0x3546), 0x20 },
++	{ CCI_REG8(0x3547), 0x00 },
++	/* SPD digital gain */
++	{ CCI_REG8(0x354a), 0x01 },
++	{ CCI_REG8(0x354b), 0x00 },
++	{ CCI_REG8(0x354c), 0x00 },
++
++	/* VS fine exposure */
++	{ CCI_REG8(0x35c6), 0xb0 },
++	{ CCI_REG8(0x35c7), 0x00 },
++	/* VS digital gain */
++	{ CCI_REG8(0x35ca), 0x01 },
++	{ CCI_REG8(0x35cb), 0x00 },
++	{ CCI_REG8(0x35cc), 0x00 },
++
++	/* Undocumented 0x36xx registers */
++	{ CCI_REG8(0x3600), 0x8f },
++	{ CCI_REG8(0x3605), 0x16 },
++	{ CCI_REG8(0x3609), 0xf0 },
++	{ CCI_REG8(0x360a), 0x01 },
++	{ CCI_REG8(0x360e), 0x1d },
++	{ CCI_REG8(0x360f), 0x10 },
++	{ CCI_REG8(0x3610), 0x70 },
++	{ CCI_REG8(0x3611), 0x3a },
++	{ CCI_REG8(0x3612), 0x28 },
++	{ CCI_REG8(0x361a), 0x29 },
++	{ CCI_REG8(0x361b), 0x6c },
++	{ CCI_REG8(0x361c), 0x0b },
++	{ CCI_REG8(0x361d), 0x00 },
++	{ CCI_REG8(0x361e), 0xfc },
++	{ CCI_REG8(0x362a), 0x00 },
++	{ CCI_REG8(0x364d), 0x0f },
++	{ CCI_REG8(0x364e), 0x18 },
++	{ CCI_REG8(0x364f), 0x12 },
++	{ CCI_REG8(0x3653), 0x1c },
++	{ CCI_REG8(0x3654), 0x00 },
++	{ CCI_REG8(0x3655), 0x1f },
++	{ CCI_REG8(0x3656), 0x1f },
++	{ CCI_REG8(0x3657), 0x0c },
++	{ CCI_REG8(0x3658), 0x0a },
++	{ CCI_REG8(0x3659), 0x14 },
++	{ CCI_REG8(0x365a), 0x18 },
++	{ CCI_REG8(0x365b), 0x14 },
++	{ CCI_REG8(0x365c), 0x10 },
++	{ CCI_REG8(0x365e), 0x12 },
++	{ CCI_REG8(0x3674), 0x08 },
++	{ CCI_REG8(0x3677), 0x3a },
++	{ CCI_REG8(0x3678), 0x3a },
++	{ CCI_REG8(0x3679), 0x19 },
++
++	/* Y_ADDR_START = 4 */
++	{ CCI_REG8(0x3802), 0x00 },
++	{ CCI_REG8(0x3803), 0x04 },
++	/* Y_ADDR_END = 0x50b */
++	{ CCI_REG8(0x3806), 0x05 },
++	{ CCI_REG8(0x3807), 0x0b },
++
++	/* X_OUTPUT_SIZE = 1928 */
++	{ CCI_REG8(0x3808), 0x07 },
++	{ CCI_REG8(0x3809), 0x88 },
++	/* Y_OUTPUT_SIZE = 1208 */
++	{ CCI_REG8(0x380a), 0x04 },
++	{ CCI_REG8(0x380b), 0xb8 },
++
++	/* Horizontal timing = 0x447 */
++	{ CCI_REG8(0x380c), 0x04 },
++	{ CCI_REG8(0x380d), 0x47 },
++	/* VTS (rows per frame) = 0x815 */
++	{ CCI_REG8(0x380e), 0x08 },
++	{ CCI_REG8(0x380f), 0x15 },
++
++	/* X/Y cutoff */
++	{ CCI_REG8(0x3810), 0x00 },
++	{ CCI_REG8(0x3811), 0x08 },
++	{ CCI_REG8(0x3812), 0x00 },
++	{ CCI_REG8(0x3813), 0x04 },
++	{ CCI_REG8(0x3816), 0x01 },
++	{ CCI_REG8(0x3817), 0x01 },
++	{ CCI_REG8(0x381c), 0x18 },
++	{ CCI_REG8(0x381e), 0x01 },
++	{ CCI_REG8(0x381f), 0x01 },
++
++	/* Flip, no mirror */
++	{ CCI_REG8(0x3820), 0x04 },
++
++	{ CCI_REG8(0x3821), 0x19 },
++	{ CCI_REG8(0x3832), 0xf0 },
++	{ CCI_REG8(0x3834), 0xf0 },
++	{ CCI_REG8(0x384c), 0x02 },
++	{ CCI_REG8(0x384d), 0x0d },
++	{ CCI_REG8(0x3850), 0x00 },
++	{ CCI_REG8(0x3851), 0x42 },
++	{ CCI_REG8(0x3852), 0x00 },
++	{ CCI_REG8(0x3853), 0x40 },
++	{ CCI_REG8(0x3858), 0x04 },
++	{ CCI_REG8(0x388c), 0x02 },
++	{ CCI_REG8(0x388d), 0x2b },
++
++	/* APC */
++	{ CCI_REG8(0x3b40), 0x05 },
++	{ CCI_REG8(0x3b41), 0x40 },
++	{ CCI_REG8(0x3b42), 0x00 },
++	{ CCI_REG8(0x3b43), 0x90 },
++	{ CCI_REG8(0x3b44), 0x00 },
++	{ CCI_REG8(0x3b45), 0x20 },
++	{ CCI_REG8(0x3b46), 0x00 },
++	{ CCI_REG8(0x3b47), 0x20 },
++	{ CCI_REG8(0x3b48), 0x19 },
++	{ CCI_REG8(0x3b49), 0x12 },
++	{ CCI_REG8(0x3b4a), 0x16 },
++	{ CCI_REG8(0x3b4b), 0x2e },
++	{ CCI_REG8(0x3b4c), 0x00 },
++	{ CCI_REG8(0x3b4d), 0x00 },
++	{ CCI_REG8(0x3b86), 0x00 },
++	{ CCI_REG8(0x3b87), 0x34 },
++	{ CCI_REG8(0x3b88), 0x00 },
++	{ CCI_REG8(0x3b89), 0x08 },
++	{ CCI_REG8(0x3b8a), 0x05 },
++	{ CCI_REG8(0x3b8b), 0x00 },
++	{ CCI_REG8(0x3b8c), 0x07 },
++	{ CCI_REG8(0x3b8d), 0x80 },
++	{ CCI_REG8(0x3b8e), 0x00 },
++	{ CCI_REG8(0x3b8f), 0x00 },
++	{ CCI_REG8(0x3b92), 0x05 },
++	{ CCI_REG8(0x3b93), 0x00 },
++	{ CCI_REG8(0x3b94), 0x07 },
++	{ CCI_REG8(0x3b95), 0x80 },
++	{ CCI_REG8(0x3b9e), 0x09 },
++
++	/* OTP */
++	{ CCI_REG8(0x3d82), 0x73 },
++	{ CCI_REG8(0x3d85), 0x05 },
++	{ CCI_REG8(0x3d8a), 0x03 },
++	{ CCI_REG8(0x3d8b), 0xff },
++	{ CCI_REG8(0x3d99), 0x00 },
++	{ CCI_REG8(0x3d9a), 0x9f },
++	{ CCI_REG8(0x3d9b), 0x00 },
++	{ CCI_REG8(0x3d9c), 0xa0 },
++	{ CCI_REG8(0x3da4), 0x00 },
++	{ CCI_REG8(0x3da7), 0x50 },
++
++	/* DTR */
++	{ CCI_REG8(0x420e), 0x6b },
++	{ CCI_REG8(0x420f), 0x6e },
++	{ CCI_REG8(0x4210), 0x06 },
++	{ CCI_REG8(0x4211), 0xc1 },
++	{ CCI_REG8(0x421e), 0x02 },
++	{ CCI_REG8(0x421f), 0x45 },
++	{ CCI_REG8(0x4220), 0xe1 },
++	{ CCI_REG8(0x4221), 0x01 },
++	{ CCI_REG8(0x4301), 0xff },
++	{ CCI_REG8(0x4307), 0x03 },
++	{ CCI_REG8(0x4308), 0x13 },
++	{ CCI_REG8(0x430a), 0x13 },
++	{ CCI_REG8(0x430d), 0x93 },
++	{ CCI_REG8(0x430f), 0x57 },
++	{ CCI_REG8(0x4310), 0x95 },
++	{ CCI_REG8(0x4311), 0x16 },
++	{ CCI_REG8(0x4316), 0x00 },
++	{ CCI_REG8(0x4317), 0x38 },
++	{ CCI_REG8(0x4319), 0x03 },
++	{ CCI_REG8(0x431a), 0x00 },
++	{ CCI_REG8(0x431b), 0x00 },
++	{ CCI_REG8(0x431d), 0x2a },
++	{ CCI_REG8(0x431e), 0x11 },
++	/* PWL0 enable, 12 bits */
++	{ CCI_REG8(0x431f), 0x20 },
++	{ CCI_REG8(0x4320), 0x19 },
++	{ CCI_REG8(0x4323), 0x80 },
++	{ CCI_REG8(0x4324), 0x00 },
++	{ CCI_REG8(0x4503), 0x4e },
++	{ CCI_REG8(0x4505), 0x00 },
++	{ CCI_REG8(0x4509), 0x00 },
++	{ CCI_REG8(0x450a), 0x00 },
++	{ CCI_REG8(0x4580), 0xf8 },
++	{ CCI_REG8(0x4583), 0x07 },
++	{ CCI_REG8(0x4584), 0x6a },
++	{ CCI_REG8(0x4585), 0x08 },
++	{ CCI_REG8(0x4586), 0x05 },
++	{ CCI_REG8(0x4587), 0x04 },
++	{ CCI_REG8(0x4588), 0x73 },
++	{ CCI_REG8(0x4589), 0x05 },
++	{ CCI_REG8(0x458a), 0x1f },
++	{ CCI_REG8(0x458b), 0x02 },
++	{ CCI_REG8(0x458c), 0xdc },
++	{ CCI_REG8(0x458d), 0x03 },
++	{ CCI_REG8(0x458e), 0x02 },
++	{ CCI_REG8(0x4597), 0x07 },
++	{ CCI_REG8(0x4598), 0x40 },
++	{ CCI_REG8(0x4599), 0x0e },
++	{ CCI_REG8(0x459a), 0x0e },
++	{ CCI_REG8(0x459b), 0xfb },
++	{ CCI_REG8(0x459c), 0xf3 },
++	{ CCI_REG8(0x4602), 0x00 },
++	{ CCI_REG8(0x4603), 0x13 },
++	{ CCI_REG8(0x4604), 0x00 },
++	{ CCI_REG8(0x4609), 0x0a },
++	{ CCI_REG8(0x460a), 0x30 },
++	{ CCI_REG8(0x4610), 0x00 },
++	{ CCI_REG8(0x4611), 0x70 },
++	{ CCI_REG8(0x4612), 0x01 },
++	{ CCI_REG8(0x4613), 0x00 },
++	{ CCI_REG8(0x4614), 0x00 },
++	{ CCI_REG8(0x4615), 0x70 },
++	{ CCI_REG8(0x4616), 0x01 },
++	{ CCI_REG8(0x4617), 0x00 },
++
++	/* MIPI */
++	{ CCI_REG8(0x4800), 0x04 },
++	{ CCI_REG8(0x480a), 0x22 },
++	{ CCI_REG8(0x4813), 0xe4 },
++	{ CCI_REG8(0x4814), 0x2a },
++	{ CCI_REG8(0x4837), 0x0d },
++	{ CCI_REG8(0x484b), 0x47 },
++	{ CCI_REG8(0x484f), 0x00 },
++	{ CCI_REG8(0x4887), 0x51 },
++	{ CCI_REG8(0x4d00), 0x4a },
++	{ CCI_REG8(0x4d01), 0x18 },
++	{ CCI_REG8(0x4d05), 0xff },
++	{ CCI_REG8(0x4d06), 0x88 },
++	{ CCI_REG8(0x4d08), 0x63 },
++	{ CCI_REG8(0x4d09), 0xdf },
++	{ CCI_REG8(0x4d15), 0x7d },
++	{ CCI_REG8(0x4d1a), 0x20 },
++	{ CCI_REG8(0x4d30), 0x0a },
++	{ CCI_REG8(0x4d31), 0x00 },
++	{ CCI_REG8(0x4d34), 0x7d },
++	{ CCI_REG8(0x4d3c), 0x7d },
++	{ CCI_REG8(0x4f00), 0x00 },
++	{ CCI_REG8(0x4f01), 0x00 },
++	{ CCI_REG8(0x4f02), 0x00 },
++	{ CCI_REG8(0x4f03), 0x20 },
++	{ CCI_REG8(0x4f04), 0xe0 },
++	{ CCI_REG8(0x6a00), 0x00 },
++	{ CCI_REG8(0x6a01), 0x20 },
++	{ CCI_REG8(0x6a02), 0x00 },
++	{ CCI_REG8(0x6a03), 0x20 },
++	{ CCI_REG8(0x6a04), 0x02 },
++	{ CCI_REG8(0x6a05), 0x80 },
++	{ CCI_REG8(0x6a06), 0x01 },
++	{ CCI_REG8(0x6a07), 0xe0 },
++	{ CCI_REG8(0x6a08), 0xcf },
++	{ CCI_REG8(0x6a09), 0x01 },
++	{ CCI_REG8(0x6a0a), 0x40 },
++	{ CCI_REG8(0x6a20), 0x00 },
++	{ CCI_REG8(0x6a21), 0x02 },
++	{ CCI_REG8(0x6a22), 0x00 },
++	{ CCI_REG8(0x6a23), 0x00 },
++	{ CCI_REG8(0x6a24), 0x00 },
++	{ CCI_REG8(0x6a25), 0x00 },
++	{ CCI_REG8(0x6a26), 0x00 },
++	{ CCI_REG8(0x6a27), 0x00 },
++	{ CCI_REG8(0x6a28), 0x00 },
++
++	/* ISP */
++	{ CCI_REG8(0x5000), 0x8f },
++	{ CCI_REG8(0x5001), 0x75 },
++	{ CCI_REG8(0x5002), 0x7f },
++	{ CCI_REG8(0x5003), 0x7a },
++	{ CCI_REG8(0x5004), 0x3e },
++	{ CCI_REG8(0x5005), 0x1e },
++	{ CCI_REG8(0x5006), 0x1e },
++	{ CCI_REG8(0x5007), 0x1e },
++	{ CCI_REG8(0x5008), 0x00 },
++	{ CCI_REG8(0x500c), 0x00 },
++	{ CCI_REG8(0x502c), 0x00 },
++	{ CCI_REG8(0x502e), 0x00 },
++	{ CCI_REG8(0x502f), 0x00 },
++	{ CCI_REG8(0x504b), 0x00 },
++	{ CCI_REG8(0x5053), 0x00 },
++	{ CCI_REG8(0x505b), 0x00 },
++	{ CCI_REG8(0x5063), 0x00 },
++	{ CCI_REG8(0x5070), 0x00 },
++	{ CCI_REG8(0x5074), 0x04 },
++	{ CCI_REG8(0x507a), 0x04 },
++	{ CCI_REG8(0x507b), 0x09 },
++	{ CCI_REG8(0x5500), 0x02 },
++	{ CCI_REG8(0x5700), 0x02 },
++	{ CCI_REG8(0x5900), 0x02 },
++	{ CCI_REG8(0x6007), 0x04 },
++	{ CCI_REG8(0x6008), 0x05 },
++	{ CCI_REG8(0x6009), 0x02 },
++	{ CCI_REG8(0x600b), 0x08 },
++	{ CCI_REG8(0x600c), 0x07 },
++	{ CCI_REG8(0x600d), 0x88 },
++	{ CCI_REG8(0x6016), 0x00 },
++	{ CCI_REG8(0x6027), 0x04 },
++	{ CCI_REG8(0x6028), 0x05 },
++	{ CCI_REG8(0x6029), 0x02 },
++	{ CCI_REG8(0x602b), 0x08 },
++	{ CCI_REG8(0x602c), 0x07 },
++	{ CCI_REG8(0x602d), 0x88 },
++	{ CCI_REG8(0x6047), 0x04 },
++	{ CCI_REG8(0x6048), 0x05 },
++	{ CCI_REG8(0x6049), 0x02 },
++	{ CCI_REG8(0x604b), 0x08 },
++	{ CCI_REG8(0x604c), 0x07 },
++	{ CCI_REG8(0x604d), 0x88 },
++	{ CCI_REG8(0x6067), 0x04 },
++	{ CCI_REG8(0x6068), 0x05 },
++	{ CCI_REG8(0x6069), 0x02 },
++	{ CCI_REG8(0x606b), 0x08 },
++	{ CCI_REG8(0x606c), 0x07 },
++	{ CCI_REG8(0x606d), 0x88 },
++	{ CCI_REG8(0x6087), 0x04 },
++	{ CCI_REG8(0x6088), 0x05 },
++	{ CCI_REG8(0x6089), 0x02 },
++	{ CCI_REG8(0x608b), 0x08 },
++	{ CCI_REG8(0x608c), 0x07 },
++	{ CCI_REG8(0x608d), 0x88 },
++
++	/* 12-bit PWL0 */
++	{ CCI_REG8(0x5e00), 0x00 },
++
++	/* m_ndX_exp[0:32] */
++	{ CCI_REG8(0x5e01), 0x09 },
++	{ CCI_REG8(0x5e02), 0x09 },
++	{ CCI_REG8(0x5e03), 0x0a },
++	{ CCI_REG8(0x5e04), 0x0a },
++	{ CCI_REG8(0x5e05), 0x0a },
++	{ CCI_REG8(0x5e06), 0x0b },
++	{ CCI_REG8(0x5e07), 0x0b },
++	{ CCI_REG8(0x5e08), 0x0c },
++	{ CCI_REG8(0x5e09), 0x0c },
++	{ CCI_REG8(0x5e0a), 0x0d },
++	{ CCI_REG8(0x5e0b), 0x0d },
++	{ CCI_REG8(0x5e0c), 0x0e },
++	{ CCI_REG8(0x5e0d), 0x0e },
++	{ CCI_REG8(0x5e0e), 0x0f },
++	{ CCI_REG8(0x5e0f), 0x0f },
++	{ CCI_REG8(0x5e10), 0x10 },
++	{ CCI_REG8(0x5e11), 0x10 },
++	{ CCI_REG8(0x5e12), 0x11 },
++	{ CCI_REG8(0x5e13), 0x11 },
++	{ CCI_REG8(0x5e14), 0x12 },
++	{ CCI_REG8(0x5e15), 0x12 },
++	{ CCI_REG8(0x5e16), 0x12 },
++	{ CCI_REG8(0x5e17), 0x12 },
++	{ CCI_REG8(0x5e18), 0x13 },
++	{ CCI_REG8(0x5e19), 0x13 },
++	{ CCI_REG8(0x5e1a), 0x13 },
++	{ CCI_REG8(0x5e1b), 0x14 },
++	{ CCI_REG8(0x5e1c), 0x14 },
++	{ CCI_REG8(0x5e1d), 0x14 },
++	{ CCI_REG8(0x5e1e), 0x15 },
++	{ CCI_REG8(0x5e1f), 0x15 },
++	{ CCI_REG8(0x5e20), 0x15 },
++	{ CCI_REG8(0x5e21), 0x16 },
++
++	/* m_ndY_val[0:32] */
++	{ CCI_REG8(0x5e22), 0x00 },
++	{ CCI_REG8(0x5e23), 0x02 },
++	{ CCI_REG8(0x5e24), 0x00 },
++	{ CCI_REG8(0x5e25), 0x00 },
++	{ CCI_REG8(0x5e26), 0x00 },
++	{ CCI_REG8(0x5e27), 0xff },
++	{ CCI_REG8(0x5e28), 0x00 },
++	{ CCI_REG8(0x5e29), 0x01 },
++	{ CCI_REG8(0x5e2a), 0x00 },
++	{ CCI_REG8(0x5e2b), 0x00 },
++	{ CCI_REG8(0x5e2c), 0x01 },
++	{ CCI_REG8(0x5e2d), 0x00 },
++	{ CCI_REG8(0x5e2e), 0x00 },
++	{ CCI_REG8(0x5e2f), 0x01 },
++	{ CCI_REG8(0x5e30), 0x00 },
++	{ CCI_REG8(0x5e31), 0x00 },
++	{ CCI_REG8(0x5e32), 0x00 },
++	{ CCI_REG8(0x5e33), 0x80 },
++	{ CCI_REG8(0x5e34), 0x00 },
++	{ CCI_REG8(0x5e35), 0x00 },
++	{ CCI_REG8(0x5e36), 0x80 },
++	{ CCI_REG8(0x5e37), 0x00 },
++	{ CCI_REG8(0x5e38), 0x00 },
++	{ CCI_REG8(0x5e39), 0x80 },
++	{ CCI_REG8(0x5e3a), 0x00 },
++	{ CCI_REG8(0x5e3b), 0x00 },
++	{ CCI_REG8(0x5e3c), 0x80 },
++	{ CCI_REG8(0x5e3d), 0x00 },
++	{ CCI_REG8(0x5e3e), 0x00 },
++	{ CCI_REG8(0x5e3f), 0x80 },
++	{ CCI_REG8(0x5e40), 0x00 },
++	{ CCI_REG8(0x5e41), 0x00 },
++	{ CCI_REG8(0x5e42), 0x80 },
++	{ CCI_REG8(0x5e43), 0x00 },
++	{ CCI_REG8(0x5e44), 0x00 },
++	{ CCI_REG8(0x5e45), 0x80 },
++	{ CCI_REG8(0x5e46), 0x00 },
++	{ CCI_REG8(0x5e47), 0x00 },
++	{ CCI_REG8(0x5e48), 0x80 },
++	{ CCI_REG8(0x5e49), 0x00 },
++	{ CCI_REG8(0x5e4a), 0x00 },
++	{ CCI_REG8(0x5e4b), 0x80 },
++	{ CCI_REG8(0x5e4c), 0x00 },
++	{ CCI_REG8(0x5e4d), 0x00 },
++	{ CCI_REG8(0x5e4e), 0x80 },
++	{ CCI_REG8(0x5e4f), 0x00 },
++	{ CCI_REG8(0x5e50), 0x00 },
++	{ CCI_REG8(0x5e51), 0x80 },
++	{ CCI_REG8(0x5e52), 0x00 },
++	{ CCI_REG8(0x5e53), 0x00 },
++	{ CCI_REG8(0x5e54), 0x80 },
++	{ CCI_REG8(0x5e55), 0x00 },
++	{ CCI_REG8(0x5e56), 0x00 },
++	{ CCI_REG8(0x5e57), 0x40 },
++	{ CCI_REG8(0x5e58), 0x00 },
++	{ CCI_REG8(0x5e59), 0x00 },
++	{ CCI_REG8(0x5e5a), 0x40 },
++	{ CCI_REG8(0x5e5b), 0x00 },
++	{ CCI_REG8(0x5e5c), 0x00 },
++	{ CCI_REG8(0x5e5d), 0x40 },
++	{ CCI_REG8(0x5e5e), 0x00 },
++	{ CCI_REG8(0x5e5f), 0x00 },
++	{ CCI_REG8(0x5e60), 0x40 },
++	{ CCI_REG8(0x5e61), 0x00 },
++	{ CCI_REG8(0x5e62), 0x00 },
++	{ CCI_REG8(0x5e63), 0x40 },
++	{ CCI_REG8(0x5e64), 0x00 },
++	{ CCI_REG8(0x5e65), 0x00 },
++	{ CCI_REG8(0x5e66), 0x40 },
++	{ CCI_REG8(0x5e67), 0x00 },
++	{ CCI_REG8(0x5e68), 0x00 },
++	{ CCI_REG8(0x5e69), 0x40 },
++	{ CCI_REG8(0x5e6a), 0x00 },
++	{ CCI_REG8(0x5e6b), 0x00 },
++	{ CCI_REG8(0x5e6c), 0x40 },
++	{ CCI_REG8(0x5e6d), 0x00 },
++	{ CCI_REG8(0x5e6e), 0x00 },
++	{ CCI_REG8(0x5e6f), 0x40 },
++	{ CCI_REG8(0x5e70), 0x00 },
++	{ CCI_REG8(0x5e71), 0x00 },
++	{ CCI_REG8(0x5e72), 0x40 },
++	{ CCI_REG8(0x5e73), 0x00 },
++	{ CCI_REG8(0x5e74), 0x00 },
++	{ CCI_REG8(0x5e75), 0x40 },
++	{ CCI_REG8(0x5e76), 0x00 },
++	{ CCI_REG8(0x5e77), 0x00 },
++	{ CCI_REG8(0x5e78), 0x40 },
++	{ CCI_REG8(0x5e79), 0x00 },
++	{ CCI_REG8(0x5e7a), 0x00 },
++	{ CCI_REG8(0x5e7b), 0x40 },
++	{ CCI_REG8(0x5e7c), 0x00 },
++	{ CCI_REG8(0x5e7d), 0x00 },
++	{ CCI_REG8(0x5e7e), 0x40 },
++	{ CCI_REG8(0x5e7f), 0x00 },
++	{ CCI_REG8(0x5e80), 0x00 },
++	{ CCI_REG8(0x5e81), 0x40 },
++	{ CCI_REG8(0x5e82), 0x00 },
++	{ CCI_REG8(0x5e83), 0x00 },
++	{ CCI_REG8(0x5e84), 0x40 },
++
++	/* BLC */
++	{ CCI_REG8(0x4001), 0x2b },
++	{ CCI_REG8(0x4008), 0x02 },
++	{ CCI_REG8(0x4009), 0x03 },
++	{ CCI_REG8(0x4018), 0x12 },
++	{ CCI_REG8(0x4022), 0x40 },
++	{ CCI_REG8(0x4023), 0x20 },
++	/* Black level targets = 0x40 */
++	{ CCI_REG8(0x4026), 0x00 },
++	{ CCI_REG8(0x4027), 0x40 },
++	{ CCI_REG8(0x4028), 0x00 },
++	{ CCI_REG8(0x4029), 0x40 },
++	{ CCI_REG8(0x402a), 0x00 },
++	{ CCI_REG8(0x402b), 0x40 },
++	{ CCI_REG8(0x402c), 0x00 },
++	{ CCI_REG8(0x402d), 0x40 },
++
++	{ CCI_REG8(0x407e), 0xcc },
++	{ CCI_REG8(0x407f), 0x18 },
++	{ CCI_REG8(0x4080), 0xff },
++	{ CCI_REG8(0x4081), 0xff },
++	{ CCI_REG8(0x4082), 0x01 },
++	{ CCI_REG8(0x4083), 0x53 },
++	{ CCI_REG8(0x4084), 0x01 },
++	{ CCI_REG8(0x4085), 0x2b },
++	{ CCI_REG8(0x4086), 0x00 },
++	{ CCI_REG8(0x4087), 0xb3 },
++
++	{ CCI_REG8(0x4640), 0x40 },
++	{ CCI_REG8(0x4641), 0x11 },
++	{ CCI_REG8(0x4642), 0x0e },
++	{ CCI_REG8(0x4643), 0xee },
++	{ CCI_REG8(0x4646), 0x0f },
++	{ CCI_REG8(0x4648), 0x00 },
++	{ CCI_REG8(0x4649), 0x03 },
++
++	{ CCI_REG8(0x4f00), 0x00 },
++	{ CCI_REG8(0x4f01), 0x00 },
++	{ CCI_REG8(0x4f02), 0x80 },
++	{ CCI_REG8(0x4f03), 0x2c },
++	{ CCI_REG8(0x4f04), 0xf8 },
++
++	{ CCI_REG8(0x4d09), 0xff },
++	{ CCI_REG8(0x4d09), 0xdf },
++
++	{ CCI_REG8(0x5003), 0x7a },
++	{ CCI_REG8(0x5b80), 0x08 },
++	{ CCI_REG8(0x5c00), 0x08 },
++	{ CCI_REG8(0x5c80), 0x00 },
++	{ CCI_REG8(0x5bbe), 0x12 },
++	{ CCI_REG8(0x5c3e), 0x12 },
++	{ CCI_REG8(0x5cbe), 0x12 },
++
++	/* HCG combine weights */
++	{ CCI_REG8(0x5b8a), 0x80 },
++	{ CCI_REG8(0x5b8b), 0x80 },
++	{ CCI_REG8(0x5b8c), 0x80 },
++	{ CCI_REG8(0x5b8d), 0x80 },
++	{ CCI_REG8(0x5b8e), 0x60 },
++	{ CCI_REG8(0x5b8f), 0x80 },
++	{ CCI_REG8(0x5b90), 0x80 },
++	{ CCI_REG8(0x5b91), 0x80 },
++	{ CCI_REG8(0x5b92), 0x80 },
++	{ CCI_REG8(0x5b93), 0x20 },
++	{ CCI_REG8(0x5b94), 0x80 },
++	{ CCI_REG8(0x5b95), 0x80 },
++	{ CCI_REG8(0x5b96), 0x80 },
++	{ CCI_REG8(0x5b97), 0x20 },
++	{ CCI_REG8(0x5b98), 0x00 },
++	{ CCI_REG8(0x5b99), 0x80 },
++	{ CCI_REG8(0x5b9a), 0x40 },
++	{ CCI_REG8(0x5b9b), 0x20 },
++	{ CCI_REG8(0x5b9c), 0x00 },
++	{ CCI_REG8(0x5b9d), 0x00 },
++	{ CCI_REG8(0x5b9e), 0x80 },
++	{ CCI_REG8(0x5b9f), 0x00 },
++	{ CCI_REG8(0x5ba0), 0x00 },
++	{ CCI_REG8(0x5ba1), 0x00 },
++	{ CCI_REG8(0x5ba2), 0x00 },
++	{ CCI_REG8(0x5ba3), 0x00 },
++	{ CCI_REG8(0x5ba4), 0x00 },
++	{ CCI_REG8(0x5ba5), 0x00 },
++	{ CCI_REG8(0x5ba6), 0x00 },
++	{ CCI_REG8(0x5ba7), 0x00 },
++	{ CCI_REG8(0x5ba8), 0x02 },
++	{ CCI_REG8(0x5ba9), 0x00 },
++	{ CCI_REG8(0x5baa), 0x02 },
++	{ CCI_REG8(0x5bab), 0x76 },
++	{ CCI_REG8(0x5bac), 0x03 },
++	{ CCI_REG8(0x5bad), 0x08 },
++	{ CCI_REG8(0x5bae), 0x00 },
++	{ CCI_REG8(0x5baf), 0x80 },
++	{ CCI_REG8(0x5bb0), 0x00 },
++	{ CCI_REG8(0x5bb1), 0xc0 },
++	{ CCI_REG8(0x5bb2), 0x01 },
++	{ CCI_REG8(0x5bb3), 0x00 },
++
++	/* m_nNormCombineWeight (LCG) */
++	{ CCI_REG8(0x5c0a), 0x80 },
++	{ CCI_REG8(0x5c0b), 0x80 },
++	{ CCI_REG8(0x5c0c), 0x80 },
++	{ CCI_REG8(0x5c0d), 0x80 },
++	{ CCI_REG8(0x5c0e), 0x60 },
++	{ CCI_REG8(0x5c0f), 0x80 },
++	{ CCI_REG8(0x5c10), 0x80 },
++	{ CCI_REG8(0x5c11), 0x80 },
++	{ CCI_REG8(0x5c12), 0x60 },
++	{ CCI_REG8(0x5c13), 0x20 },
++	{ CCI_REG8(0x5c14), 0x80 },
++	{ CCI_REG8(0x5c15), 0x80 },
++	{ CCI_REG8(0x5c16), 0x80 },
++	{ CCI_REG8(0x5c17), 0x20 },
++	{ CCI_REG8(0x5c18), 0x00 },
++	{ CCI_REG8(0x5c19), 0x80 },
++	{ CCI_REG8(0x5c1a), 0x40 },
++	{ CCI_REG8(0x5c1b), 0x20 },
++	{ CCI_REG8(0x5c1c), 0x00 },
++	{ CCI_REG8(0x5c1d), 0x00 },
++	{ CCI_REG8(0x5c1e), 0x80 },
++	{ CCI_REG8(0x5c1f), 0x00 },
++	{ CCI_REG8(0x5c20), 0x00 },
++	{ CCI_REG8(0x5c21), 0x00 },
++	{ CCI_REG8(0x5c22), 0x00 },
++	{ CCI_REG8(0x5c23), 0x00 },
++	{ CCI_REG8(0x5c24), 0x00 },
++	{ CCI_REG8(0x5c25), 0x00 },
++	{ CCI_REG8(0x5c26), 0x00 },
++	{ CCI_REG8(0x5c27), 0x00 },
++
++	/* m_nCombinThreL */
++	{ CCI_REG8(0x5c28), 0x02 },
++	{ CCI_REG8(0x5c29), 0x00 },
++	{ CCI_REG8(0x5c2a), 0x02 },
++	{ CCI_REG8(0x5c2b), 0x76 },
++	{ CCI_REG8(0x5c2c), 0x03 },
++	{ CCI_REG8(0x5c2d), 0x08 },
++
++	/* m_nCombinThreS */
++	{ CCI_REG8(0x5c2e), 0x00 },
++	{ CCI_REG8(0x5c2f), 0x80 },
++	{ CCI_REG8(0x5c30), 0x00 },
++	{ CCI_REG8(0x5c31), 0xc0 },
++	{ CCI_REG8(0x5c32), 0x01 },
++	{ CCI_REG8(0x5c33), 0x00 },
++
++	/* m_nNormCombineWeight (VS) */
++	{ CCI_REG8(0x5c8a), 0x80 },
++	{ CCI_REG8(0x5c8b), 0x80 },
++	{ CCI_REG8(0x5c8c), 0x80 },
++	{ CCI_REG8(0x5c8d), 0x80 },
++	{ CCI_REG8(0x5c8e), 0x80 },
++	{ CCI_REG8(0x5c8f), 0x80 },
++	{ CCI_REG8(0x5c90), 0x80 },
++	{ CCI_REG8(0x5c91), 0x80 },
++	{ CCI_REG8(0x5c92), 0x80 },
++	{ CCI_REG8(0x5c93), 0x60 },
++	{ CCI_REG8(0x5c94), 0x80 },
++	{ CCI_REG8(0x5c95), 0x80 },
++	{ CCI_REG8(0x5c96), 0x80 },
++	{ CCI_REG8(0x5c97), 0x60 },
++	{ CCI_REG8(0x5c98), 0x40 },
++	{ CCI_REG8(0x5c99), 0x80 },
++	{ CCI_REG8(0x5c9a), 0x80 },
++	{ CCI_REG8(0x5c9b), 0x80 },
++	{ CCI_REG8(0x5c9c), 0x40 },
++	{ CCI_REG8(0x5c9d), 0x00 },
++	{ CCI_REG8(0x5c9e), 0x80 },
++	{ CCI_REG8(0x5c9f), 0x80 },
++	{ CCI_REG8(0x5ca0), 0x80 },
++	{ CCI_REG8(0x5ca1), 0x20 },
++	{ CCI_REG8(0x5ca2), 0x00 },
++	{ CCI_REG8(0x5ca3), 0x80 },
++	{ CCI_REG8(0x5ca4), 0x80 },
++	{ CCI_REG8(0x5ca5), 0x00 },
++	{ CCI_REG8(0x5ca6), 0x00 },
++	{ CCI_REG8(0x5ca7), 0x00 },
++
++	{ CCI_REG8(0x5ca8), 0x01 },
++	{ CCI_REG8(0x5ca9), 0x00 },
++	{ CCI_REG8(0x5caa), 0x02 },
++	{ CCI_REG8(0x5cab), 0x00 },
++	{ CCI_REG8(0x5cac), 0x03 },
++	{ CCI_REG8(0x5cad), 0x08 },
++
++	{ CCI_REG8(0x5cae), 0x01 },
++	{ CCI_REG8(0x5caf), 0x00 },
++	{ CCI_REG8(0x5cb0), 0x02 },
++	{ CCI_REG8(0x5cb1), 0x00 },
++	{ CCI_REG8(0x5cb2), 0x03 },
++	{ CCI_REG8(0x5cb3), 0x08 },
++
++	/* Combine ISP */
++	{ CCI_REG8(0x5be7), 0x80 },
++	{ CCI_REG8(0x5bc9), 0x80 },
++	{ CCI_REG8(0x5bca), 0x80 },
++	{ CCI_REG8(0x5bcb), 0x80 },
++	{ CCI_REG8(0x5bcc), 0x80 },
++	{ CCI_REG8(0x5bcd), 0x80 },
++	{ CCI_REG8(0x5bce), 0x80 },
++	{ CCI_REG8(0x5bcf), 0x80 },
++	{ CCI_REG8(0x5bd0), 0x80 },
++	{ CCI_REG8(0x5bd1), 0x80 },
++	{ CCI_REG8(0x5bd2), 0x20 },
++	{ CCI_REG8(0x5bd3), 0x80 },
++	{ CCI_REG8(0x5bd4), 0x40 },
++	{ CCI_REG8(0x5bd5), 0x20 },
++	{ CCI_REG8(0x5bd6), 0x00 },
++	{ CCI_REG8(0x5bd7), 0x00 },
++	{ CCI_REG8(0x5bd8), 0x00 },
++	{ CCI_REG8(0x5bd9), 0x00 },
++	{ CCI_REG8(0x5bda), 0x00 },
++	{ CCI_REG8(0x5bdb), 0x00 },
++	{ CCI_REG8(0x5bdc), 0x00 },
++	{ CCI_REG8(0x5bdd), 0x00 },
++	{ CCI_REG8(0x5bde), 0x00 },
++	{ CCI_REG8(0x5bdf), 0x00 },
++	{ CCI_REG8(0x5be0), 0x00 },
++	{ CCI_REG8(0x5be1), 0x00 },
++	{ CCI_REG8(0x5be2), 0x00 },
++	{ CCI_REG8(0x5be3), 0x00 },
++	{ CCI_REG8(0x5be4), 0x00 },
++	{ CCI_REG8(0x5be5), 0x00 },
++	{ CCI_REG8(0x5be6), 0x00 },
++
++	/* m_nSPDCombineWeight */
++	{ CCI_REG8(0x5c49), 0x80 },
++	{ CCI_REG8(0x5c4a), 0x80 },
++	{ CCI_REG8(0x5c4b), 0x80 },
++	{ CCI_REG8(0x5c4c), 0x80 },
++	{ CCI_REG8(0x5c4d), 0x40 },
++	{ CCI_REG8(0x5c4e), 0x80 },
++	{ CCI_REG8(0x5c4f), 0x80 },
++	{ CCI_REG8(0x5c50), 0x80 },
++	{ CCI_REG8(0x5c51), 0x60 },
++	{ CCI_REG8(0x5c52), 0x20 },
++	{ CCI_REG8(0x5c53), 0x80 },
++	{ CCI_REG8(0x5c54), 0x80 },
++	{ CCI_REG8(0x5c55), 0x80 },
++	{ CCI_REG8(0x5c56), 0x20 },
++	{ CCI_REG8(0x5c57), 0x00 },
++	{ CCI_REG8(0x5c58), 0x80 },
++	{ CCI_REG8(0x5c59), 0x40 },
++	{ CCI_REG8(0x5c5a), 0x20 },
++	{ CCI_REG8(0x5c5b), 0x00 },
++	{ CCI_REG8(0x5c5c), 0x00 },
++	{ CCI_REG8(0x5c5d), 0x80 },
++	{ CCI_REG8(0x5c5e), 0x00 },
++	{ CCI_REG8(0x5c5f), 0x00 },
++	{ CCI_REG8(0x5c60), 0x00 },
++	{ CCI_REG8(0x5c61), 0x00 },
++	{ CCI_REG8(0x5c62), 0x00 },
++	{ CCI_REG8(0x5c63), 0x00 },
++	{ CCI_REG8(0x5c64), 0x00 },
++	{ CCI_REG8(0x5c65), 0x00 },
++	{ CCI_REG8(0x5c66), 0x00 },
++
++	/* m_nSPDCombineWeight (VS) */
++	{ CCI_REG8(0x5cc9), 0x80 },
++	{ CCI_REG8(0x5cca), 0x80 },
++	{ CCI_REG8(0x5ccb), 0x80 },
++	{ CCI_REG8(0x5ccc), 0x80 },
++	{ CCI_REG8(0x5ccd), 0x80 },
++	{ CCI_REG8(0x5cce), 0x80 },
++	{ CCI_REG8(0x5ccf), 0x80 },
++	{ CCI_REG8(0x5cd0), 0x80 },
++	{ CCI_REG8(0x5cd1), 0x80 },
++	{ CCI_REG8(0x5cd2), 0x60 },
++	{ CCI_REG8(0x5cd3), 0x80 },
++	{ CCI_REG8(0x5cd4), 0x80 },
++	{ CCI_REG8(0x5cd5), 0x80 },
++	{ CCI_REG8(0x5cd6), 0x60 },
++	{ CCI_REG8(0x5cd7), 0x40 },
++	{ CCI_REG8(0x5cd8), 0x80 },
++	{ CCI_REG8(0x5cd9), 0x80 },
++	{ CCI_REG8(0x5cda), 0x80 },
++	{ CCI_REG8(0x5cdb), 0x40 },
++	{ CCI_REG8(0x5cdc), 0x20 },
++	{ CCI_REG8(0x5cdd), 0x80 },
++	{ CCI_REG8(0x5cde), 0x80 },
++	{ CCI_REG8(0x5cdf), 0x80 },
++	{ CCI_REG8(0x5ce0), 0x20 },
++	{ CCI_REG8(0x5ce1), 0x00 },
++	{ CCI_REG8(0x5ce2), 0x80 },
++	{ CCI_REG8(0x5ce3), 0x80 },
++	{ CCI_REG8(0x5ce4), 0x80 },
++	{ CCI_REG8(0x5ce5), 0x00 },
++	{ CCI_REG8(0x5ce6), 0x00 },
++
++	{ CCI_REG8(0x5d74), 0x01 },
++	{ CCI_REG8(0x5d75), 0x00 },
++
++	{ CCI_REG8(0x5d1f), 0x81 },
++	{ CCI_REG8(0x5d11), 0x00 },
++	{ CCI_REG8(0x5d12), 0x10 },
++	{ CCI_REG8(0x5d13), 0x10 },
++	{ CCI_REG8(0x5d15), 0x05 },
++	{ CCI_REG8(0x5d16), 0x05 },
++	{ CCI_REG8(0x5d17), 0x05 },
++	{ CCI_REG8(0x5d08), 0x03 },
++	{ CCI_REG8(0x5d09), 0xb6 },
++	{ CCI_REG8(0x5d0a), 0x03 },
++	{ CCI_REG8(0x5d0b), 0xb6 },
++	{ CCI_REG8(0x5d18), 0x03 },
++	{ CCI_REG8(0x5d19), 0xb6 },
++	{ CCI_REG8(0x5d62), 0x01 },
++	{ CCI_REG8(0x5d40), 0x02 },
++	{ CCI_REG8(0x5d41), 0x01 },
++	{ CCI_REG8(0x5d63), 0x1f },
++	{ CCI_REG8(0x5d64), 0x00 },
++	{ CCI_REG8(0x5d65), 0x80 },
++	{ CCI_REG8(0x5d56), 0x00 },
++	{ CCI_REG8(0x5d57), 0x20 },
++	{ CCI_REG8(0x5d58), 0x00 },
++	{ CCI_REG8(0x5d59), 0x20 },
++	{ CCI_REG8(0x5d5a), 0x00 },
++	{ CCI_REG8(0x5d5b), 0x0c },
++	{ CCI_REG8(0x5d5c), 0x02 },
++	{ CCI_REG8(0x5d5d), 0x40 },
++	{ CCI_REG8(0x5d5e), 0x02 },
++	{ CCI_REG8(0x5d5f), 0x40 },
++	{ CCI_REG8(0x5d60), 0x03 },
++	{ CCI_REG8(0x5d61), 0x40 },
++	{ CCI_REG8(0x5d4a), 0x02 },
++	{ CCI_REG8(0x5d4b), 0x40 },
++	{ CCI_REG8(0x5d4c), 0x02 },
++	{ CCI_REG8(0x5d4d), 0x40 },
++	{ CCI_REG8(0x5d4e), 0x02 },
++	{ CCI_REG8(0x5d4f), 0x40 },
++	{ CCI_REG8(0x5d50), 0x18 },
++	{ CCI_REG8(0x5d51), 0x80 },
++	{ CCI_REG8(0x5d52), 0x18 },
++	{ CCI_REG8(0x5d53), 0x80 },
++	{ CCI_REG8(0x5d54), 0x18 },
++	{ CCI_REG8(0x5d55), 0x80 },
++	{ CCI_REG8(0x5d46), 0x20 },
++	{ CCI_REG8(0x5d47), 0x00 },
++	{ CCI_REG8(0x5d48), 0x22 },
++	{ CCI_REG8(0x5d49), 0x00 },
++	{ CCI_REG8(0x5d42), 0x20 },
++	{ CCI_REG8(0x5d43), 0x00 },
++	{ CCI_REG8(0x5d44), 0x22 },
++	{ CCI_REG8(0x5d45), 0x00 },
++
++	{ CCI_REG8(0x5004), 0x1e },
++	{ CCI_REG8(0x4221), 0x03 },
++
++	/* CRC reference */
++	{ CCI_REG8(0x420e), 0x66 },
++	{ CCI_REG8(0x420f), 0x5d },
++	{ CCI_REG8(0x4210), 0xa8 },
++	{ CCI_REG8(0x4211), 0x55 },
++	/* CRC stat check */
++	{ CCI_REG8(0x507a), 0x5f },
++	{ CCI_REG8(0x507b), 0x46 },
++
++	/* Watchdog control */
++	{ CCI_REG8(0x4f00), 0x00 },
++	{ CCI_REG8(0x4f01), 0x01 },
++	{ CCI_REG8(0x4f02), 0x80 },
++	{ CCI_REG8(0x4f04), 0x2c },
++
++	/* Color balance gains - blue */
++	{ CCI_REG8(0x5280), 0x06 },
++	{ CCI_REG8(0x5281), 0xcb },
++	{ CCI_REG8(0x5480), 0x06 },
++	{ CCI_REG8(0x5481), 0xcb },
++	{ CCI_REG8(0x5680), 0x06 },
++	{ CCI_REG8(0x5681), 0xcb },
++	{ CCI_REG8(0x5880), 0x06 },
++	{ CCI_REG8(0x5881), 0xcb },
++
++	/* Color balance gains - green(blue) */
++	{ CCI_REG8(0x5282), 0x04 },
++	{ CCI_REG8(0x5283), 0x00 },
++	{ CCI_REG8(0x5482), 0x04 },
++	{ CCI_REG8(0x5483), 0x00 },
++	{ CCI_REG8(0x5682), 0x04 },
++	{ CCI_REG8(0x5683), 0x00 },
++	{ CCI_REG8(0x5882), 0x04 },
++	{ CCI_REG8(0x5883), 0x00 },
++
++	/* Color balance gains - green(red) */
++	{ CCI_REG8(0x5284), 0x04 },
++	{ CCI_REG8(0x5285), 0x00 },
++	{ CCI_REG8(0x5484), 0x04 },
++	{ CCI_REG8(0x5485), 0x00 },
++	{ CCI_REG8(0x5684), 0x04 },
++	{ CCI_REG8(0x5685), 0x00 },
++	{ CCI_REG8(0x5884), 0x04 },
++	{ CCI_REG8(0x5885), 0x00 },
++
++	/* Color balance gains - red */
++	{ CCI_REG8(0x5286), 0x08 },
++	{ CCI_REG8(0x5287), 0xde },
++	{ CCI_REG8(0x5486), 0x08 },
++	{ CCI_REG8(0x5487), 0xde },
++	{ CCI_REG8(0x5686), 0x08 },
++	{ CCI_REG8(0x5687), 0xde },
++	{ CCI_REG8(0x5886), 0x08 },
++	{ CCI_REG8(0x5887), 0xde },
++
++	/* Fixed gains */
++	{ CCI_REG8(0x3588), 0x01 },
++	{ CCI_REG8(0x3589), 0x00 },
++	{ CCI_REG8(0x35c8), 0x01 },
++	{ CCI_REG8(0x35c9), 0x00 },
++	{ CCI_REG8(0x3548), 0x0f },
++	{ CCI_REG8(0x3549), 0x00 },
++	{ CCI_REG8(0x35c1), 0x00 },
++};
++
++static const s64 ox03c10_link_freq_menu[] = {
++	OX03C10_LINK_FREQ,
++};
++
++static const struct ox03c10_mode ox03c10_modes[] = {
++	{
++		.width = OX03C10_NATIVE_WIDTH,
++		.height = OX03C10_NATIVE_HEIGHT,
++		.code = MEDIA_BUS_FMT_SGRBG12_1X12,
++		.reg_list = {
++			.num_of_regs = ARRAY_SIZE(ox03c10_mode_default),
++			.regs = ox03c10_mode_default,
++		},
++		.link_freq_index = 0,
++		.hblank = 0,
++		.vblank = 0,
++	},
++};
++
++static const char *const ox03c10_supplies[] = {
++	"avdd",
++	"dovdd",
++	"dvdd",
++};
++
++struct ox03c10 {
++	struct v4l2_subdev sd;
++	struct media_pad pad;
++	struct v4l2_ctrl_handler ctrl_handler;
++
++	struct v4l2_ctrl *link_freq;
++	struct v4l2_ctrl *pixel_rate;
++	struct v4l2_ctrl *hblank;
++	struct v4l2_ctrl *vblank;
++
++	struct device *dev;
++	struct regmap *cci;
++	struct clk *clk;
++	struct gpio_desc *reset_gpio;
++	struct regulator_bulk_data supplies[ARRAY_SIZE(ox03c10_supplies)];
++	unsigned long link_freq_bitmap;
++	const struct ox03c10_mode *cur_mode;
++};
++
++static int ox03c10_set_ctrl(struct v4l2_ctrl *ctrl)
++{
++	struct ox03c10 *sensor =
++		container_of(ctrl->handler, struct ox03c10, ctrl_handler);
++	struct i2c_client *client = v4l2_get_subdevdata(&sensor->sd);
++	int ret = 0;
++
++	if (!pm_runtime_get_if_in_use(&client->dev))
++		return 0;
++
++	switch (ctrl->id) {
++	case V4L2_CID_ANALOGUE_GAIN:
++		ret = cci_write(sensor->cci, OX03C10_REG_AGAIN_H,
++				(ctrl->val >> 8) & 0xff, NULL);
++		ret = cci_write(sensor->cci, OX03C10_REG_AGAIN_L,
++				ctrl->val & 0xff, &ret);
++		break;
++	case V4L2_CID_EXPOSURE:
++		ret = cci_write(sensor->cci, OX03C10_REG_EXPOSURE_H,
++				(ctrl->val >> 8) & 0xff, NULL);
++		ret = cci_write(sensor->cci, OX03C10_REG_EXPOSURE_L,
++				ctrl->val & 0xff, &ret);
++		break;
++	case V4L2_CID_VBLANK:
++		ret = cci_write(sensor->cci, OX03C10_REG_VTS_H,
++				((sensor->cur_mode->height + ctrl->val) >> 8) & 0xff,
++				NULL);
++		ret = cci_write(sensor->cci, OX03C10_REG_VTS_L,
++				(sensor->cur_mode->height + ctrl->val) & 0xff,
++				&ret);
++		break;
++	default:
++		ret = -EINVAL;
++		break;
++	}
++
++	pm_runtime_put(&client->dev);
++	return ret;
++}
++
++static const struct v4l2_ctrl_ops ox03c10_ctrl_ops = {
++	.s_ctrl = ox03c10_set_ctrl,
++};
++
++static int ox03c10_init_controls(struct ox03c10 *sensor)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&sensor->sd);
++	struct v4l2_fwnode_device_properties props;
++	struct v4l2_ctrl_handler *ctrl_hdlr;
++	s64 vblank;
++	int ret;
++
++	ctrl_hdlr = &sensor->ctrl_handler;
++	ret = v4l2_ctrl_handler_init(ctrl_hdlr, 8);
++	if (ret)
++		return ret;
++
++	sensor->link_freq = v4l2_ctrl_new_int_menu(
++		ctrl_hdlr, &ox03c10_ctrl_ops, V4L2_CID_LINK_FREQ,
++		ARRAY_SIZE(ox03c10_link_freq_menu) - 1, 0,
++		ox03c10_link_freq_menu);
++	if (sensor->link_freq)
++		sensor->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	sensor->pixel_rate = v4l2_ctrl_new_std(
++		ctrl_hdlr, &ox03c10_ctrl_ops, V4L2_CID_PIXEL_RATE,
++		OX03C10_PIXEL_RATE, OX03C10_PIXEL_RATE, 1,
++		OX03C10_PIXEL_RATE);
++	if (sensor->pixel_rate)
++		sensor->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	vblank = OX03C10_VTS_MAX - sensor->cur_mode->height;
++	sensor->vblank = v4l2_ctrl_new_std(ctrl_hdlr, &ox03c10_ctrl_ops,
++					   V4L2_CID_VBLANK, 0, vblank, 1,
++					   sensor->cur_mode->vblank);
++
++	sensor->hblank = v4l2_ctrl_new_std(
++		ctrl_hdlr, &ox03c10_ctrl_ops, V4L2_CID_HBLANK, 0, 0, 1, 0);
++	if (sensor->hblank)
++		sensor->hblank->flags |= V4L2_CTRL_FLAG_READ_ONLY;
++
++	v4l2_ctrl_new_std(ctrl_hdlr, &ox03c10_ctrl_ops,
++			  V4L2_CID_ANALOGUE_GAIN, OX03C10_AGAIN_MIN,
++			  OX03C10_AGAIN_MAX, 1, OX03C10_AGAIN_DEFAULT);
++
++	v4l2_ctrl_new_std(ctrl_hdlr, &ox03c10_ctrl_ops, V4L2_CID_EXPOSURE,
++			  OX03C10_EXPOSURE_MIN, OX03C10_EXPOSURE_MAX, 1,
++			  OX03C10_EXPOSURE_DEFAULT);
++
++	if (ctrl_hdlr->error)
++		return ctrl_hdlr->error;
++
++	ret = v4l2_fwnode_device_parse(&client->dev, &props);
++	if (ret)
++		return ret;
++
++	ret = v4l2_ctrl_new_fwnode_properties(ctrl_hdlr, &ox03c10_ctrl_ops,
++					      &props);
++	if (ret)
++		return ret;
++
++	sensor->sd.ctrl_handler = ctrl_hdlr;
++	return 0;
++}
++
++static void ox03c10_update_pad_format(const struct ox03c10_mode *mode,
++				      struct v4l2_mbus_framefmt *fmt)
++{
++	fmt->width = mode->width;
++	fmt->height = mode->height;
++	fmt->code = mode->code;
++	fmt->field = V4L2_FIELD_NONE;
++}
++
++static int ox03c10_start_streaming(struct ox03c10 *sensor)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&sensor->sd);
++	const struct ox03c10_reg_list *reg_list;
++	int ret;
++
++	reg_list = &sensor->cur_mode->reg_list;
++	ret = cci_multi_reg_write(sensor->cci, reg_list->regs,
++				  reg_list->num_of_regs, NULL);
++	if (ret) {
++		dev_err(&client->dev, "failed to write init registers\n");
++		return ret;
++	}
++
++	/* Allow registers to settle after init */
++	fsleep(10000);
++
++	ret = __v4l2_ctrl_handler_setup(sensor->sd.ctrl_handler);
++	if (ret)
++		return ret;
++
++	ret = cci_write(sensor->cci, OX03C10_REG_MODE_SELECT,
++			OX03C10_MODE_STREAMING, NULL);
++	if (ret) {
++		dev_err(&client->dev, "failed to start streaming\n");
++		return ret;
++	}
++
++	return 0;
++}
++
++static int ox03c10_stop_streaming(struct ox03c10 *sensor)
++{
++	return cci_write(sensor->cci, OX03C10_REG_MODE_SELECT,
++			 OX03C10_MODE_STANDBY, NULL);
++}
++
++static int ox03c10_set_stream(struct v4l2_subdev *sd, int enable)
++{
++	struct ox03c10 *sensor = to_ox03c10(sd);
++	struct i2c_client *client = v4l2_get_subdevdata(sd);
++	int ret = 0;
++
++	if (enable) {
++		ret = pm_runtime_resume_and_get(&client->dev);
++		if (ret < 0)
++			return ret;
++
++		ret = ox03c10_start_streaming(sensor);
++		if (ret)
++			goto error_rpm_put;
++	} else {
++		ox03c10_stop_streaming(sensor);
++		pm_runtime_put(&client->dev);
++	}
++
++	return ret;
++
++error_rpm_put:
++	pm_runtime_put(&client->dev);
++	return ret;
++}
++
++static int ox03c10_get_fmt(struct v4l2_subdev *sd,
++			   struct v4l2_subdev_state *sd_state,
++			   struct v4l2_subdev_format *fmt)
++{
++	struct ox03c10 *sensor = to_ox03c10(sd);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		struct v4l2_mbus_framefmt *framefmt;
++
++		framefmt = v4l2_subdev_state_get_format(sd_state, fmt->pad);
++		fmt->format = *framefmt;
++	} else {
++		ox03c10_update_pad_format(sensor->cur_mode, &fmt->format);
++	}
++
++	return 0;
++}
++
++static int ox03c10_set_fmt(struct v4l2_subdev *sd,
++			   struct v4l2_subdev_state *sd_state,
++			   struct v4l2_subdev_format *fmt)
++{
++	struct ox03c10 *sensor = to_ox03c10(sd);
++	const struct ox03c10_mode *mode;
++
++	mode = v4l2_find_nearest_size(ox03c10_modes,
++				      ARRAY_SIZE(ox03c10_modes), width,
++				      height, fmt->format.width,
++				      fmt->format.height);
++
++	ox03c10_update_pad_format(mode, &fmt->format);
++
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++		*v4l2_subdev_state_get_format(sd_state, fmt->pad) =
++			fmt->format;
++	} else {
++		sensor->cur_mode = mode;
++		__v4l2_ctrl_s_ctrl(sensor->link_freq,
++				   mode->link_freq_index);
++		__v4l2_ctrl_modify_range(sensor->vblank, 0,
++					 OX03C10_VTS_MAX - mode->height, 1,
++					 sensor->cur_mode->vblank);
++		__v4l2_ctrl_s_ctrl(sensor->vblank,
++				   sensor->cur_mode->vblank);
++	}
++
++	return 0;
++}
++
++static int ox03c10_enum_mbus_code(struct v4l2_subdev *sd,
++				  struct v4l2_subdev_state *sd_state,
++				  struct v4l2_subdev_mbus_code_enum *code)
++{
++	if (code->index > 0)
++		return -EINVAL;
++
++	code->code = MEDIA_BUS_FMT_SGRBG12_1X12;
++	return 0;
++}
++
++static int ox03c10_enum_frame_size(struct v4l2_subdev *sd,
++				   struct v4l2_subdev_state *sd_state,
++				   struct v4l2_subdev_frame_size_enum *fse)
++{
++	if (fse->index >= ARRAY_SIZE(ox03c10_modes))
++		return -EINVAL;
++
++	if (fse->code != MEDIA_BUS_FMT_SGRBG12_1X12)
++		return -EINVAL;
++
++	fse->min_width = ox03c10_modes[fse->index].width;
++	fse->max_width = fse->min_width;
++	fse->min_height = ox03c10_modes[fse->index].height;
++	fse->max_height = fse->min_height;
++
++	return 0;
++}
++
++static int ox03c10_get_selection(struct v4l2_subdev *sd,
++				 struct v4l2_subdev_state *state,
++				 struct v4l2_subdev_selection *sel)
++{
++	switch (sel->target) {
++	case V4L2_SEL_TGT_CROP:
++	case V4L2_SEL_TGT_CROP_DEFAULT:
++		sel->r = *v4l2_subdev_state_get_crop(state, 0);
++		break;
++	case V4L2_SEL_TGT_CROP_BOUNDS:
++	case V4L2_SEL_TGT_NATIVE_SIZE:
++		sel->r.top = 0;
++		sel->r.left = 0;
++		sel->r.width = OX03C10_NATIVE_WIDTH;
++		sel->r.height = OX03C10_NATIVE_HEIGHT;
++		break;
++	default:
++		return -EINVAL;
++	}
++
++	return 0;
++}
++
++static int ox03c10_init_state(struct v4l2_subdev *sd,
++			      struct v4l2_subdev_state *sd_state)
++{
++	const struct ox03c10_mode *def_mode = &ox03c10_modes[0];
++	struct v4l2_subdev_format fmt = {
++		.which = V4L2_SUBDEV_FORMAT_TRY,
++		.format = {
++			.code = MEDIA_BUS_FMT_SGRBG12_1X12,
++			.width = def_mode->width,
++			.height = def_mode->height,
++		},
++	};
++
++	ox03c10_set_fmt(sd, sd_state, &fmt);
++	return 0;
++}
++
++static const struct v4l2_subdev_video_ops ox03c10_video_ops = {
++	.s_stream = ox03c10_set_stream,
++};
++
++static const struct v4l2_subdev_pad_ops ox03c10_pad_ops = {
++	.enum_mbus_code = ox03c10_enum_mbus_code,
++	.enum_frame_size = ox03c10_enum_frame_size,
++	.get_fmt = ox03c10_get_fmt,
++	.set_fmt = ox03c10_set_fmt,
++	.get_selection = ox03c10_get_selection,
++};
++
++static const struct v4l2_subdev_core_ops ox03c10_core_ops = {
++	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
++	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
++};
++
++static const struct v4l2_subdev_ops ox03c10_subdev_ops = {
++	.core = &ox03c10_core_ops,
++	.video = &ox03c10_video_ops,
++	.pad = &ox03c10_pad_ops,
++};
++
++static const struct media_entity_operations ox03c10_subdev_entity_ops = {
++	.link_validate = v4l2_subdev_link_validate,
++};
++
++static const struct v4l2_subdev_internal_ops ox03c10_internal_ops = {
++	.init_state = ox03c10_init_state,
++};
++
++static int ox03c10_parse_hw_config(struct ox03c10 *sensor)
++{
++	struct fwnode_handle *endpoint;
++	struct v4l2_fwnode_endpoint ep_cfg = {
++		.bus_type = V4L2_MBUS_CSI2_DPHY,
++	};
++	int i, ret;
++
++	sensor->clk = devm_clk_get(sensor->dev, NULL);
++	if (IS_ERR(sensor->clk))
++		return dev_err_probe(sensor->dev, PTR_ERR(sensor->clk),
++				     "Failed to get clock\n");
++
++	sensor->reset_gpio =
++		devm_gpiod_get_optional(sensor->dev, "reset", GPIOD_OUT_HIGH);
++	if (IS_ERR(sensor->reset_gpio))
++		return dev_err_probe(sensor->dev,
++				     PTR_ERR(sensor->reset_gpio),
++				     "Failed to get reset gpio\n");
++
++	for (i = 0; i < ARRAY_SIZE(ox03c10_supplies); i++)
++		sensor->supplies[i].supply = ox03c10_supplies[i];
++
++	ret = devm_regulator_bulk_get(sensor->dev,
++				      ARRAY_SIZE(ox03c10_supplies),
++				      sensor->supplies);
++	if (ret)
++		return dev_err_probe(sensor->dev, ret,
++				     "Cannot get supplies\n");
++
++	endpoint =
++		fwnode_graph_get_next_endpoint(dev_fwnode(sensor->dev), NULL);
++	if (!endpoint) {
++		dev_err(sensor->dev, "endpoint node not found\n");
++		return -EPROBE_DEFER;
++	}
++
++	ret = v4l2_fwnode_endpoint_alloc_parse(endpoint, &ep_cfg);
++	if (ret) {
++		dev_err(sensor->dev, "parsing endpoint node failed\n");
++		goto error_out;
++	}
++
++	ret = v4l2_link_freq_to_bitmap(sensor->dev, ep_cfg.link_frequencies,
++				       ep_cfg.nr_of_link_frequencies,
++				       ox03c10_link_freq_menu,
++				       ARRAY_SIZE(ox03c10_link_freq_menu),
++				       &sensor->link_freq_bitmap);
++
++error_out:
++	v4l2_fwnode_endpoint_free(&ep_cfg);
++	fwnode_handle_put(endpoint);
++	return ret;
++}
++
++static int ox03c10_identify_module(struct ox03c10 *sensor)
++{
++	struct i2c_client *client = v4l2_get_subdevdata(&sensor->sd);
++	u64 val_h, val_l;
++	int ret;
++
++	ret = cci_read(sensor->cci, OX03C10_REG_CHIP_ID_H, &val_h, NULL);
++	if (ret)
++		return ret;
++
++	ret = cci_read(sensor->cci, OX03C10_REG_CHIP_ID_L, &val_l, NULL);
++	if (ret)
++		return ret;
++
++	if (val_h != OX03C10_CHIP_ID_H || val_l != OX03C10_CHIP_ID_L) {
++		dev_err(&client->dev,
++			"chip id mismatch: expected %02x%02x, got %02llx%02llx\n",
++			OX03C10_CHIP_ID_H, OX03C10_CHIP_ID_L, val_h, val_l);
++		return -ENXIO;
++	}
++
++	dev_info(&client->dev, "OX03C10 chip ID verified: 0x%02llx%02llx\n",
++		 val_h, val_l);
++	return 0;
++}
++
++static int ox03c10_power_on(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ox03c10 *sensor = to_ox03c10(sd);
++	int ret;
++
++	/* Assert reset */
++	if (sensor->reset_gpio)
++		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
++
++	ret = regulator_bulk_enable(ARRAY_SIZE(ox03c10_supplies),
++				    sensor->supplies);
++	if (ret) {
++		dev_err(sensor->dev, "Failed to enable regulators\n");
++		return ret;
++	}
++
++	ret = clk_prepare_enable(sensor->clk);
++	if (ret) {
++		dev_err(sensor->dev, "Failed to enable clock\n");
++		goto error_regulators;
++	}
++
++	/* De-assert reset */
++	if (sensor->reset_gpio)
++		gpiod_set_value_cansleep(sensor->reset_gpio, 0);
++
++	/* Wait for sensor to come out of reset. OV sensors typically
++	 * need ~20ms after reset de-assertion. Use 30ms for margin. */
++	fsleep(30000);
++
++	return 0;
++
++error_regulators:
++	if (sensor->reset_gpio)
++		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
++	regulator_bulk_disable(ARRAY_SIZE(ox03c10_supplies),
++			       sensor->supplies);
++	return ret;
++}
++
++static int ox03c10_power_off(struct device *dev)
++{
++	struct i2c_client *client = to_i2c_client(dev);
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ox03c10 *sensor = to_ox03c10(sd);
++
++	if (sensor->reset_gpio)
++		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
++	clk_disable_unprepare(sensor->clk);
++	regulator_bulk_disable(ARRAY_SIZE(ox03c10_supplies),
++			       sensor->supplies);
++
++	return 0;
++}
++
++static int ox03c10_probe(struct i2c_client *client)
++{
++	struct ox03c10 *sensor;
++	int ret;
++
++	sensor = devm_kzalloc(&client->dev, sizeof(*sensor), GFP_KERNEL);
++	if (!sensor)
++		return -ENOMEM;
++
++	sensor->dev = &client->dev;
++
++	/* OX03C10 uses 16-bit register addresses, 8-bit data */
++	sensor->cci = devm_cci_regmap_init_i2c(client, 16);
++	if (IS_ERR(sensor->cci))
++		return dev_err_probe(sensor->dev, PTR_ERR(sensor->cci),
++				     "Failed to initialize CCI\n");
++
++	v4l2_i2c_subdev_init(&sensor->sd, client, &ox03c10_subdev_ops);
++
++	ret = ox03c10_parse_hw_config(sensor);
++	if (ret)
++		return ret;
++
++	ret = ox03c10_power_on(sensor->dev);
++	if (ret)
++		return dev_err_probe(sensor->dev, ret,
++				     "Could not power on the device\n");
++
++	ret = ox03c10_identify_module(sensor);
++	if (ret) {
++		dev_err(&client->dev, "failed to find sensor: %d\n", ret);
++		goto error_power_off;
++	}
++
++	sensor->cur_mode = &ox03c10_modes[0];
++	ret = ox03c10_init_controls(sensor);
++	if (ret) {
++		dev_err(&client->dev, "failed to init controls: %d\n", ret);
++		goto error_power_off;
++	}
++
++	sensor->sd.internal_ops = &ox03c10_internal_ops;
++	sensor->sd.flags |=
++		V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
++	sensor->sd.entity.ops = &ox03c10_subdev_entity_ops;
++	sensor->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
++
++	sensor->pad.flags = MEDIA_PAD_FL_SOURCE;
++	ret = media_entity_pads_init(&sensor->sd.entity, 1, &sensor->pad);
++	if (ret) {
++		dev_err(&client->dev, "failed to init entity pads: %d\n", ret);
++		goto error_ctrl_handler;
++	}
++
++	sensor->sd.state_lock = sensor->ctrl_handler.lock;
++	ret = v4l2_subdev_init_finalize(&sensor->sd);
++	if (ret < 0) {
++		dev_err(sensor->dev, "v4l2 subdev init error: %d\n", ret);
++		goto error_media_entity;
++	}
++
++	ret = v4l2_async_register_subdev_sensor(&sensor->sd);
++	if (ret < 0) {
++		dev_err(&client->dev,
++			"failed to register V4L2 subdev: %d\n", ret);
++		goto error_subdev_cleanup;
++	}
++
++	pm_runtime_set_active(sensor->dev);
++	pm_runtime_enable(sensor->dev);
++	pm_runtime_idle(sensor->dev);
++
++	return 0;
++
++error_subdev_cleanup:
++	v4l2_subdev_cleanup(&sensor->sd);
++
++error_media_entity:
++	media_entity_cleanup(&sensor->sd.entity);
++
++error_ctrl_handler:
++	v4l2_ctrl_handler_free(sensor->sd.ctrl_handler);
++
++error_power_off:
++	ox03c10_power_off(sensor->dev);
++	return ret;
++}
++
++static void ox03c10_remove(struct i2c_client *client)
++{
++	struct v4l2_subdev *sd = i2c_get_clientdata(client);
++	struct ox03c10 *sensor = to_ox03c10(sd);
++
++	v4l2_async_unregister_subdev(sd);
++	v4l2_subdev_cleanup(sd);
++	media_entity_cleanup(&sd->entity);
++	v4l2_ctrl_handler_free(&sd->ctrl_handler);
++
++	pm_runtime_disable(&client->dev);
++	if (!pm_runtime_status_suspended(&client->dev))
++		ox03c10_power_off(&client->dev);
++	pm_runtime_set_suspended(&client->dev);
++}
++
++static const struct of_device_id ox03c10_of_match[] = {
++	{ .compatible = "ovti,ox03c10" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, ox03c10_of_match);
++
++static const struct dev_pm_ops ox03c10_pm_ops = {
++	SET_RUNTIME_PM_OPS(ox03c10_power_off, ox03c10_power_on, NULL)
++};
++
++static struct i2c_driver ox03c10_i2c_driver = {
++	.driver = {
++		.name = "ox03c10",
++		.of_match_table = of_match_ptr(ox03c10_of_match),
++		.pm = &ox03c10_pm_ops,
++	},
++	.probe = ox03c10_probe,
++	.remove = ox03c10_remove,
++};
++
++module_i2c_driver(ox03c10_i2c_driver);
++
++MODULE_DESCRIPTION("OmniVision OX03C10 sensor driver");
++MODULE_AUTHOR("Andi Radu <andi@comma.ai>");
++MODULE_LICENSE("GPL");
+diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
+index cdd7ba5da0d5..6ec543408ae0 100644
+--- a/drivers/media/i2c/Kconfig
++++ b/drivers/media/i2c/Kconfig
+@@ -1718,6 +1718,20 @@ config VIDEO_MAX96717
+ 	  To compile this driver as a module, choose M here: the
+ 	  module will be called max96717.
+ 
++config VIDEO_OX03C10
++	tristate "OmniVision OX03C10 sensor support"
++	depends on I2C && VIDEO_DEV
++	select V4L2_CCI_I2C
++	select V4L2_FWNODE
++	select VIDEO_V4L2_SUBDEV_API
++	select MEDIA_CONTROLLER
++	help
++	  This is a Video4Linux2 sensor driver for the OmniVision
++	  OX03C10 camera sensor.
++
++	  To compile this driver as a module, choose M here: the
++	  module will be called ox03c10.
++
+ endmenu
+ 
+ endif # VIDEO_DEV
+diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
+index 57cdd8dc96f6..f79773290cab 100644
+--- a/drivers/media/i2c/Makefile
++++ b/drivers/media/i2c/Makefile
+@@ -120,6 +120,7 @@ obj-$(CONFIG_VIDEO_OV9282) += ov9282.o
+ obj-$(CONFIG_VIDEO_OV9640) += ov9640.o
+ obj-$(CONFIG_VIDEO_OV9650) += ov9650.o
+ obj-$(CONFIG_VIDEO_OV9734) += ov9734.o
++obj-$(CONFIG_VIDEO_OX03C10) += ox03c10.o
+ obj-$(CONFIG_VIDEO_RDACM20) += rdacm20.o
+ obj-$(CONFIG_VIDEO_RDACM21) += rdacm21.o
+ obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
