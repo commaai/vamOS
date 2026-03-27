@@ -21,6 +21,17 @@
 		regulator-max-microvolt = <3700000>;
 	};
 
+	/* Camera digital supply: 1.05V, controlled by PM8998 GPIO 12 */
+	camera_rear_ldo: camera-rear-ldo {
+		compatible = "regulator-fixed";
+		regulator-name = "camera_rear_ldo";
+		regulator-min-microvolt = <1050000>;
+		regulator-max-microvolt = <1050000>;
+		regulator-enable-ramp-delay = <135>;
+		gpio = <&pm8998_gpios 12 0>;
+		enable-active-high;
+	};
+
 	/*
 	 * Apparently RPMh does not provide support for PM8998 S4 because it
 	 * is always-on; model it as a fixed regulator.
@@ -510,14 +521,14 @@
 		clocks = <&clock_camcc CAM_CC_MCLK0_CLK>;
 		clock-names = "extclk";
 		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
-		avdd-supply = <&vreg_l19a_3p0>;
+		avdd-supply = <&vreg_bob>;
 		dovdd-supply = <&vreg_lvs1a_1p8>;
-		dvdd-supply = <&vreg_l1a_0p875>;
+		dvdd-supply = <&camera_rear_ldo>;
 
 		port {
 			ox03c10_wide_ep: endpoint {
 				data-lanes = <0 1 2 3>;
-				link-frequencies = /bits/ 64 <400000000>;
+				link-frequencies = /bits/ 64 <600000000>;
 				remote-endpoint = <&csiphy0_ep>;
 			};
 		};
@@ -532,14 +543,14 @@
 		clocks = <&clock_camcc CAM_CC_MCLK1_CLK>;
 		clock-names = "extclk";
 		reset-gpios = <&tlmm 7 GPIO_ACTIVE_LOW>;
-		avdd-supply = <&vreg_l19a_3p0>;
+		avdd-supply = <&vreg_bob>;
 		dovdd-supply = <&vreg_lvs1a_1p8>;
-		dvdd-supply = <&vreg_l1a_0p875>;
+		dvdd-supply = <&camera_rear_ldo>;
 
 		port {
 			ox03c10_road_ep: endpoint {
 				data-lanes = <0 1 2 3>;
-				link-frequencies = /bits/ 64 <400000000>;
+				link-frequencies = /bits/ 64 <600000000>;
 				remote-endpoint = <&csiphy1_ep>;
 			};
 		};
@@ -558,14 +569,14 @@
 		clocks = <&clock_camcc CAM_CC_MCLK2_CLK>;
 		clock-names = "extclk";
 		reset-gpios = <&tlmm 12 GPIO_ACTIVE_LOW>;
-		avdd-supply = <&vreg_l19a_3p0>;
+		avdd-supply = <&vreg_bob>;
 		dovdd-supply = <&vreg_lvs1a_1p8>;
-		dvdd-supply = <&vreg_l1a_0p875>;
+		dvdd-supply = <&camera_rear_ldo>;
 
 		port {
 			ox03c10_driver_ep: endpoint {
 				data-lanes = <0 1 2 3>;
-				link-frequencies = /bits/ 64 <400000000>;
+				link-frequencies = /bits/ 64 <600000000>;
 				remote-endpoint = <&csiphy2_ep>;
 			};
 		};
