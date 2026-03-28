@@ -1137,12 +1137,12 @@ wheels = [
 [[package]]
 name = "raylib"
 version = "5.5.0.2"
-source = { url = "https://github.com/greatgitsby/raylib-python-cffi/releases/download/liberation-5.5.0.2/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" }
+source = { url = "https://github.com/andiradulescu/raylib-python-cffi/releases/download/liberation-c5e9308f032eee990af18aefb6f55a6e0c71d0e7/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" }
 dependencies = [
     { name = "cffi", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://github.com/greatgitsby/raylib-python-cffi/releases/download/liberation-5.5.0.2/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl", hash = "sha256:7ab02a78465b43ba9f4465045c433e241bfe997e412ffc2c219230da85d4e7bd" },
+    { url = "https://github.com/andiradulescu/raylib-python-cffi/releases/download/liberation-c5e9308f032eee990af18aefb6f55a6e0c71d0e7/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl", hash = "sha256:be5fb9b2cce6e6c67d92de16cf5f160a0a23dac28dc252030034e6d99bd0faf2" },
 ]
 
 [package.metadata]
@@ -1410,7 +1410,7 @@ requires-dist = [
     { name = "paramiko" },
     { name = "py-spy" },
     { name = "pyusb" },
-    { name = "raylib", url = "https://github.com/greatgitsby/raylib-python-cffi/releases/download/liberation-5.5.0.2/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" },
+    { name = "raylib", url = "https://github.com/andiradulescu/raylib-python-cffi/releases/download/liberation-c5e9308f032eee990af18aefb6f55a6e0c71d0e7/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" },
     { name = "smbus2" },
     { name = "spidev2" },
 ]
