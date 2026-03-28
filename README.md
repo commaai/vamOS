@@ -54,6 +54,7 @@ comma threex:
 - [ ] graphics
   - [ ] gpu
 - [ ] opencl - via rusticl / msm_drm
+- [ ] Venus? (video encode/decode)
 
 comma four:
 - [x] ufs
@@ -73,6 +74,7 @@ comma four:
 - [ ] graphics
   - [ ] gpu
 - [ ] opencl - via rusticl / msm_drm
+- [ ] Venus (video encode/decode)
 
 openpilot support:
 - [ ]
