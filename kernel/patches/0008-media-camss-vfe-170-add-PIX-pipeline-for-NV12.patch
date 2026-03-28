@@ -1,5 +1,5 @@
 diff --git a/drivers/media/platform/qcom/camss/camss-vfe-17x.c b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-index e5ee7e717b3b..af921dec0794 100644
+index e5ee7e717b3b..cf8d23a94c8a 100644
 --- a/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 +++ b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 @@ -92,9 +92,64 @@
@@ -118,8 +118,8 @@ index e5ee7e717b3b..af921dec0794 100644
 +	writel_relaxed(0x04450445, vfe->base + VFE_DEMUX_CFG + 0x08);
 +	writel_relaxed(0x04440444, vfe->base + VFE_DEMUX_CFG + 0x0c);
 +	writel_relaxed(0x04450445, vfe->base + VFE_DEMUX_CFG + 0x10);
-+	writel_relaxed(0x000000ca, vfe->base + VFE_DEMUX_CFG + 0x14);
-+	writel_relaxed(0x0000009c, vfe->base + VFE_DEMUX_CFG + 0x18);
++	writel_relaxed(0x0000009c, vfe->base + VFE_DEMUX_CFG + 0x14); /* GRBG even */
++	writel_relaxed(0x000000ca, vfe->base + VFE_DEMUX_CFG + 0x18); /* GRBG odd */
 +
 +	/* White balance: unity (1.0x for all channels) */
 +	writel_relaxed(0x00800080, vfe->base + VFE_WB_CFG + 0x00);
