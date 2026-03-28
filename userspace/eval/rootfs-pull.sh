@@ -2,8 +2,14 @@
 # Pull rootfs changes from device to host
 set -e
 
-DEVICE="${1:-192.168.7.1}"
+DEVICE="${1:-}"
 USER="${2:-comma}"
+
+if [ -z "$DEVICE" ]; then
+    echo "Usage: $0 <device-host-or-ip> [user]"
+    echo "Example: $0 comma-<serial>.local"
+    exit 1
+fi
 
 echo "Connecting to $USER@$DEVICE..."
 

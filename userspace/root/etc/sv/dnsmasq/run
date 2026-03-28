@@ -1,4 +1,12 @@
 #!/bin/sh
 exec 2>&1
+
+CONFIG="/run/dnsmasq-usb0.conf"
+
 mkdir -p /var/lib/misc
-exec dnsmasq --keep-in-foreground --conf-dir=/etc/dnsmasq.d
+
+while [ ! -f "$CONFIG" ]; do
+  sleep 1
+done
+
+exec dnsmasq --keep-in-foreground --conf-file="$CONFIG"
