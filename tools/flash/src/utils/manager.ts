@@ -213,6 +213,15 @@ export class FlashManager {
         const slots = image.has_ab ? ["_a", "_b"] : [""];
         for (const [slot, onSlotProgress] of withProgress(slots, onFlash)) {
           const partitionName = `${image.name}${slot}`;
+
+          // Skip partitions that don't exist on this device
+          const [found] = await this.device.detectPartition(partitionName);
+          if (!found) {
+            console.warn(`[Flash] Partition ${partitionName} not found, skipping`);
+            onSlotProgress(1.0);
+            continue;
+          }
+
           this.setMessage(`Flashing ${partitionName}`);
           if (
             !(await this.device.flashBlob(
