@@ -1781,7 +1781,7 @@ index 000000000000..a60717bed956
 +module_i2c_driver(ox03c10_i2c_driver);
 +
 +MODULE_DESCRIPTION("OmniVision OX03C10 sensor driver");
-+MODULE_AUTHOR("Andi Radu <andi@comma.ai>");
++MODULE_AUTHOR("Andrei Radulescu <andi.radulescu@gmail.com>");
 +MODULE_LICENSE("GPL");
 diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
 index cdd7ba5da0d5..6ec543408ae0 100644
