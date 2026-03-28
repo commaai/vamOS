@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>~*~ vamOS Flash ~*~</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Comic+Neue:wght@400;700&display=swap');
+
+    :root {
+      --pink: #ff69b4;
+      --yellow: #ffd700;
+      --cyan: #00ced1;
+      --lime: #51ff00;
+      --purple: #9b59b6;
+      --orange: #ff6f00;
+      --bg: #1a0533;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Comic Neue', 'Comic Sans MS', cursive;
+      background: var(--bg);
+      background-image:
+        radial-gradient(circle at 20% 80%, rgba(255,105,180,0.15) 0%, transparent 50%),
+        radial-gradient(circle at 80% 20%, rgba(0,206,209,0.15) 0%, transparent 50%),
+        radial-gradient(circle at 50% 50%, rgba(155,89,182,0.1) 0%, transparent 70%);
+      color: white;
+      min-height: 100vh;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      overflow-x: hidden;
+    }
+
+    .stars {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0;
+    }
+    .star {
+      position: absolute; background: white; border-radius: 50%;
+      animation: twinkle 2s ease-in-out infinite alternate;
+    }
+    @keyframes twinkle { 0% { opacity: 0.2; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1.2); } }
+
+    .container { width: 100%; max-width: 640px; padding: 2rem; text-align: center; position: relative; z-index: 1; }
+
+    h1 {
+      font-size: 3rem; font-weight: 700;
+      background: linear-gradient(90deg, var(--pink), var(--yellow), var(--cyan), var(--lime), var(--pink));
+      background-size: 200% auto;
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      animation: rainbow 3s linear infinite;
+      text-shadow: none;
+      margin-bottom: 0.25rem;
+    }
+    @keyframes rainbow { 0% { background-position: 0% center; } 100% { background-position: 200% center; } }
+
+    h2 {
+      font-size: 1.75rem; font-weight: 700; color: var(--yellow);
+      text-shadow: 2px 2px 0 var(--purple);
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle { color: var(--cyan); font-size: 1.125rem; margin-bottom: 2rem; }
+
+    .btn {
+      display: inline-block; padding: 1rem 3rem; font-size: 1.25rem; font-weight: 700;
+      font-family: inherit;
+      border: 3px solid var(--yellow); border-radius: 9999px; cursor: pointer;
+      color: black; text-decoration: none;
+      transition: all 0.2s; position: relative;
+      text-transform: uppercase; letter-spacing: 1px;
+    }
+    .btn-primary {
+      background: linear-gradient(135deg, var(--lime), var(--cyan));
+      box-shadow: 0 0 20px rgba(81,255,0,0.4), 0 0 60px rgba(81,255,0,0.1);
+    }
+    .btn-primary:hover {
+      transform: scale(1.05);
+      box-shadow: 0 0 30px rgba(81,255,0,0.6), 0 0 80px rgba(81,255,0,0.2);
+    }
+    .btn-secondary {
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      color: white; border-color: var(--pink);
+    }
+    .btn:disabled { background: #444; border-color: #666; color: #888; cursor: not-allowed; box-shadow: none; }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    .stepper { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-bottom: 2.5rem; }
+    .stepper-dot {
+      width: 2.25rem; height: 2.25rem; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.875rem; font-weight: 700;
+      background: rgba(255,255,255,0.1); color: rgba(255,255,255,0.4);
+      border: 2px solid rgba(255,255,255,0.2);
+      transition: all 0.3s;
+    }
+    .stepper-dot.active {
+      background: var(--lime); color: black; border-color: var(--yellow);
+      box-shadow: 0 0 15px rgba(81,255,0,0.5);
+    }
+    .stepper-dot.done {
+      background: var(--cyan); color: black; border-color: var(--cyan);
+    }
+    .stepper-line { width: 2rem; height: 2px; background: rgba(255,255,255,0.2); transition: background 0.3s; }
+    .stepper-line.done { background: var(--cyan); box-shadow: 0 0 8px rgba(0,206,209,0.5); }
+
+    .file-row {
+      display: flex; align-items: center; gap: 0.75rem; padding: 1rem;
+      background: rgba(255,255,255,0.05); border: 2px dashed rgba(255,255,255,0.2);
+      border-radius: 0.75rem; margin-bottom: 1rem; text-align: left;
+      transition: all 0.3s;
+    }
+    .file-row.ready { border-color: var(--lime); border-style: solid; background: rgba(81,255,0,0.05); }
+    .file-row .label { font-weight: 700; min-width: 7rem; color: var(--yellow); }
+    .file-row .filename { flex: 1; color: rgba(255,255,255,0.4); font-size: 0.875rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-row .filename.set { color: var(--lime); }
+
+    .file-input-btn {
+      padding: 0.5rem 1rem; font-size: 0.875rem; font-weight: 700; font-family: inherit;
+      border: 2px solid var(--cyan); border-radius: 0.5rem;
+      background: transparent; color: var(--cyan); cursor: pointer;
+      transition: all 0.2s;
+    }
+    .file-input-btn:hover { background: var(--cyan); color: black; }
+
+    .download-links {
+      margin-bottom: 1.5rem; padding: 1rem;
+      background: rgba(255,255,255,0.05); border-radius: 0.75rem;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .download-links p { font-size: 0.875rem; color: rgba(255,255,255,0.6); margin-bottom: 0.75rem; }
+    .download-links a {
+      display: inline-block; margin: 0 0.5rem; color: var(--pink);
+      text-decoration: none; font-weight: 700; font-size: 0.875rem;
+    }
+    .download-links a:hover { text-decoration: underline; color: var(--yellow); }
+
+    .progress-container { margin: 2rem 0; }
+    .progress-bar-bg {
+      width: 100%; height: 0.75rem;
+      background: rgba(255,255,255,0.1); border-radius: 9999px; overflow: hidden;
+      border: 1px solid rgba(255,255,255,0.2);
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--lime), var(--cyan), var(--pink));
+      background-size: 200% auto;
+      animation: rainbow 2s linear infinite;
+      border-radius: 9999px; transition: width 0.3s; width: 0%;
+    }
+    .progress-text { margin-top: 0.75rem; font-family: monospace; font-size: 1.25rem; color: var(--lime); }
+    .status-message { color: var(--cyan); font-size: 1rem; margin-top: 0.5rem; }
+
+    .flash-icon {
+      width: 128px; height: 128px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center; margin: 0 auto 1.5rem;
+    }
+    .icon-green {
+      background: linear-gradient(135deg, var(--lime), var(--cyan));
+      box-shadow: 0 0 40px rgba(81,255,0,0.3);
+    }
+    .icon-red {
+      background: linear-gradient(135deg, #ef4444, var(--orange));
+      box-shadow: 0 0 40px rgba(239,68,68,0.3);
+    }
+    .icon-done {
+      background: linear-gradient(135deg, var(--pink), var(--purple));
+      box-shadow: 0 0 40px rgba(255,105,180,0.4);
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.7; transform: scale(0.95); } }
+    .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+    .instructions { text-align: left; max-width: 28rem; margin: 0 auto 2rem; }
+    .instructions ol { list-style: none; }
+    .instructions li { display: flex; gap: 0.75rem; align-items: flex-start; margin-bottom: 0.75rem; font-size: 1.0625rem; }
+    .instructions .step-num {
+      flex-shrink: 0; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+      background: var(--pink); color: white;
+      display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.875rem;
+      box-shadow: 0 0 10px rgba(255,105,180,0.4);
+    }
+
+    .device-serial {
+      margin-top: 1.5rem; padding: 0.75rem 1rem;
+      background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 0.5rem; font-family: monospace; font-size: 0.875rem; color: var(--cyan);
+    }
+    .error-box {
+      margin-top: 1.5rem; padding: 1rem;
+      background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.3);
+      border-radius: 0.75rem; color: #fca5a5; font-size: 0.9375rem;
+    }
+
+    .code-block {
+      background: rgba(0,0,0,0.4); color: var(--lime); padding: 1rem; border-radius: 0.5rem;
+      font-family: monospace; font-size: 0.8125rem; text-align: left;
+      overflow-x: auto; position: relative; margin-bottom: 1.5rem;
+      word-break: break-all; white-space: pre-wrap;
+      border: 1px solid rgba(81,255,0,0.2);
+    }
+    .copy-btn {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      padding: 0.25rem 0.75rem; background: var(--purple); color: white;
+      border: none; border-radius: 0.25rem; font-size: 0.75rem; cursor: pointer;
+      font-family: inherit;
+    }
+    .copy-btn:hover { background: var(--pink); }
+
+    .links { position: fixed; top: 1rem; right: 1rem; display: flex; gap: 1rem; z-index: 2; }
+    .links a { color: rgba(255,255,255,0.4); transition: color 0.15s; }
+    .links a:hover { color: var(--pink); }
+    .version { position: fixed; bottom: 1rem; left: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.3); z-index: 2; }
+    .version a { color: inherit; }
+
+    .sparkle { position: absolute; font-size: 1.5rem; animation: float 3s ease-in-out infinite; pointer-events: none; }
+    @keyframes float {
+      0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.6; }
+      50% { transform: translateY(-15px) rotate(180deg); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="stars" id="stars"></div>
+
+  <div class="links">
+    <a href="https://github.com/commaai/vamOS" target="_blank" title="GitHub">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+    </a>
+    <a href="https://discord.comma.ai" target="_blank" title="Discord">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+    </a>
+  </div>
+
+  <div class="container">
+    <div id="step-landing" class="step active"></div>
+    <div id="step-images" class="step"></div>
+    <div id="step-connect" class="step"></div>
+    <div id="step-flash" class="step"></div>
+    <div id="step-done" class="step"></div>
+  </div>
+
+  <div class="version"><a href="https://github.com/commaai/vamOS" target="_blank">~*~ vamOS ~*~</a></div>
+
+  <script>
+    // Generate stars
+    const starsEl = document.getElementById('stars');
+    for (let i = 0; i < 80; i++) {
+      const star = document.createElement('div');
+      star.className = 'star';
+      const size = Math.random() * 3 + 1;
+      star.style.cssText = `width:${size}px;height:${size}px;top:${Math.random()*100}%;left:${Math.random()*100}%;animation-delay:${Math.random()*3}s;animation-duration:${2+Math.random()*3}s;`;
+      starsEl.appendChild(star);
+    }
+  </script>
+  <script type="module" src="./app.ts"></script>
+</body>
+</html>
