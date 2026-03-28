@@ -74,11 +74,6 @@ RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sd
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
 
-# Ensure Bluetooth firmware is reachable via the kernel's standard search path.
-RUN if [ "$(readlink -f /lib/firmware)" != "$(readlink -f /usr/lib/firmware)" ]; then \
-      mkdir -p /lib/firmware/qca && cp -a /usr/lib/firmware/qca/. /lib/firmware/qca/; \
-    fi
-
 # Fix ownership on home directory (overlay COPY runs as root)
 RUN chown -R comma:comma /home/comma
 # Void's default .bashrc doesn't source .bash_aliases

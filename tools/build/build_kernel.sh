@@ -56,14 +56,6 @@ apply_patches() {
 }
 
 build_kernel() {
-  local qca_firmware=(
-    crbtfw11.tlv
-    crbtfw20.tlv
-    crbtfw21.tlv
-    crnv11.bin
-    crnv20.bin
-    crnv21.bin
-  )
   local extra_firmware=()
 
   # Apply patches to kernel tree
@@ -101,15 +93,8 @@ build_kernel() {
   KCONFIG_CONFIG=out/.config \
     bash scripts/kconfig/merge_config.sh \
     -m -y out/.config "$CONFIG_FRAGMENT"
-  # Embed the QCA Bluetooth firmware so the early boot probe succeeds
-  # before the root filesystem is mounted.
-  for fw in "${qca_firmware[@]}"; do
-    extra_firmware+=("qca/${fw}")
-  done
-  # Point EXTRA_FIRMWARE_DIR to our firmware directory and list the QCA
-  # blobs explicitly so they are built into the kernel image.
+  # Point EXTRA_FIRMWARE_DIR to our firmware directory
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
-  echo "CONFIG_EXTRA_FIRMWARE=\"${extra_firmware[*]}\"" >> out/.config
   make olddefconfig O=out
 
   local dtb_targets=()
