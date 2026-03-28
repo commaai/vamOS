@@ -1,3 +1,6 @@
+// Swap this to Azure CDN URL for production
+export const PROXY_BASE = "https://vamos-release-proxy.mpurnell1.workers.dev";
+
 export interface ManifestEntry {
   name: string;
   url: string;
@@ -15,22 +18,27 @@ export interface ManifestEntry {
   };
 }
 
-export async function getManifest(url: string): Promise<ManifestEntry[]> {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error(`Failed to fetch manifest: ${response.status}`);
-  return response.json();
-}
-
 /**
- * Get the manifest URL for the latest vamOS release.
- * Uses the GitHub API (CORS-safe) to find the latest release tag,
- * then returns the manifest.json asset URL.
+ * Fetch the latest vamOS release tag via the GitHub API (CORS-safe),
+ * then fetch the manifest through the CORS proxy and rewrite all
+ * image URLs to go through the proxy as well.
  */
-export async function getLatestManifestUrl(): Promise<{ tag: string; manifestUrl: string }> {
+export async function getManifest(): Promise<{ tag: string; manifest: ManifestEntry[] }> {
+  // GitHub API has CORS - use it to get the latest release tag
   const res = await fetch("https://api.github.com/repos/commaai/vamOS/releases/latest");
   if (!res.ok) throw new Error(`No releases found: ${res.status}`);
-  const { tag_name, assets } = await res.json();
-  const manifestAsset = assets.find((a: any) => a.name === "manifest.json");
-  if (!manifestAsset) throw new Error("manifest.json not found in release assets");
-  return { tag: tag_name, manifestUrl: manifestAsset.browser_download_url };
+  const { tag_name } = await res.json();
+
+  // Fetch manifest through proxy
+  const manifestRes = await fetch(`${PROXY_BASE}/${tag_name}/manifest.json`);
+  if (!manifestRes.ok) throw new Error(`Failed to fetch manifest: ${manifestRes.status}`);
+  const manifest: ManifestEntry[] = await manifestRes.json();
+
+  // Rewrite image URLs to go through proxy
+  for (const entry of manifest) {
+    const filename = entry.url.split("/").pop();
+    entry.url = `${PROXY_BASE}/${tag_name}/${filename}`;
+  }
+
+  return { tag: tag_name, manifest };
 }

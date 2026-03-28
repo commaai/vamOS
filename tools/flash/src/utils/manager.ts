@@ -1,7 +1,7 @@
 import { qdlDevice } from "@commaai/qdl";
 import { usbClass } from "@commaai/qdl/usblib";
 
-import { getManifest, type ManifestEntry } from "./manifest";
+import type { ManifestEntry } from "./manifest";
 import { ImageManager } from "./image";
 import { createSteps, withProgress } from "./progress";
 
@@ -73,7 +73,7 @@ export class FlashManager {
     this.setProgress(-1);
   }
 
-  async initialize(manifestUrl: string) {
+  async initialize(manifest: ManifestEntry[]) {
     this.setProgress(-1);
     this.setMessage("");
 
@@ -95,16 +95,8 @@ export class FlashManager {
       return;
     }
 
-    try {
-      this.manifest = await getManifest(manifestUrl);
-      if (this.manifest.length === 0) throw new Error("Manifest is empty");
-      console.info("[Flash] Loaded manifest:", this.manifest.length, "entries");
-    } catch (err) {
-      console.error("[Flash] Failed to fetch manifest:", err);
-      this.setError(ErrorCode.UNKNOWN);
-      return;
-    }
-
+    this.manifest = manifest;
+    console.info("[Flash] Loaded manifest:", this.manifest.length, "entries");
     this.setStep(Step.READY);
   }
 

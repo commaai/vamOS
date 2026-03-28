@@ -1,5 +1,5 @@
 import { FlashManager, Step, ErrorCode, loadProgrammer } from "./utils/manager";
-import { getLatestManifestUrl } from "./utils/manifest";
+import { getManifest } from "./utils/manifest";
 
 // -- State --
 let manager: FlashManager | null = null;
@@ -203,13 +203,14 @@ async function init() {
   $("init-status").textContent = "loading programmer + manifest...";
 
   try {
-    const [programmer, { manifestUrl }] = await Promise.all([
+    const [programmer, { tag, manifest }] = await Promise.all([
       loadProgrammer(),
-      getLatestManifestUrl(),
+      getManifest(),
     ]);
 
+    console.info("[vamOS Flash] Release:", tag, "- entries:", manifest.length);
     manager = new FlashManager(programmer, {});
-    await manager.initialize(manifestUrl);
+    await manager.initialize(manifest);
 
     if (manager.error !== ErrorCode.NONE) {
       throw new Error("Initialization failed");
