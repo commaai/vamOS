@@ -2,9 +2,9 @@ name: deploy pages
 
 on:
   push:
-    branches: [master,flash]
+    branches: [master, flash]
     paths:
-      - 'docs/**'
+      - 'tools/flash/**'
       - '.github/workflows/pages.yml'
 
 permissions:
@@ -25,13 +25,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: oven-sh/setup-bun@v2
+
+      - name: build
+        working-directory: tools/flash
+        run: |
+          bun install
+          bun run build
+
       - name: configure pages
         uses: actions/configure-pages@v5
 
       - name: upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: tools/flash/dist
 
       - name: deploy to github pages
         id: deployment
