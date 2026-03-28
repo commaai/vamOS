@@ -5,3 +5,6 @@
 **/*.tar.xz
 
 __pycache__/
+
+tools/flash/dist
+tools/flash/node_modules
