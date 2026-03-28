@@ -1,8 +1,8 @@
 diff --git a/drivers/media/platform/qcom/camss/camss-vfe-17x.c b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-index e5ee7e717b3b..953c64a0c564 100644
+index e5ee7e717b3b..f71f7ff964b6 100644
 --- a/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 +++ b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-@@ -92,9 +92,73 @@
+@@ -92,9 +92,77 @@
  #define		CFG_FRAME_BASED_EN		BIT(10)
  #define		CFG_RAW_CROP_EN			BIT(22)
  
@@ -68,7 +68,11 @@ index e5ee7e717b3b..953c64a0c564 100644
 +
 +/* Linearization */
 +#define VFE_LINEAR_CFG			(0x4dc)
-+#define VFE_LINEAR_PTS			(0x4e0)
++#define VFE_LINEAR_INTERP_R		(0x4e0)
++#define VFE_LINEAR_INTERP_GB		(0x4f0)
++#define VFE_LINEAR_INTERP_B		(0x500)
++#define VFE_LINEAR_INTERP_GR		(0x510)
++#define		DMI_RAM_SEL_BLACK_LUT_BANK0	9
 +
 +/* BUS composite group */
 +#define VFE_BUS_COMP_GROUP(n)		(0x2070 + (n) * 4)
@@ -76,7 +80,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  #define VFE_BUS_IRQ_MASK(n)		(0x2044 + (n) * 4)
  #define VFE_BUS_IRQ_CLEAR(n)		(0x2050 + (n) * 4)
  #define VFE_BUS_IRQ_STATUS(n)		(0x205c + (n) * 4)
-@@ -204,9 +268,268 @@ static void vfe_global_reset(struct vfe_device *vfe)
+@@ -204,9 +272,304 @@ static void vfe_global_reset(struct vfe_device *vfe)
  	writel_relaxed(reset_bits, vfe->base + VFE_GLOBAL_RESET_CMD);
  }
  
@@ -102,6 +106,28 @@ index e5ee7e717b3b..953c64a0c564 100644
 +	0x000007f8, 0x000007f9, 0x000007fa, 0x000007fb,
 +	0x000003fc, 0x000007fc, 0x000003fd, 0x000007fd,
 +	0x000003fe, 0x000007fe, 0x000003ff, 0x000003ff,
++};
++
++/*
++ * OX03C10 linearization LUT: 36 entries (9 segments x 4 Bayer channels).
++ * Each entry: bits [13:0] = base (14-bit), bits [31:14] = slope (18-bit Q7.11).
++ * HDR linearization: low gain in shadows, ramps to 8x in highlights.
++ */
++static const u32 ox03c10_linear_lut[36] = {
++	0x00200000, 0x00200000, 0x00200000, 0x00200000,
++	0x00404080, 0x00404080, 0x00404080, 0x00404080,
++	0x00804100, 0x00804100, 0x00804100, 0x00804100,
++	0x02014402, 0x02014402, 0x02014402, 0x02014402,
++	0x0402c804, 0x0402c804, 0x0402c804, 0x0402c804,
++	0x0805d00a, 0x0805d00a, 0x0805d00a, 0x0805d00a,
++	0x100ba015, 0x100ba015, 0x100ba015, 0x100ba015,
++	0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff,
++	0x00003fff, 0x00003fff, 0x00003fff, 0x00003fff,
++};
++
++/* OX03C10 linearization kneepoints: 8 kneepoints packed 2 per register */
++static const u32 ox03c10_linear_pts[4] = {
++	0x07ff0bff, 0x17ff1bff, 0x1fff23ff, 0x27ff3fff,
 +};
 +
 +/*
@@ -153,14 +179,14 @@ index e5ee7e717b3b..953c64a0c564 100644
 +
 +	/*
 +	 * Module enables.
-+	 * LENS_EN (0x40): DEMUX(2) + DEMO(10) + BLACK_LEVEL(11) = 0x0c04
-+	 *   Linearization (bit 1) disabled: requires DMI LUT not yet loaded.
++	 * LENS_EN (0x40): BLACK(1) + DEMUX(2) + DEMO(10) + BLACK_LEVEL(11) = 0x0c06
++	 *   Linearization (bit 1) enabled: LUT loaded via DMI below.
 +	 * STATS_EN (0x44): none
 +	 * COLOR_EN (0x48): COLOR_CORRECT(1) + RGB_LUT(3) = 0x0a
 +	 *   RGB_LUT/gamma enabled: LUT loaded via DMI below.
 +	 * ZOOM_EN (0x4c): Y_SCALER(0) + UV_SCALER(3) + Y_CROP(4) = 0x19
 +	 */
-+	writel_relaxed(0x00000c04, vfe->base + VFE_MODULE_EN);
++	writel_relaxed(0x00000c06, vfe->base + VFE_MODULE_EN);
 +	writel_relaxed(0x00000000, vfe->base + VFE_MODULE_STATS);
 +	writel_relaxed(0x0000000a, vfe->base + VFE_MODULE_COLOR);
 +	writel_relaxed(0x00000019, vfe->base + VFE_MODULE_ZOOM);
@@ -292,8 +318,22 @@ index e5ee7e717b3b..953c64a0c564 100644
 +	writel_relaxed(in_w - 1, vfe->base + 0xce4);         /* last_pixel */
 +	writel_relaxed(in_h - 1, vfe->base + 0xce8);         /* last_line */
 +
-+	/* Linearization: disabled (bit 1 cleared in LENS_EN, no DMI LUT) */
-+	writel_relaxed(0x00000000, vfe->base + VFE_LINEAR_CFG);
++	/* Linearization: kneepoints + LUT via DMI (matching openpilot) */
++	writel_relaxed(0x00000000, vfe->base + VFE_LINEAR_CFG); /* BANK0 */
++	{ int i;
++	  for (i = 0; i < 4; i++) {
++		writel_relaxed(ox03c10_linear_pts[i],
++			       vfe->base + VFE_LINEAR_INTERP_R + i * 4);
++		writel_relaxed(ox03c10_linear_pts[i],
++			       vfe->base + VFE_LINEAR_INTERP_GB + i * 4);
++		writel_relaxed(ox03c10_linear_pts[i],
++			       vfe->base + VFE_LINEAR_INTERP_B + i * 4);
++		writel_relaxed(ox03c10_linear_pts[i],
++			       vfe->base + VFE_LINEAR_INTERP_GR + i * 4);
++	  }
++	}
++	vfe_dmi_upload_lut(vfe, DMI_RAM_SEL_BLACK_LUT_BANK0,
++			   ox03c10_linear_lut, ARRAY_SIZE(ox03c10_linear_lut));
 +
 +	/* Gamma LUT: upload OX03C10 curve to all 3 channels via DMI */
 +	vfe_dmi_upload_lut(vfe, DMI_RAM_SEL_GLUT_CH0_BANK0,
@@ -345,7 +385,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  
  	/*Set Debug Registers*/
  	val = DEBUG_STATUS_CFG_STATUS0(1) |
-@@ -228,23 +551,48 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
+@@ -228,23 +591,48 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
  
  	writel_relaxed(0xf, vfe->base + VFE_BUS_WM_BURST_LIMIT(wm));
  
@@ -411,7 +451,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  }
  
  static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
-@@ -256,17 +604,31 @@ static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
+@@ -256,17 +644,31 @@ static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
  static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
  			  struct vfe_line *line)
  {
@@ -448,7 +488,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  
  	/* Enforce ordering between previous reg writes and reg update */
  	wmb();
-@@ -280,11 +642,15 @@ static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
+@@ -280,11 +682,15 @@ static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
  static inline void vfe_reg_update_clear(struct vfe_device *vfe,
  					enum vfe_line_id line_id)
  {
@@ -465,7 +505,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  	vfe_reg_set(vfe, VFE_IRQ_MASK_0, ~0u);
  	vfe_reg_set(vfe, VFE_IRQ_MASK_1, ~0u);
  
-@@ -351,11 +717,21 @@ static irqreturn_t vfe_isr(int irq, void *dev)
+@@ -351,11 +757,21 @@ static irqreturn_t vfe_isr(int irq, void *dev)
  	if (status0 & STATUS_0_RESET_ACK)
  		vfe->isr_ops.reset_ack(vfe);
  
@@ -489,7 +529,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  		if (status0 & STATUS_1_RDI_SOF(i))
  			vfe->isr_ops.sof(vfe, i);
  
-@@ -398,14 +774,22 @@ static int vfe_get_output(struct vfe_line *line)
+@@ -398,14 +814,22 @@ static int vfe_get_output(struct vfe_line *line)
  		goto error;
  	}
  
@@ -519,7 +559,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  
  	output->drop_update_idx = 0;
  
-@@ -446,6 +830,20 @@ static int vfe_enable(struct vfe_line *line)
+@@ -446,6 +870,20 @@ static int vfe_enable(struct vfe_line *line)
  	if (ret < 0)
  		goto error_get_output;
  
@@ -540,7 +580,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  	ret = vfe_enable_output_v2(line);
  	if (ret < 0)
  		goto error_enable_output;
-@@ -512,6 +910,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -512,6 +950,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	struct vfe_output *output;
  	unsigned long flags;
  	u32 index;
@@ -548,7 +588,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  	u64 ts = ktime_get_ns();
  
  	spin_lock_irqsave(&vfe->output_lock, flags);
-@@ -523,6 +922,10 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -523,6 +962,10 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	}
  	output = &vfe->line[vfe->wm_output_map[wm]].output;
  
@@ -559,7 +599,7 @@ index e5ee7e717b3b..953c64a0c564 100644
  	ready_buf = output->buf[0];
  	if (!ready_buf) {
  		dev_err_ratelimited(vfe->camss->dev,
-@@ -540,10 +943,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -540,10 +983,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  
  	output->buf[index] = vfe_buf_get_pending(output);
  
