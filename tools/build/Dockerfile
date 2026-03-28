@@ -74,6 +74,11 @@ RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sd
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
 
+# Ensure Bluetooth firmware is reachable via the kernel's standard search path.
+RUN if [ "$(readlink -f /lib/firmware)" != "$(readlink -f /usr/lib/firmware)" ]; then \
+      mkdir -p /lib/firmware/qca && cp -a /usr/lib/firmware/qca/. /lib/firmware/qca/; \
+    fi
+
 # Fix ownership on home directory (overlay COPY runs as root)
 RUN chown -R comma:comma /home/comma
 # Void's default .bashrc doesn't source .bash_aliases
@@ -88,7 +93,7 @@ RUN for svc in \
   sound varwatch busybox-ntpd \
   irsc_util leprop adsp cdsp \
   qrtr-ns rmtfs tqftpserv pd-mapper \
-  comma modemmanager magic \
+  comma modemmanager bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
   rsyslogd iptables polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
@@ -102,7 +107,7 @@ RUN rm -f /etc/runit/runsvdir/default/udevd
 RUN sed -i 's/FileCreateMode 0640/FileCreateMode 0644/' /etc/rsyslog.conf
 
 # Set executable permissions
-RUN chmod +x /usr/comma/comma.sh /usr/comma/set_ssh.sh /usr/comma/set_ncm.sh /usr/comma/fs_setup.sh /usr/bin/journalctl
+RUN chmod +x /usr/comma/comma.sh /usr/comma/get-serial.sh /usr/comma/get-bt-address.sh /usr/comma/set-bt-address.sh /usr/comma/set_ssh.sh /usr/comma/set_ncm.sh /usr/comma/fs_setup.sh /usr/bin/journalctl /etc/sv/bluetoothd/run
 RUN chmod +x /etc/runit/1 /etc/runit/2 /etc/runit/3
 
 # Shutdown wrappers - send wall broadcast like systemd does on Ubuntu
@@ -123,10 +128,9 @@ RUN sed -i 's|motd=/etc/motd|motd=/run/motd|' /etc/pam.d/system-login
 # Hourly logrotate cron job
 RUN chmod 755 /etc/cron.hourly/logrotate
 
-# Mount point directories (empty, populated by fstab mounts at runtime)
-# These must exist for the kernel/firmware to mount partitions
-RUN mkdir -p /dsp /bt_firmware /firmware && \
-    chown comma:comma /dsp /bt_firmware /firmware
+# Mount point directories used by runtime partition mounts
+RUN mkdir -p /dsp /firmware && \
+    chown comma:comma /dsp /firmware
 
 # /system/persist structure (copied to /data on first boot by fs_setup.sh)
 RUN mkdir -p /system/persist/hlos_rfs/shared \

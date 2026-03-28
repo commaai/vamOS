@@ -29,7 +29,7 @@ ensure_gadget_base() {
   echo 250 > configs/c.1/MaxPower
 
   local serial model
-  serial="$(sed -n 's/.*androidboot.serialno=\([^ ]*\).*/\1/p' /proc/cmdline)"
+  serial="$(/usr/comma/get-serial.sh)"
   model="$(tr -d '\0' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
 
   echo "$serial" > strings/0x409/serialnumber
