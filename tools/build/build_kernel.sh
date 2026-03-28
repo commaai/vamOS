@@ -116,7 +116,7 @@ build_kernel() {
   done
 
   echo "-- Building kernel with $(nproc) cores --"
-  make CC="$CC_CMD" -j$(nproc) O="$KBUILD_OUT" Image.gz modules "${dtb_targets[@]}"
+  make CC="$CC_CMD" -j$(nproc) O="$KBUILD_OUT" Image.gz "${dtb_targets[@]}"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
