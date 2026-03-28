@@ -56,8 +56,6 @@ apply_patches() {
 }
 
 build_kernel() {
-  local extra_firmware=()
-
   # Apply patches to kernel tree
   apply_patches
 
