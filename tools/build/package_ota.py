@@ -3,7 +3,6 @@ import json
 import os
 import hashlib
 import shutil
-import struct
 from pathlib import Path
 from collections import namedtuple
 
@@ -16,46 +15,42 @@ SECTOR_SIZE = 4096
 
 RELEASE_URL = os.environ.get("RELEASE_URL", "https://github.com/commaai/vamos/releases/download/untagged")
 
-GPT = namedtuple('GPT', ['lun', 'name', 'path', 'start_sector', 'num_sectors', 'has_ab', 'full_check', 'sparse'])
+GPT = namedtuple('GPT', ['lun', 'name', 'path', 'start_sector', 'num_sectors', 'has_ab', 'full_check'])
 GPTS = [
-  GPT(0, 'gpt_main_0', FIRMWARE_DIR / 'gpt_main_0.img', 0, 6, False, True, False),
-  GPT(1, 'gpt_main_1', FIRMWARE_DIR / 'gpt_main_1.img', 0, 6, False, True, False),
-  GPT(2, 'gpt_main_2', FIRMWARE_DIR / 'gpt_main_2.img', 0, 6, False, True, False),
-  GPT(3, 'gpt_main_3', FIRMWARE_DIR / 'gpt_main_3.img', 0, 6, False, True, False),
-  GPT(4, 'gpt_main_4', FIRMWARE_DIR / 'gpt_main_4.img', 0, 6, False, True, False),
-  GPT(5, 'gpt_main_5', FIRMWARE_DIR / 'gpt_main_5.img', 0, 6, False, True, False),
+  GPT(0, 'gpt_main_0', FIRMWARE_DIR / 'gpt_main_0.img', 0, 6, False, True),
+  GPT(1, 'gpt_main_1', FIRMWARE_DIR / 'gpt_main_1.img', 0, 6, False, True),
+  GPT(2, 'gpt_main_2', FIRMWARE_DIR / 'gpt_main_2.img', 0, 6, False, True),
+  GPT(3, 'gpt_main_3', FIRMWARE_DIR / 'gpt_main_3.img', 0, 6, False, True),
+  GPT(4, 'gpt_main_4', FIRMWARE_DIR / 'gpt_main_4.img', 0, 6, False, True),
+  GPT(5, 'gpt_main_5', FIRMWARE_DIR / 'gpt_main_5.img', 0, 6, False, True),
 ]
 
-Partition = namedtuple('Partition', ['name', 'path', 'has_ab', 'full_check', 'sparse'])
+Partition = namedtuple('Partition', ['name', 'path', 'has_ab', 'full_check'])
 PARTITIONS = [
-  # Non-A/B firmware
-  Partition('persist', FIRMWARE_DIR / 'persist.img', False, True, False),
-  Partition('systemrw', FIRMWARE_DIR / 'systemrw.img', False, True, False),
-  Partition('cache', FIRMWARE_DIR / 'cache.img', False, True, False),
-  Partition('devinfo', FIRMWARE_DIR / 'devinfo.img', False, True, False),
-  Partition('limits', FIRMWARE_DIR / 'limits.img', False, True, False),
-  Partition('logfs', FIRMWARE_DIR / 'logfs.img', False, True, False),
-  Partition('splash', FIRMWARE_DIR / 'splash.img', False, True, False),
-  Partition('splash_cc', FIRMWARE_DIR / 'splash_cc.img', False, True, False),
-  # A/B firmware
-  Partition('xbl', FIRMWARE_DIR / 'xbl.img', True, True, False),
-  Partition('xbl_config', FIRMWARE_DIR / 'xbl_config.img', True, True, False),
-  Partition('abl', FIRMWARE_DIR / 'abl.img', True, True, False),
-  Partition('aop', FIRMWARE_DIR / 'aop.img', True, True, False),
-  Partition('bluetooth', FIRMWARE_DIR / 'bluetooth.img', True, True, False),
-  Partition('cmnlib64', FIRMWARE_DIR / 'cmnlib64.img', True, True, False),
-  Partition('cmnlib', FIRMWARE_DIR / 'cmnlib.img', True, True, False),
-  Partition('devcfg', FIRMWARE_DIR / 'devcfg.img', True, True, False),
-  Partition('dsp', FIRMWARE_DIR / 'dsp.img', True, True, False),
-  Partition('hyp', FIRMWARE_DIR / 'hyp.img', True, True, False),
-  Partition('keymaster', FIRMWARE_DIR / 'keymaster.img', True, True, False),
-  Partition('modem', FIRMWARE_DIR / 'modem.img', True, True, False),
-  Partition('qupfw', FIRMWARE_DIR / 'qupfw.img', True, True, False),
-  Partition('storsec', FIRMWARE_DIR / 'storsec.img', True, True, False),
-  Partition('tz', FIRMWARE_DIR / 'tz.img', True, True, False),
-  # Built images
-  Partition('boot', OUTPUT_DIR / 'boot.img', True, True, False),
-  Partition('system', OUTPUT_DIR / 'system.erofs.img', True, False, False),
+  Partition('persist', FIRMWARE_DIR / 'persist.img', False, True),
+  Partition('systemrw', FIRMWARE_DIR / 'systemrw.img', False, True),
+  Partition('cache', FIRMWARE_DIR / 'cache.img', False, True),
+  Partition('xbl', FIRMWARE_DIR / 'xbl.img', True, True),
+  Partition('xbl_config', FIRMWARE_DIR / 'xbl_config.img', True, True),
+  Partition('abl', FIRMWARE_DIR / 'abl.img', True, True),
+  Partition('aop', FIRMWARE_DIR / 'aop.img', True, True),
+  Partition('bluetooth', FIRMWARE_DIR / 'bluetooth.img', True, True),
+  Partition('cmnlib64', FIRMWARE_DIR / 'cmnlib64.img', True, True),
+  Partition('cmnlib', FIRMWARE_DIR / 'cmnlib.img', True, True),
+  Partition('devcfg', FIRMWARE_DIR / 'devcfg.img', True, True),
+  Partition('devinfo', FIRMWARE_DIR / 'devinfo.img', False, True),
+  Partition('dsp', FIRMWARE_DIR / 'dsp.img', True, True),
+  Partition('hyp', FIRMWARE_DIR / 'hyp.img', True, True),
+  Partition('keymaster', FIRMWARE_DIR / 'keymaster.img', True, True),
+  Partition('limits', FIRMWARE_DIR / 'limits.img', False, True),
+  Partition('logfs', FIRMWARE_DIR / 'logfs.img', False, True),
+  Partition('modem', FIRMWARE_DIR / 'modem.img', True, True),
+  Partition('qupfw', FIRMWARE_DIR / 'qupfw.img', True, True),
+  Partition('splash', FIRMWARE_DIR / 'splash.img', False, True),
+  Partition('storsec', FIRMWARE_DIR / 'storsec.img', True, True),
+  Partition('tz', FIRMWARE_DIR / 'tz.img', True, True),
+  Partition('boot', OUTPUT_DIR / 'boot.img', True, True),
+  Partition('system', OUTPUT_DIR / 'system.erofs.img', True, False),
 ]
 
 
@@ -74,7 +69,7 @@ def process_file(entry):
   sha256 = file_checksum(entry.path)
   hash = hash_raw = sha256.hexdigest()
 
-  # Compute ondevice_hash: hash with zero-padding to sector boundary
+  # ondevice_hash: hash with zero-padding to sector boundary
   sha256.update(b'\x00' * ((SECTOR_SIZE - (size % SECTOR_SIZE)) % SECTOR_SIZE))
   ondevice_hash = sha256.hexdigest()
 
@@ -89,7 +84,7 @@ def process_file(entry):
     "hash": hash,
     "hash_raw": hash_raw,
     "size": size,
-    "sparse": entry.sparse,
+    "sparse": False,
     "full_check": entry.full_check,
     "has_ab": entry.has_ab,
     "ondevice_hash": ondevice_hash,
@@ -111,7 +106,6 @@ if __name__ == "__main__":
   entries = []
   for entry in GPTS + PARTITIONS:
     entries.append(process_file(entry))
-
   with open(OTA_OUTPUT_DIR / "manifest.json", "w") as f:
     json.dump(entries, f, indent=2)
 
