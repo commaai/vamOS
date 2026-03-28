@@ -84,7 +84,7 @@ RUN mkdir -p /root/.config
 RUN for svc in \
   ipa_fws brightnessd fs_setup gpio init-qcom lte \
   avahi-ssh-publish power_monitor power_drop_monitor \
-  screen_calibration serial-hostname \
+  avahi-alias-publish screen_calibration \
   sound varwatch busybox-ntpd \
   irsc_util leprop adsp cdsp \
   qrtr-ns rmtfs tqftpserv pd-mapper \

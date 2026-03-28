@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
-SERIAL="$(cat /proc/cmdline | sed -e 's/^.*androidboot.serialno=//' -e 's/ .*$//')"
-echo "serial: '$SERIAL'"
-sysctl kernel.hostname="comma-$SERIAL"
+. /usr/comma/mdns_helpers.sh
+
+HOSTNAME="$(get_serial_hostname)"
+echo "hostname: '$HOSTNAME'"
+sysctl kernel.hostname="$HOSTNAME" >/dev/null
