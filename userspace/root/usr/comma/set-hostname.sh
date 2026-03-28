@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
 
-SERIAL="$(cat /proc/cmdline | sed -e 's/^.*androidboot.serialno=//' -e 's/ .*$//')"
+SERIAL="$(/usr/comma/get-serial.sh)"
 echo "serial: '$SERIAL'"
 sysctl kernel.hostname="comma-$SERIAL"
