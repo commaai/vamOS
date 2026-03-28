@@ -1,3 +1,5 @@
 #!/bin/sh
 
-sed -n 's/.*androidboot.serialno=\([^ ]*\).*/\1/p' /proc/cmdline
+. /usr/comma/serial_helpers.sh
+
+get_device_serial
