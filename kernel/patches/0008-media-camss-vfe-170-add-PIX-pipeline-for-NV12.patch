@@ -1,8 +1,8 @@
 diff --git a/drivers/media/platform/qcom/camss/camss-vfe-17x.c b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-index e5ee7e717b3b..cf8d23a94c8a 100644
+index e5ee7e717b3b..953c64a0c564 100644
 --- a/drivers/media/platform/qcom/camss/camss-vfe-17x.c
 +++ b/drivers/media/platform/qcom/camss/camss-vfe-17x.c
-@@ -92,9 +92,64 @@
+@@ -92,9 +92,73 @@
  #define		CFG_FRAME_BASED_EN		BIT(10)
  #define		CFG_RAW_CROP_EN			BIT(22)
  
@@ -56,6 +56,15 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
 +
 +/* DMI */
 +#define VFE_DMI_CFG			(0xc24)
++#define VFE_DMI_ADDR			(0xc28)
++#define VFE_DMI_DATA_LO			(0xc30)
++#define		DMI_AUTO_INC_EN			BIT(8)
++
++/* Gamma (RGB_LUT) */
++#define VFE_GAMMA_CFG			(0x798)
++#define		DMI_RAM_SEL_GLUT_CH0_BANK0	26
++#define		DMI_RAM_SEL_GLUT_CH1_BANK0	28
++#define		DMI_RAM_SEL_GLUT_CH2_BANK0	30
 +
 +/* Linearization */
 +#define VFE_LINEAR_CFG			(0x4dc)
@@ -67,16 +76,61 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  #define VFE_BUS_IRQ_MASK(n)		(0x2044 + (n) * 4)
  #define VFE_BUS_IRQ_CLEAR(n)		(0x2050 + (n) * 4)
  #define VFE_BUS_IRQ_STATUS(n)		(0x205c + (n) * 4)
-@@ -204,9 +259,214 @@ static void vfe_global_reset(struct vfe_device *vfe)
+@@ -204,9 +268,268 @@ static void vfe_global_reset(struct vfe_device *vfe)
  	writel_relaxed(reset_bits, vfe->base + VFE_GLOBAL_RESET_CMD);
  }
  
++/*
++ * OX03C10 gamma LUT from openpilot: 64 packed entries.
++ * Each entry: bits [9:0] = base (10-bit), bits [31:10] = delta to next.
++ * Custom tonemapping: -0.507089*exp(-12.54*x) + 0.9655*sqrt(x) - 0.4726*x + 0.507089
++ */
++static const u32 ox03c10_gamma_lut[64] = {
++	0x00034000, 0x0001e0d0, 0x00017948, 0x000135a6,
++	0x0000fdf3, 0x0000da32, 0x0000b668, 0x00009a95,
++	0x000086bb, 0x000076dc, 0x000062f9, 0x00005711,
++	0x00004f26, 0x00004739, 0x00003b4a, 0x00003758,
++	0x00003365, 0x00002b71, 0x00002b7b, 0x00002785,
++	0x00001f8e, 0x00002395, 0x00001b9d, 0x00001fa3,
++	0x000017aa, 0x00001baf, 0x000017b5, 0x000013ba,
++	0x000017be, 0x000013c3, 0x000013c7, 0x00000fcb,
++	0x000013ce, 0x00000fd2, 0x00000fd5, 0x00000fd8,
++	0x00000fdb, 0x00000bde, 0x00000fe0, 0x00000be3,
++	0x00000be5, 0x00000be7, 0x00000be9, 0x00000beb,
++	0x00000bed, 0x00000bef, 0x000007f1, 0x000007f2,
++	0x00000bf3, 0x000007f5, 0x000007f6, 0x000007f7,
++	0x000007f8, 0x000007f9, 0x000007fa, 0x000007fb,
++	0x000003fc, 0x000007fc, 0x000003fd, 0x000007fd,
++	0x000003fe, 0x000007fe, 0x000003ff, 0x000003ff,
++};
++
++/*
++ * vfe_dmi_upload_lut - Upload a LUT via DMI (Data Memory Interface)
++ * @vfe: VFE device
++ * @ram_sel: DMI RAM select value for target LUT bank
++ * @data: array of 32-bit LUT entries
++ * @count: number of entries
++ */
++static void vfe_dmi_upload_lut(struct vfe_device *vfe, u8 ram_sel,
++			       const u32 *data, int count)
++{
++	int i;
++
++	writel_relaxed(DMI_AUTO_INC_EN | ram_sel, vfe->base + VFE_DMI_CFG);
++	writel_relaxed(0, vfe->base + VFE_DMI_ADDR);
++
++	for (i = 0; i < count; i++)
++		writel_relaxed(data[i], vfe->base + VFE_DMI_DATA_LO);
++
++	writel_relaxed(0, vfe->base + VFE_DMI_CFG);
++}
++
 +/*
 + * vfe_pix_configure_isp - Program ISP registers for debayer + YUV pipeline
 + *
 + * Register values derived from openpilot ife.h and downstream register dump.
 + * Programs: demux, white balance, black level, debayer, color correction,
-+ * YUV conversion, scaling, cropping, and CAMIF.
++ * YUV conversion, scaling, cropping, CAMIF, and gamma LUT.
 + */
 +static void vfe_pix_configure_isp(struct vfe_device *vfe,
 +				   u32 in_w, u32 in_h,
@@ -102,13 +156,13 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
 +	 * LENS_EN (0x40): DEMUX(2) + DEMO(10) + BLACK_LEVEL(11) = 0x0c04
 +	 *   Linearization (bit 1) disabled: requires DMI LUT not yet loaded.
 +	 * STATS_EN (0x44): none
-+	 * COLOR_EN (0x48): COLOR_CORRECT(1) = 0x02
-+	 *   RGB_LUT/gamma (bit 3) disabled: requires DMI LUT not yet loaded.
++	 * COLOR_EN (0x48): COLOR_CORRECT(1) + RGB_LUT(3) = 0x0a
++	 *   RGB_LUT/gamma enabled: LUT loaded via DMI below.
 +	 * ZOOM_EN (0x4c): Y_SCALER(0) + UV_SCALER(3) + Y_CROP(4) = 0x19
 +	 */
 +	writel_relaxed(0x00000c04, vfe->base + VFE_MODULE_EN);
 +	writel_relaxed(0x00000000, vfe->base + VFE_MODULE_STATS);
-+	writel_relaxed(0x00000002, vfe->base + VFE_MODULE_COLOR);
++	writel_relaxed(0x0000000a, vfe->base + VFE_MODULE_COLOR);
 +	writel_relaxed(0x00000019, vfe->base + VFE_MODULE_ZOOM);
 +	writel_relaxed(0x00000000, vfe->base + VFE_ROUND_CLAMP_CFG);
 +
@@ -241,6 +295,15 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
 +	/* Linearization: disabled (bit 1 cleared in LENS_EN, no DMI LUT) */
 +	writel_relaxed(0x00000000, vfe->base + VFE_LINEAR_CFG);
 +
++	/* Gamma LUT: upload OX03C10 curve to all 3 channels via DMI */
++	vfe_dmi_upload_lut(vfe, DMI_RAM_SEL_GLUT_CH0_BANK0,
++			   ox03c10_gamma_lut, ARRAY_SIZE(ox03c10_gamma_lut));
++	vfe_dmi_upload_lut(vfe, DMI_RAM_SEL_GLUT_CH1_BANK0,
++			   ox03c10_gamma_lut, ARRAY_SIZE(ox03c10_gamma_lut));
++	vfe_dmi_upload_lut(vfe, DMI_RAM_SEL_GLUT_CH2_BANK0,
++			   ox03c10_gamma_lut, ARRAY_SIZE(ox03c10_gamma_lut));
++	writel_relaxed(0x00000000, vfe->base + VFE_GAMMA_CFG); /* all ch bank 0 */
++
 +	/* Ensure all register writes complete before reg_update */
 +	wmb();
 +}
@@ -282,7 +345,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  
  	/*Set Debug Registers*/
  	val = DEBUG_STATUS_CFG_STATUS0(1) |
-@@ -228,23 +488,48 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
+@@ -228,23 +551,48 @@ static void vfe_wm_start(struct vfe_device *vfe, u8 wm, struct vfe_line *line)
  
  	writel_relaxed(0xf, vfe->base + VFE_BUS_WM_BURST_LIMIT(wm));
  
@@ -348,7 +411,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  }
  
  static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
-@@ -256,17 +541,31 @@ static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
+@@ -256,17 +604,31 @@ static void vfe_wm_stop(struct vfe_device *vfe, u8 wm)
  static void vfe_wm_update(struct vfe_device *vfe, u8 wm, u32 addr,
  			  struct vfe_line *line)
  {
@@ -385,7 +448,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  
  	/* Enforce ordering between previous reg writes and reg update */
  	wmb();
-@@ -280,11 +579,15 @@ static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
+@@ -280,11 +642,15 @@ static void vfe_reg_update(struct vfe_device *vfe, enum vfe_line_id line_id)
  static inline void vfe_reg_update_clear(struct vfe_device *vfe,
  					enum vfe_line_id line_id)
  {
@@ -402,7 +465,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  	vfe_reg_set(vfe, VFE_IRQ_MASK_0, ~0u);
  	vfe_reg_set(vfe, VFE_IRQ_MASK_1, ~0u);
  
-@@ -351,11 +654,21 @@ static irqreturn_t vfe_isr(int irq, void *dev)
+@@ -351,11 +717,21 @@ static irqreturn_t vfe_isr(int irq, void *dev)
  	if (status0 & STATUS_0_RESET_ACK)
  		vfe->isr_ops.reset_ack(vfe);
  
@@ -426,7 +489,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  		if (status0 & STATUS_1_RDI_SOF(i))
  			vfe->isr_ops.sof(vfe, i);
  
-@@ -398,14 +711,22 @@ static int vfe_get_output(struct vfe_line *line)
+@@ -398,14 +774,22 @@ static int vfe_get_output(struct vfe_line *line)
  		goto error;
  	}
  
@@ -456,7 +519,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  
  	output->drop_update_idx = 0;
  
-@@ -446,6 +767,20 @@ static int vfe_enable(struct vfe_line *line)
+@@ -446,6 +830,20 @@ static int vfe_enable(struct vfe_line *line)
  	if (ret < 0)
  		goto error_get_output;
  
@@ -477,7 +540,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  	ret = vfe_enable_output_v2(line);
  	if (ret < 0)
  		goto error_enable_output;
-@@ -512,6 +847,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -512,6 +910,7 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	struct vfe_output *output;
  	unsigned long flags;
  	u32 index;
@@ -485,7 +548,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  	u64 ts = ktime_get_ns();
  
  	spin_lock_irqsave(&vfe->output_lock, flags);
-@@ -523,6 +859,10 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -523,6 +922,10 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  	}
  	output = &vfe->line[vfe->wm_output_map[wm]].output;
  
@@ -496,7 +559,7 @@ index e5ee7e717b3b..cf8d23a94c8a 100644
  	ready_buf = output->buf[0];
  	if (!ready_buf) {
  		dev_err_ratelimited(vfe->camss->dev,
-@@ -540,10 +880,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
+@@ -540,10 +943,13 @@ static void vfe_isr_wm_done(struct vfe_device *vfe, u8 wm)
  
  	output->buf[index] = vfe_buf_get_pending(output);
  
