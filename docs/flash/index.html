@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vamOS Flash</title>
+  <style>
+    :root {
+      --green: #51ff00;
+      --green-hover: #45e000;
+      --green-active: #3acc00;
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --text: #111827;
+      --text-secondary: #6b7280;
+      --border: #e5e7eb;
+      --error: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 640px;
+      padding: 2rem;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    h2 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      color: var(--text-secondary);
+      font-size: 1.125rem;
+      margin-bottom: 2rem;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 0.875rem 2.5rem;
+      font-size: 1.25rem;
+      font-weight: 600;
+      border: none;
+      border-radius: 9999px;
+      cursor: pointer;
+      transition: background-color 0.15s;
+      text-decoration: none;
+      color: black;
+    }
+
+    .btn-primary {
+      background: var(--green);
+    }
+    .btn-primary:hover { background: var(--green-hover); }
+    .btn-primary:active { background: var(--green-active); }
+
+    .btn-secondary {
+      background: var(--border);
+      color: var(--text);
+      font-size: 1rem;
+      padding: 0.625rem 1.5rem;
+    }
+    .btn-secondary:hover { background: #d1d5db; }
+
+    .btn:disabled {
+      background: #d1d5db;
+      color: #9ca3af;
+      cursor: not-allowed;
+    }
+
+    .step { display: none; }
+    .step.active { display: block; }
+
+    /* Stepper bar */
+    .stepper {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 2.5rem;
+    }
+
+    .stepper-dot {
+      width: 2rem;
+      height: 2rem;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      background: var(--border);
+      color: var(--text-secondary);
+      transition: all 0.2s;
+    }
+
+    .stepper-dot.active {
+      background: var(--green);
+      color: black;
+    }
+
+    .stepper-dot.done {
+      background: var(--green);
+      color: black;
+    }
+
+    .stepper-line {
+      width: 2rem;
+      height: 2px;
+      background: var(--border);
+      transition: background 0.2s;
+    }
+
+    .stepper-line.done {
+      background: var(--green);
+    }
+
+    /* File picker */
+    .file-row {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem;
+      background: var(--surface);
+      border: 2px solid var(--border);
+      border-radius: 0.75rem;
+      margin-bottom: 1rem;
+      text-align: left;
+    }
+
+    .file-row.ready {
+      border-color: var(--green);
+    }
+
+    .file-row .label {
+      font-weight: 600;
+      font-size: 1rem;
+      min-width: 7rem;
+    }
+
+    .file-row .filename {
+      flex: 1;
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .file-row .filename.set {
+      color: var(--text);
+    }
+
+    .file-row button {
+      flex-shrink: 0;
+    }
+
+    .file-input-btn {
+      padding: 0.5rem 1rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      border: 2px solid var(--border);
+      border-radius: 0.5rem;
+      background: var(--surface);
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .file-input-btn:hover { border-color: var(--green); }
+
+    .download-links {
+      margin-bottom: 1.5rem;
+      padding: 1rem;
+      background: var(--surface);
+      border-radius: 0.75rem;
+      border: 1px solid var(--border);
+    }
+
+    .download-links p {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+
+    .download-links a {
+      display: inline-block;
+      margin: 0 0.5rem;
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.875rem;
+    }
+    .download-links a:hover { text-decoration: underline; }
+
+    /* Progress */
+    .progress-container {
+      margin: 2rem 0;
+    }
+
+    .progress-bar-bg {
+      width: 100%;
+      height: 0.5rem;
+      background: var(--border);
+      border-radius: 9999px;
+      overflow: hidden;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: var(--green);
+      border-radius: 9999px;
+      transition: width 0.3s;
+      width: 0%;
+    }
+
+    .progress-text {
+      margin-top: 0.75rem;
+      font-family: monospace;
+      font-size: 1.125rem;
+      color: var(--text);
+    }
+
+    .status-message {
+      color: var(--text-secondary);
+      font-size: 1rem;
+      margin-top: 0.5rem;
+    }
+
+    .flash-icon {
+      width: 128px;
+      height: 128px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.5rem;
+      font-size: 3rem;
+    }
+
+    .icon-green { background: var(--green); }
+    .icon-yellow { background: var(--warning); }
+    .icon-red { background: var(--error); }
+    .icon-gray { background: var(--border); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.6; }
+    }
+    .animate-pulse { animation: pulse 2s ease-in-out infinite; }
+
+    /* Instructions */
+    .instructions {
+      text-align: left;
+      max-width: 28rem;
+      margin: 0 auto 2rem;
+    }
+
+    .instructions ol {
+      list-style: none;
+      counter-reset: step;
+    }
+
+    .instructions li {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+      margin-bottom: 0.75rem;
+      font-size: 1.0625rem;
+    }
+
+    .instructions .step-num {
+      flex-shrink: 0;
+      width: 1.75rem;
+      height: 1.75rem;
+      border-radius: 50%;
+      background: var(--green);
+      color: black;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-size: 0.875rem;
+    }
+
+    .device-serial {
+      margin-top: 1.5rem;
+      padding: 0.75rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 0.5rem;
+      font-family: monospace;
+      font-size: 0.875rem;
+    }
+
+    .error-box {
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      border-radius: 0.75rem;
+      color: #991b1b;
+      font-size: 0.9375rem;
+    }
+
+    /* Linux unbind */
+    .code-block {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      font-family: monospace;
+      font-size: 0.8125rem;
+      text-align: left;
+      overflow-x: auto;
+      position: relative;
+      margin-bottom: 1.5rem;
+      word-break: break-all;
+      white-space: pre-wrap;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.5rem;
+      padding: 0.25rem 0.75rem;
+      background: #2563eb;
+      color: white;
+      border: none;
+      border-radius: 0.25rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .copy-btn:hover { background: #3b82f6; }
+
+    .warning-text {
+      color: var(--warning);
+      font-weight: 600;
+      font-size: 1rem;
+      margin: 1rem 0;
+    }
+
+    .links {
+      position: fixed;
+      top: 1rem;
+      right: 1rem;
+      display: flex;
+      gap: 1rem;
+    }
+
+    .links a {
+      color: var(--text-secondary);
+      transition: color 0.15s;
+    }
+    .links a:hover { color: var(--green); }
+
+    .version {
+      position: fixed;
+      bottom: 1rem;
+      left: 1rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+    .version a { color: inherit; }
+    .version a:hover { text-decoration: underline; }
+  </style>
+</head>
+<body>
+  <div class="links">
+    <a href="https://github.com/commaai/vamOS" target="_blank" title="GitHub">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>
+    </a>
+    <a href="https://discord.comma.ai" target="_blank" title="Discord">
+      <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028 14.09 14.09 0 0 0 1.226-1.994.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/></svg>
+    </a>
+  </div>
+
+  <div class="container">
+    <!-- Step 0: Landing -->
+    <div id="step-landing" class="step active">
+      <div style="margin-bottom: 2rem;">
+        <svg width="80" height="80" viewBox="2 3 42 42" fill="currentColor" style="color: var(--text);">
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M16.6964 40C16.6964 39.2596 16.6385 38.6393 16.7236 38.0415C16.7599 37.7865 17.0575 37.5135 17.3001 37.3595C18.4832 36.6087 19.7684 36.0092 20.8699 35.1481C24.4378 32.3587 26.5526 28.6866 26.6682 23.9166C26.7009 22.5622 26.203 22.2238 25.0654 22.7514C21.7817 24.2746 18.2505 23.3815 16.3659 20.5509C14.3107 17.4636 14.6001 13.3531 17.0626 10.6562C20.2079 7.21156 25.3833 7.10849 28.9522 10.3982C31.09 12.3688 32.1058 14.9132 32.3591 17.8074C33.2084 27.5032 28.3453 35.495 19.4941 39.0057C18.6181 39.353 17.7198 39.6382 16.6964 40Z"/>
+        </svg>
+      </div>
+      <h1>vamOS Flash</h1>
+      <p class="subtitle">Flash vamOS onto your comma device via WebUSB</p>
+      <button class="btn btn-primary" onclick="startFlash()">Start</button>
+      <div id="no-webusb" style="display:none;" class="error-box">
+        This browser does not support WebUSB. Please use <a href="https://www.google.com/chrome/" target="_blank" style="color:#2563eb;font-weight:600;">Google Chrome</a> or Microsoft Edge.
+      </div>
+    </div>
+
+    <!-- Step 1: Select images -->
+    <div id="step-images" class="step">
+      <div id="stepper-images"></div>
+      <h2>Select images</h2>
+      <p class="subtitle">Choose the boot and system images to flash</p>
+
+      <div class="download-links">
+        <p>Download the latest builds from CI:</p>
+        <a href="https://nightly.link/commaai/vamOS/workflows/build-kernel.yml/master/boot.img.zip" target="_blank">boot.img.zip</a>
+        <a href="https://nightly.link/commaai/vamOS/workflows/build-system.yml/master/system.img.zip" target="_blank">system.img.zip</a>
+      </div>
+
+      <div id="file-boot" class="file-row">
+        <span class="label">boot.img</span>
+        <span class="filename" id="boot-filename">No file selected</span>
+        <label class="file-input-btn">
+          Browse
+          <input type="file" accept=".img" style="display:none" onchange="selectFile('boot', this)">
+        </label>
+      </div>
+
+      <div id="file-system" class="file-row">
+        <span class="label">system.img</span>
+        <span class="filename" id="system-filename">No file selected</span>
+        <label class="file-input-btn">
+          Browse
+          <input type="file" accept=".img" style="display:none" onchange="selectFile('system', this)">
+        </label>
+      </div>
+
+      <div style="margin-top: 1.5rem;">
+        <button class="btn btn-primary" id="btn-images-next" disabled onclick="goToConnect()">Next</button>
+      </div>
+    </div>
+
+    <!-- Step 2: Connect -->
+    <div id="step-connect" class="step">
+      <div id="stepper-connect"></div>
+      <h2>Connect your device</h2>
+      <p class="subtitle">Put your device into EDL mode and connect it</p>
+
+      <div class="instructions">
+        <ol>
+          <li>
+            <span class="step-num">1</span>
+            <span>Unplug the device and wait for it to fully power off</span>
+          </li>
+          <li>
+            <span class="step-num">2</span>
+            <span>Connect <strong>port 1</strong> (USB-C closest to edge) to your computer</span>
+          </li>
+          <li>
+            <span class="step-num">3</span>
+            <span>Connect <strong>port 2</strong> to power (computer or power brick)</span>
+          </li>
+        </ol>
+      </div>
+
+      <p style="color: var(--text-secondary); margin-bottom: 1.5rem;">
+        The device screen will remain blank. This is normal.
+      </p>
+
+      <div id="linux-unbind" style="display:none; margin-bottom: 1.5rem;">
+        <p class="warning-text">Linux: unbind qcserial first</p>
+        <div class="code-block">
+          <button class="copy-btn" onclick="copyUnbind()">Copy</button>for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done</div>
+      </div>
+
+      <button class="btn btn-primary" onclick="connectDevice()">Connect Device</button>
+      <p style="margin-top: 0.75rem; color: var(--text-secondary); font-size: 0.875rem;">
+        Select <code style="background: var(--green); padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-weight: 600;">QUSB_BULK_CID</code> from the browser dialog
+      </p>
+    </div>
+
+    <!-- Step 3: Flashing -->
+    <div id="step-flash" class="step">
+      <div id="stepper-flash"></div>
+      <div class="flash-icon icon-green animate-pulse" id="flash-icon">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="black"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+      </div>
+      <h2 id="flash-title">Connecting...</h2>
+      <p class="status-message" id="flash-status">Do not unplug your device</p>
+      <div class="progress-container">
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="progress-fill"></div>
+        </div>
+        <div class="progress-text" id="progress-text"></div>
+      </div>
+      <div id="flash-serial" class="device-serial" style="display:none;"></div>
+      <div id="flash-error" class="error-box" style="display:none;"></div>
+      <button id="btn-retry" class="btn btn-primary" style="display:none; margin-top:1rem;" onclick="location.reload()">Retry</button>
+    </div>
+
+    <!-- Step 4: Done -->
+    <div id="step-done" class="step">
+      <div id="stepper-done"></div>
+      <div class="flash-icon icon-green">
+        <svg width="64" height="64" viewBox="0 0 24 24" fill="black"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/></svg>
+      </div>
+      <h2>Flash complete</h2>
+      <p class="subtitle">Your device is rebooting into vamOS</p>
+      <button class="btn btn-secondary" onclick="location.reload()">Flash another device</button>
+    </div>
+  </div>
+
+  <div class="version">
+    <a href="https://github.com/commaai/vamOS" target="_blank">vamOS</a>
+  </div>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "@commaai/qdl": "https://esm.sh/@commaai/qdl@0.1.0",
+      "@commaai/qdl/usblib": "https://esm.sh/@commaai/qdl@0.1.0/usblib"
+    }
+  }
+  </script>
+
+  <script type="module">
+    import { qdlDevice } from '@commaai/qdl'
+    import { usbClass } from '@commaai/qdl/usblib'
+
+    const PROGRAMMER_URL = 'https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin'
+
+    const state = {
+      bootFile: null,
+      systemFile: null,
+      programmer: null,
+      device: null,
+    }
+
+    // Expose to global scope for onclick handlers
+    window.state = state
+
+    // Fetch programmer on load
+    async function init() {
+      if (typeof navigator.usb === 'undefined') {
+        document.getElementById('no-webusb').style.display = 'block'
+        document.querySelector('#step-landing .btn').style.display = 'none'
+        return
+      }
+
+      // Show Linux unbind instructions
+      if (navigator.platform.includes('Linux')) {
+        document.getElementById('linux-unbind').style.display = 'block'
+      }
+
+      try {
+        const res = await fetch(PROGRAMMER_URL)
+        if (!res.ok) throw new Error(`Failed to fetch programmer: ${res.status}`)
+        state.programmer = await res.arrayBuffer()
+        console.info('[vamOS Flash] Programmer loaded:', state.programmer.byteLength, 'bytes')
+      } catch (err) {
+        console.error('[vamOS Flash] Failed to load programmer:', err)
+      }
+    }
+
+    window.startFlash = function() {
+      if (!state.programmer) {
+        alert('Programmer binary is still loading. Please wait and try again.')
+        return
+      }
+      showStep('step-images')
+      updateStepper(0)
+    }
+
+    window.selectFile = function(type, input) {
+      const file = input.files[0]
+      if (!file) return
+
+      state[type + 'File'] = file
+      const nameEl = document.getElementById(type + '-filename')
+      nameEl.textContent = file.name + ' (' + formatSize(file.size) + ')'
+      nameEl.classList.add('set')
+      document.getElementById('file-' + type).classList.add('ready')
+
+      // Enable next button if both files are selected
+      if (state.bootFile && state.systemFile) {
+        document.getElementById('btn-images-next').disabled = false
+      }
+    }
+
+    window.goToConnect = function() {
+      showStep('step-connect')
+      updateStepper(1)
+    }
+
+    window.connectDevice = async function() {
+      showStep('step-flash')
+      updateStepper(2)
+
+      const ui = {
+        title: document.getElementById('flash-title'),
+        status: document.getElementById('flash-status'),
+        progress: document.getElementById('progress-fill'),
+        progressText: document.getElementById('progress-text'),
+        serial: document.getElementById('flash-serial'),
+        icon: document.getElementById('flash-icon'),
+        error: document.getElementById('flash-error'),
+        retry: document.getElementById('btn-retry'),
+      }
+
+      function setProgress(pct) {
+        ui.progress.style.width = pct + '%'
+        ui.progressText.textContent = pct.toFixed(0) + '%'
+      }
+
+      function setStatus(title, message) {
+        ui.title.textContent = title
+        ui.status.textContent = message || ''
+      }
+
+      function setError(message) {
+        ui.icon.className = 'flash-icon icon-red'
+        ui.icon.classList.remove('animate-pulse')
+        ui.title.textContent = 'Error'
+        ui.status.textContent = ''
+        ui.error.style.display = 'block'
+        ui.error.textContent = message
+        ui.retry.style.display = 'inline-block'
+      }
+
+      try {
+        // Connect via WebUSB
+        setStatus('Waiting for device...', 'Select your device in the browser dialog')
+        const usb = new usbClass()
+        state.device = new qdlDevice(state.programmer)
+
+        try {
+          await state.device.connect(usb)
+        } catch (err) {
+          if (err.name === 'NotFoundError') {
+            showStep('step-connect')
+            updateStepper(1)
+            return
+          }
+          throw err
+        }
+
+        console.info('[vamOS Flash] Connected')
+        setStatus('Connected', 'Reading device info...')
+
+        // Get serial
+        try {
+          const storageInfo = await state.device.getStorageInfo()
+          const serial = Number(storageInfo.serial_num).toString(16).padStart(8, '0')
+          ui.serial.textContent = 'Device serial: ' + serial
+          ui.serial.style.display = 'block'
+          console.info('[vamOS Flash] Serial:', serial)
+        } catch (err) {
+          console.warn('[vamOS Flash] Could not read storage info:', err)
+        }
+
+        // Use File objects directly as Blobs (avoids reading entire file into memory)
+        const bootSize = state.bootFile.size
+        const systemSize = state.systemFile.size
+
+        // Progress layout: boot_a 10%, boot_b 10%, system_a 75%, finalize 5%
+
+        // Flash boot_a
+        setStatus('Flashing boot_a...', 'Do not unplug your device')
+        setProgress(0)
+        await state.device.flashBlob('boot_a', state.bootFile, (written) => {
+          setProgress((written / bootSize) * 10)
+        })
+        console.info('[vamOS Flash] boot_a done')
+
+        // Flash boot_b
+        setStatus('Flashing boot_b...', 'Do not unplug your device')
+        await state.device.flashBlob('boot_b', state.bootFile, (written) => {
+          setProgress(10 + (written / bootSize) * 10)
+        })
+        console.info('[vamOS Flash] boot_b done')
+
+        // Flash system_a only (matching vamOS CLI behavior, active slot set to a)
+        setStatus('Flashing system_a...', 'This may take several minutes. Do not unplug your device.')
+        await state.device.flashBlob('system_a', state.systemFile, (written) => {
+          setProgress(20 + (written / systemSize) * 75)
+        }, false)
+        console.info('[vamOS Flash] system_a done')
+
+        // Set active slot
+        setStatus('Finalizing...', 'Setting active slot')
+        setProgress(95)
+        await state.device.setActiveSlot('a')
+        console.info('[vamOS Flash] Active slot set to a')
+
+        // Reboot
+        setStatus('Rebooting...', '')
+        setProgress(100)
+        await state.device.reset()
+        console.info('[vamOS Flash] Device reset')
+
+        // Done
+        showStep('step-done')
+        updateStepper(3)
+
+      } catch (err) {
+        console.error('[vamOS Flash] Flash failed:', err)
+        setError(err.message || 'An unknown error occurred. Try a different cable, USB port, or computer.')
+      }
+    }
+
+    window.copyUnbind = function() {
+      const cmd = 'for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done'
+      navigator.clipboard.writeText(cmd)
+      const btn = document.querySelector('.copy-btn')
+      btn.textContent = 'Copied!'
+      setTimeout(() => { btn.textContent = 'Copy' }, 2000)
+    }
+
+    function showStep(id) {
+      document.querySelectorAll('.step').forEach(s => s.classList.remove('active'))
+      document.getElementById(id).classList.add('active')
+    }
+
+    const stepLabels = ['Images', 'Connect', 'Flash', 'Done']
+
+    function updateStepper(current) {
+      const ids = ['stepper-images', 'stepper-connect', 'stepper-flash', 'stepper-done']
+      ids.forEach(id => {
+        const el = document.getElementById(id)
+        if (!el) return
+        el.innerHTML = ''
+        const stepper = document.createElement('div')
+        stepper.className = 'stepper'
+        stepLabels.forEach((label, i) => {
+          if (i > 0) {
+            const line = document.createElement('div')
+            line.className = 'stepper-line' + (i <= current ? ' done' : '')
+            stepper.appendChild(line)
+          }
+          const dot = document.createElement('div')
+          dot.className = 'stepper-dot' + (i === current ? ' active' : i < current ? ' done' : '')
+          dot.textContent = i < current ? '\u2713' : (i + 1)
+          stepper.appendChild(dot)
+        })
+        el.appendChild(stepper)
+      })
+    }
+
+    function formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B'
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+      if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+      return (bytes / (1024 * 1024 * 1024)).toFixed(2) + ' GB'
+    }
+
+    // Warn before leaving during flash
+    window.addEventListener('beforeunload', (e) => {
+      const flashStep = document.getElementById('step-flash')
+      if (flashStep.classList.contains('active') && !document.getElementById('btn-retry').style.display.includes('inline')) {
+        e.preventDefault()
+        return (e.returnValue = 'Flash in progress. Are you sure you want to leave?')
+      }
+    })
+
+    init()
+  </script>
+</body>
+</html>
