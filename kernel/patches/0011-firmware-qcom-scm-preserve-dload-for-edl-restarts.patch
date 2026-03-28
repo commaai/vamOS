@@ -1,0 +1,91 @@
+From 7f68f0d4d1df43233f516d3087be29b80cf3cff2 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sat, 28 Mar 2026 20:35:00 -0700
+Subject: [PATCH] firmware: qcom: scm: preserve dload for edl restarts
+
+The generic SCM shutdown hook clears download mode on every clean reboot.
+That is usually correct, but it breaks intentional EDL transitions because
+the reboot code asks for "edl" before device shutdown and SCM clears the
+download-mode bit again on the way down.
+
+Record explicit "edl" restarts in a reboot notifier, set download mode while
+the SCM driver is still fully operational, and skip clearing it during the
+matching shutdown sequence.
+---
+ drivers/firmware/qcom/qcom_scm.c | 32 ++++++++++++++++++++++++++++++++
+ 1 file changed, 32 insertions(+)
+
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -25,6 +25,7 @@
+ #include <linux/of_irq.h>
+ #include <linux/of_platform.h>
+ #include <linux/of_reserved_mem.h>
++#include <linux/reboot.h>
+ #include <linux/platform_device.h>
+ #include <linux/reset-controller.h>
+ #include <linux/sizes.h>
+@@ -34,6 +35,7 @@
+ #include "qcom_tzmem.h"
+ 
+ static u32 download_mode;
++static bool qcom_scm_restart_to_edl;
+ 
+ struct qcom_scm {
+ 	struct device *dev;
+@@ -558,6 +560,24 @@
+ 		dev_err(__scm->dev, "failed to set download mode: %d\n", ret);
+ }
+ 
++static int qcom_scm_reboot(struct notifier_block *nb,
++			   unsigned long action, void *data)
++{
++	const char *cmd = data;
++
++	qcom_scm_restart_to_edl = false;
++	if (action == SYS_RESTART && cmd && !strcmp(cmd, "edl")) {
++		qcom_scm_restart_to_edl = true;
++		qcom_scm_set_download_mode(QCOM_DLOAD_FULLDUMP);
++	}
++
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block qcom_scm_reboot_nb = {
++	.notifier_call = qcom_scm_reboot,
++};
++
+ /**
+  * qcom_scm_pas_init_image() - Initialize peripheral authentication service
+  *			       state machine for a given peripheral, using the
+@@ -2426,6 +2446,11 @@
+ 	 */
+ 	qcom_scm_set_download_mode(download_mode);
+ 
++	ret = devm_register_reboot_notifier(scm->dev, &qcom_scm_reboot_nb);
++	if (ret)
++		return dev_err_probe(scm->dev, ret,
++				     "Failed to register reboot notifier\n");
++
+ 	/*
+ 	 * Disable SDI if indicated by DT that it is enabled by default.
+ 	 */
+@@ -2453,6 +2478,15 @@
+ 
+ static void qcom_scm_shutdown(struct platform_device *pdev)
+ {
++	if (qcom_scm_restart_to_edl) {
++		/*
++		 * "edl" is an intentional clean reboot into download mode,
++		 * so preserve the bit set by the reboot notifier.
++		 */
++		qcom_scm_restart_to_edl = false;
++		return;
++	}
++
+ 	/* Clean shutdown, disable download mode to allow normal restart */
+ 	qcom_scm_set_download_mode(QCOM_DLOAD_NODUMP);
+ }
+-- 
+2.53.0

@@ -458,3 +458,15 @@
 
 	qcom,snoc-host-cap-skip-quirk;
 };
+
+&{/firmware/scm} {
+	qcom,dload-mode = <&tcsr_regs_1 0x73000>;
+};
+
+&soc {
+	restart@c264000 {
+		compatible = "qcom,pshold";
+		reg = <0 0x0c264000 0 0x4>;
+		qcom,force-warm-reboot;
+	};
+};
