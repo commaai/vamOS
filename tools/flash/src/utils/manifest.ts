@@ -1,5 +1,5 @@
 // Swap this to Azure CDN URL for production
-export const PROXY_BASE = "https://vamos-release-proxy.mpurnell1.workers.dev";
+export const PROXY_BASE = "https://vamos-release-proxy.vamos-release-proxy.workers.dev";
 
 export interface ManifestEntry {
   name: string;
