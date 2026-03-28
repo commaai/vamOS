@@ -90,9 +90,8 @@ build_kernel() {
   echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
   KCONFIG_CONFIG=out/.config \
     bash scripts/kconfig/merge_config.sh \
-    -m out/.config "$CONFIG_FRAGMENT"
-  # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
-  # can find the blobs without symlinking into the kernel tree
+    -m -y out/.config "$CONFIG_FRAGMENT"
+  # Point EXTRA_FIRMWARE_DIR to our firmware directory
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
   make olddefconfig O=out
 

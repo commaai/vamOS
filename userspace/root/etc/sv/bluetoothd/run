@@ -1,0 +1,20 @@
+#!/bin/sh
+exec 2>&1
+
+# Wait for dbus before starting bluetoothd.
+sv check dbus >/dev/null || exit 1
+
+mkdir -p /var/lib/bluetooth
+rfkill unblock bluetooth >/dev/null 2>&1 || true
+/usr/comma/set-bt-address.sh
+
+if command -v bluetoothd >/dev/null 2>&1; then
+  exec bluetoothd --nodetach
+elif [ -x /usr/libexec/bluetooth/bluetoothd ]; then
+  exec /usr/libexec/bluetooth/bluetoothd --nodetach
+elif [ -x /usr/lib/bluetooth/bluetoothd ]; then
+  exec /usr/lib/bluetooth/bluetoothd --nodetach
+else
+  echo "bluetoothd not found"
+  exit 1
+fi

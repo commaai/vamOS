@@ -34,6 +34,7 @@ xbps-install -y \
   base-devel \
   bc \
   busybox \
+  bluez \
   clang \
   cmake \
   czmq-devel \
@@ -114,6 +115,9 @@ echo "$USERNAME:$PASSWD" | chpasswd
 groupadd -f gpio
 groupadd -f gpu
 usermod -aG wheel,video,audio,disk,dialout,gpio,gpu $USERNAME
+if getent group bluetooth >/dev/null; then
+  usermod -aG bluetooth $USERNAME
+fi
 
 # Set kernel params
 echo "net.ipv4.conf.all.rp_filter = 2" >> /etc/sysctl.conf
