@@ -214,10 +214,10 @@
     .version { position: fixed; bottom: 1rem; left: 1rem; font-size: 0.75rem; color: rgba(255,255,255,0.3); z-index: 2; }
     .version a { color: inherit; }
 
-    .sparkle { position: absolute; font-size: 1.5rem; animation: float 3s ease-in-out infinite; pointer-events: none; }
-    @keyframes float {
-      0%, 100% { transform: translateY(0) rotate(0deg); opacity: 0.6; }
-      50% { transform: translateY(-15px) rotate(180deg); opacity: 1; }
+    .bounce { display: inline-block; animation: bounce 1s ease infinite; }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-12px); }
     }
   </style>
 </head>
