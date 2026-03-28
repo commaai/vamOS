@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrei Radulescu <andi.radulescu@gmail.com>
+Date: Fri, 28 Mar 2026 21:30:00 +0000
+Subject: [PATCH] ufs: qcom: disable hibernate8 during clock gating
+
+On SDM845 with WDC SDINDDH4-128G UFS storage, hibernate8 exit times out
+under heavy I/O load (openpilot logging + real-time threads with IRQ
+affinity pinning). The UIC completion interrupt gets delayed past the
+timeout, the link is declared broken, and the error handler enters a
+recovery loop that eventually triggers an RCU stall on CPU 0.
+
+Remove UFSHCD_CAP_HIBERN8_WITH_CLK_GATING so the UFS link stays active
+during clock gating instead of cycling through hibernate8. Clock gating
+itself still works. Power cost is negligible (~10-20mW).
+
+---
+ drivers/ufs/host/ufs-qcom.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+index eba0e6617483..c8b94474783c 100644
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -1159,7 +1159,7 @@ static void ufs_qcom_set_host_caps(struct ufs_hba *hba)
+
+ static void ufs_qcom_set_caps(struct ufs_hba *hba)
+ {
+-	hba->caps |= UFSHCD_CAP_CLK_GATING | UFSHCD_CAP_HIBERN8_WITH_CLK_GATING;
++	hba->caps |= UFSHCD_CAP_CLK_GATING;
+ 	hba->caps |= UFSHCD_CAP_CLK_SCALING | UFSHCD_CAP_WB_WITH_CLK_SCALING;
+ 	hba->caps |= UFSHCD_CAP_AUTO_BKOPS_SUSPEND;
+ 	hba->caps |= UFSHCD_CAP_WB_EN;
+--
+2.47.1
+
