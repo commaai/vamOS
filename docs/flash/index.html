@@ -519,18 +519,9 @@
     <a href="https://github.com/commaai/vamOS" target="_blank">vamOS</a>
   </div>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "@commaai/qdl": "https://esm.sh/@commaai/qdl@0.1.0",
-      "@commaai/qdl/usblib": "https://esm.sh/@commaai/qdl@0.1.0/usblib"
-    }
-  }
-  </script>
-
   <script type="module">
-    import { qdlDevice } from '@commaai/qdl'
-    import { usbClass } from '@commaai/qdl/usblib'
+    import { qdlDevice } from 'https://esm.sh/gh/commaai/qdl.js/src/qdl.js'
+    import { usbClass } from 'https://esm.sh/gh/commaai/qdl.js/src/usblib.js'
 
     const PROGRAMMER_URL = 'https://raw.githubusercontent.com/commaai/flash/master/src/QDL/programmer.bin'
 
