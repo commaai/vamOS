@@ -77,6 +77,9 @@ build_kernel() {
   export KBUILD_BUILD_USER="vamos"
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
+  
+  GIT_REV="$(git -C $DIR rev-parse --short HEAD)"
+  export LOCALVERSION="-vamos-$GIT_REV"
 
   # Build kernel
   cd "$KERNEL_DIR"
