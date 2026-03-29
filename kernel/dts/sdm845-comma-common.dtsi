@@ -366,6 +366,19 @@
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
 
+&gmu {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/sdm845/a630_zap.mbn";
+	};
+};
+
 &gpi_dma0 {
 	status = "okay";
 };
