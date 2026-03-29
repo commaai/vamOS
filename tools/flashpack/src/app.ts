@@ -1,34 +1,41 @@
 import { FlashManager, Step, ErrorCode, loadProgrammer } from "./utils/manager";
 import { getManifest } from "./utils/manifest";
 
+import portsThree from "./assets/qdl-ports-three.svg";
+import portsFour from "./assets/qdl-ports-four.svg";
+import comma3X from "./assets/comma3X.webp";
+import commaFour from "./assets/four_screen_on.webp";
+
 // -- State --
 let manager: FlashManager | null = null;
+let selectedDevice: "comma3" | "comma4" | null = null;
+
+const isLinux = navigator.platform.includes("Linux");
+const isWindows = navigator.platform.includes("Win") ||
+  (navigator as any).userAgentData?.platform === "Windows";
 
 // -- Helpers --
 function $(id: string) { return document.getElementById(id)!; }
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return bytes + " B";
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-  if (bytes < 1024 * 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-  return (bytes / (1024 * 1024 * 1024)).toFixed(2) + " GB";
-}
 
 function showStep(id: string) {
   document.querySelectorAll(".step").forEach(s => s.classList.remove("active"));
   $(id).classList.add("active");
 }
 
-const stepLabels = ["Connect", "Flash", "Done"];
+function getStepLabels(): string[] {
+  const steps = ["Device", "Connect"];
+  if (isLinux && selectedDevice === "comma3") steps.push("Unbind");
+  steps.push("Flash");
+  return steps;
+}
 
 function updateStepper(current: number) {
-  for (const id of ["stepper-connect", "stepper-flash", "stepper-done"]) {
-    const el = document.getElementById(id);
-    if (!el) continue;
+  const labels = getStepLabels();
+  for (const el of document.querySelectorAll("[data-stepper]")) {
     el.innerHTML = "";
     const stepper = document.createElement("div");
     stepper.className = "stepper";
-    stepLabels.forEach((_, i) => {
+    labels.forEach((_, i) => {
       if (i > 0) {
         const line = document.createElement("div");
         line.className = "stepper-line" + (i <= current ? " done" : "");
@@ -43,7 +50,7 @@ function updateStepper(current: number) {
   }
 }
 
-// -- Render --
+// -- Steps --
 function renderLanding() {
   $("step-landing").innerHTML = `
     <div style="margin-bottom: 1rem; font-size: 4rem;">
@@ -62,50 +69,125 @@ function renderLanding() {
   `;
   $("btn-start").onclick = () => {
     if (!manager || manager.step !== Step.READY) return;
-    showStep("step-connect");
+    showStep("step-device");
+    renderDevicePicker();
     updateStepper(0);
+  };
+}
+
+function renderDevicePicker() {
+  $("step-device").innerHTML = `
+    <div data-stepper></div>
+    <div style="font-size: 3rem; margin-bottom: 1rem;">🎒</div>
+    <h2>which device are you flashing?</h2>
+    <p class="subtitle">pick your comma device!</p>
+    <div style="display: flex; gap: 1.5rem; justify-content: center; flex-wrap: wrap; margin-bottom: 2rem;">
+      <button class="device-card" id="pick-comma3">
+        <img src="${comma3X}" alt="comma 3X" style="height: 8rem; object-fit: contain;">
+        <span>comma three<br>comma 3X</span>
+      </button>
+      <button class="device-card" id="pick-comma4">
+        <img src="${commaFour}" alt="comma four" style="height: 8rem; object-fit: contain;">
+        <span>comma four</span>
+      </button>
+    </div>
+    <button class="btn btn-primary" id="btn-device-next" disabled>next!</button>
+  `;
+
+  function select(device: "comma3" | "comma4") {
+    selectedDevice = device;
+    document.querySelectorAll(".device-card").forEach(c => c.classList.remove("selected"));
+    $(`pick-${device}`).classList.add("selected");
+    ($("btn-device-next") as HTMLButtonElement).disabled = false;
+  }
+
+  $("pick-comma3").onclick = () => select("comma3");
+  $("pick-comma4").onclick = () => select("comma4");
+  $("btn-device-next").onclick = () => {
+    showStep("step-connect");
     renderConnect();
+    updateStepper(1);
   };
 }
 
 function renderConnect() {
-  const isLinux = navigator.platform.includes("Linux");
+  const isFour = selectedDevice === "comma4";
+  const portsImg = isFour ? portsFour : portsThree;
+
+  const steps = isFour
+    ? `<li><span class="step-num">A</span><span>Unplug the device</span></li>
+       <li><span class="step-num">B</span><span>Connect <strong>port 1</strong> to your computer</span></li>
+       <li><span class="step-num">C</span><span>Connect <strong>port 2</strong> to your computer or a power brick</span></li>`
+    : `<li><span class="step-num">A</span><span>Unplug the device</span></li>
+       <li><span class="step-num">B</span><span>Wait for the light on the back to fully turn off</span></li>
+       <li><span class="step-num">C</span><span>Connect <strong>port 1</strong> to your computer</span></li>
+       <li><span class="step-num">D</span><span>Connect <strong>port 2</strong> to your computer or a power brick</span></li>`;
+
   $("step-connect").innerHTML = `
-    <div id="stepper-connect"></div>
-    <div style="font-size: 3rem; margin-bottom: 1rem;">🎒🗺️</div>
+    <div data-stepper></div>
     <h2>connect ur device!</h2>
-    <p class="subtitle">we need YOUR help! put ur device into EDL mode!</p>
-    <div class="instructions">
-      <ol>
-        <li><span class="step-num">1</span><span>Unplug the device and wait for it to fully power off</span></li>
-        <li><span class="step-num">2</span><span>Connect <strong>port 1</strong> (USB-C closest to edge) to your computer</span></li>
-        <li><span class="step-num">3</span><span>Connect <strong>port 2</strong> to power (computer or power brick)</span></li>
-      </ol>
+    <p class="subtitle">follow these steps to prepare your device for flashing</p>
+    <div style="display: flex; gap: 2rem; align-items: center; justify-content: center; flex-wrap: wrap; margin-bottom: 1.5rem;">
+      <img src="${portsImg}" alt="port diagram" style="height: 12rem;">
+      <div class="instructions"><ol>${steps}</ol></div>
     </div>
     <p style="color: var(--cyan); margin-bottom: 1.5rem;">the device screen will be blank. that's totally normal!</p>
-    ${isLinux ? `
-      <p style="color: var(--warning); font-weight: 700; margin: 1rem 0;">🐧 Linux: unbind qcserial first!</p>
-      <div class="code-block"><button class="copy-btn" id="btn-copy">Copy</button>for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done</div>
-    ` : ""}
-    <button class="btn btn-primary" id="btn-connect">say "connect"!! 🔌</button>
+    <button class="btn btn-primary" id="btn-connect-next">next!</button>
+  `;
+
+  $("btn-connect-next").onclick = () => {
+    if (isLinux && selectedDevice === "comma3") {
+      showStep("step-unbind");
+      renderUnbind();
+      updateStepper(2);
+    } else {
+      showStep("step-webusb");
+      renderWebUSB();
+      updateStepper(getStepLabels().length - 1);
+    }
+  };
+}
+
+function renderUnbind() {
+  $("step-unbind").innerHTML = `
+    <div data-stepper></div>
+    <h2>unbind from qcserial</h2>
+    <p class="subtitle">on Linux, devices in QDL mode are bound to the kernel's qcserial driver. run this command in a terminal to unbind it:</p>
+    <div class="code-block"><button class="copy-btn" id="btn-copy-unbind">Copy</button>for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done</div>
+    <button class="btn btn-primary" id="btn-unbind-done">done!</button>
+  `;
+
+  $("btn-copy-unbind").onclick = () => {
+    const cmd = 'for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done';
+    navigator.clipboard.writeText(cmd);
+    $("btn-copy-unbind").textContent = "Copied!";
+    setTimeout(() => { $("btn-copy-unbind").textContent = "Copy"; }, 2000);
+  };
+
+  $("btn-unbind-done").onclick = () => {
+    showStep("step-webusb");
+    renderWebUSB();
+    updateStepper(getStepLabels().length - 1);
+  };
+}
+
+function renderWebUSB() {
+  $("step-webusb").innerHTML = `
+    <div data-stepper></div>
+    <div style="font-size: 3rem; margin-bottom: 1rem;">🔌</div>
+    <h2>select your device</h2>
+    <p class="subtitle">click the button below to open the device selector</p>
+    <button class="btn btn-primary" id="btn-webusb-connect">connect! 🎒</button>
     <p style="margin-top: 0.75rem; color: rgba(255,255,255,0.5); font-size: 0.875rem;">
       pick <code style="background: var(--lime); padding: 0.125rem 0.5rem; border-radius: 0.25rem; font-weight: 700; color: black;">QUSB_BULK_CID</code> from the list!
     </p>
   `;
-  if (isLinux) {
-    $("btn-copy").onclick = () => {
-      const cmd = 'for d in /sys/bus/usb/drivers/qcserial/*-*; do [ -e "$d" ] && echo -n "$(basename $d)" | sudo tee /sys/bus/usb/drivers/qcserial/unbind > /dev/null; done';
-      navigator.clipboard.writeText(cmd);
-      $("btn-copy").textContent = "Copied!";
-      setTimeout(() => { $("btn-copy").textContent = "Copy"; }, 2000);
-    };
-  }
-  $("btn-connect").onclick = () => startFlashing();
+  $("btn-webusb-connect").onclick = () => startFlashing();
 }
 
 function renderFlash() {
   $("step-flash").innerHTML = `
-    <div id="stepper-flash"></div>
+    <div data-stepper></div>
     <div class="flash-icon icon-green animate-pulse" id="flash-icon">
       <span style="font-size: 3.5rem;">⚡</span>
     </div>
@@ -124,7 +206,7 @@ function renderFlash() {
 
 function renderDone() {
   $("step-done").innerHTML = `
-    <div id="stepper-done"></div>
+    <div data-stepper></div>
     <div style="font-size: 4rem; margin-bottom: 1rem;">
       <span class="bounce" style="animation-delay: 0s">🎉</span>
       <span class="bounce" style="animation-delay: 0.15s">⭐</span>
@@ -140,7 +222,8 @@ function renderDone() {
 // -- Flash --
 async function startFlashing() {
   showStep("step-flash");
-  updateStepper(1);
+  const flashIdx = getStepLabels().indexOf("Flash");
+  updateStepper(flashIdx);
   renderFlash();
 
   function setProgress(pct: number) {
@@ -182,13 +265,10 @@ async function startFlashing() {
 
   if (manager!.step === Step.DONE) {
     showStep("step-done");
-    updateStepper(2);
+    updateStepper(getStepLabels().length);
     renderDone();
   }
 }
-
-// Expose callbacks for manager to use
-(FlashManager.prototype as any).callbacks = {};
 
 // -- Init --
 async function init() {

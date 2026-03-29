@@ -219,6 +219,22 @@
       0%, 100% { transform: translateY(0); }
       50% { transform: translateY(-12px); }
     }
+
+    .device-card {
+      display: flex; flex-direction: column; align-items: center; gap: 1rem;
+      padding: 1.5rem 2rem; border-radius: 0.75rem;
+      border: 2px dashed rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.05);
+      cursor: pointer; transition: all 0.2s;
+      font-family: inherit; font-size: 1.125rem; font-weight: 700;
+      color: white;
+    }
+    .device-card:hover { border-color: rgba(255,255,255,0.4); background: rgba(255,255,255,0.08); }
+    .device-card.selected {
+      border-color: var(--lime); border-style: solid;
+      background: rgba(81,255,0,0.08);
+      box-shadow: 0 0 20px rgba(81,255,0,0.15);
+    }
   </style>
 </head>
 <body>
@@ -235,8 +251,10 @@
 
   <div class="container">
     <div id="step-landing" class="step active"></div>
-    <div id="step-images" class="step"></div>
+    <div id="step-device" class="step"></div>
     <div id="step-connect" class="step"></div>
+    <div id="step-unbind" class="step"></div>
+    <div id="step-webusb" class="step"></div>
     <div id="step-flash" class="step"></div>
     <div id="step-done" class="step"></div>
   </div>
