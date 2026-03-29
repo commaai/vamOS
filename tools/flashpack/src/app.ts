@@ -43,14 +43,12 @@ function updateStepper(current: number) {
         line.className = "stepper-line" + (i <= current ? " done" : "");
         stepper.appendChild(line);
       }
-      const dot = document.createElement("div");
-      dot.className = "stepper-dot" + (i === current ? " active" : i < current ? " done" : "");
-      dot.textContent = i < current ? "\u2713" : String(i + 1);
-      if (i < current) {
-        dot.style.cursor = "pointer";
-        dot.onclick = () => navigateTo(label);
-      }
-      stepper.appendChild(dot);
+      const btn = document.createElement("button");
+      btn.className = "stepper-btn" + (i === current ? " active" : i < current ? " done" : "");
+      btn.textContent = i < current ? `\u2713 ${label}` : label;
+      if (i < current) btn.onclick = () => navigateTo(label);
+      else btn.disabled = true;
+      stepper.appendChild(btn);
     });
     el.appendChild(stepper);
   }
@@ -58,7 +56,7 @@ function updateStepper(current: number) {
 
 function navigateTo(label: string) {
   const stepMap: Record<string, () => void> = {
-    "Device": () => { selectedDevice = null; showStep("step-device"); renderDevicePicker(); },
+    "Device": () => { showStep("step-device"); renderDevicePicker(); },
     "Driver": () => { showStep("step-zadig"); renderZadig(); },
     "Connect": () => { showStep("step-connect"); renderConnect(); },
     "Unbind": () => { showStep("step-unbind"); renderUnbind(); },
@@ -123,6 +121,7 @@ function renderDevicePicker() {
 
   $("pick-comma3").onclick = () => select("comma3");
   $("pick-comma4").onclick = () => select("comma4");
+  if (selectedDevice) select(selectedDevice);
   $("btn-device-next").onclick = () => {
     if (isWindows) {
       showStep("step-zadig");
