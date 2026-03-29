@@ -1,0 +1,54 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrei Radulescu <andi.radulescu@gmail.com>
+Date: Sat, 29 Mar 2026 08:00:00 +0000
+Subject: [PATCH] ufs: core: wait for pending commands before shutdown
+
+During system poweroff, ufshcd_wl_shutdown() calls __ufshcd_wl_suspend()
+without first waiting for outstanding UFS commands to complete. If any
+commands are in flight (e.g. from filesystem sync or background ops),
+the doorbell bits remain set and the shutdown path hangs with repeated
+"timedout waiting for doorbell to clear" errors, eventually causing an
+RCU stall.
+
+The Qualcomm downstream kernel (4.19) handles this correctly: it
+suspends clock scaling, blocks SCSI requests, waits for the doorbell
+to clear, and flushes the error handler before suspending.
+
+Add the same sequence to ufshcd_wl_shutdown() using functions already
+available in mainline: ufshcd_clk_scaling_suspend(), scsi_block_requests(),
+ufshcd_wait_for_pending_cmds(), and flush_work().
+
+---
+ drivers/ufs/core/ufshcd.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/drivers/ufs/core/ufshcd.c b/drivers/ufs/core/ufshcd.c
+index d6a060a72461..be3b8d3ff70f 100644
+--- a/drivers/ufs/core/ufshcd.c
++++ b/drivers/ufs/core/ufshcd.c
+@@ -10398,6 +10398,23 @@ static void ufshcd_wl_shutdown(struct device *dev)
+ 	/* Turn on everything while shutting down */
+ 	ufshcd_rpm_get_sync(hba);
+ 	scsi_device_quiesce(sdev);
++
++	/* Suspend clock scaling to prevent devfreq racing with shutdown */
++	ufshcd_clk_scaling_suspend(hba, true);
++
++	/* Block new requests and wait for in-flight commands to drain */
++	scsi_block_requests(hba->host);
++	if (ufshcd_wait_for_pending_cmds(hba, 5 * USEC_PER_SEC))
++		dev_err(hba->dev,
++			"%s: pending commands did not complete\n", __func__);
++
++	/*
++	 * The error handler may have been triggered by timed-out commands.
++	 * Flush it before proceeding with suspend.
++	 */
++	flush_work(&hba->eh_work);
++	scsi_unblock_requests(hba->host);
++
+ 	shost_for_each_device(sdev, hba->host) {
+ 		if (sdev == hba->ufs_device_wlun)
+ 			continue;
+-- 
+2.47.1
