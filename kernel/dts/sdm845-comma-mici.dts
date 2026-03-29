@@ -77,3 +77,96 @@
 	status = "okay";
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
+
+/* Replace OX03C10 cameras with OS04C10 on cci_i2c0 */
+&cci_i2c0 {
+	/delete-node/ camera@36;
+	/delete-node/ camera@10;
+
+	/* Camera 0: wide (OS04C10) */
+	camera@36 {
+		compatible = "ovti,os04c10";
+		reg = <0x36>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam0_default>;
+		clocks = <&clock_camcc CAM_CC_MCLK0_CLK>;
+		clock-names = "extclk";
+		reset-gpios = <&tlmm 9 GPIO_ACTIVE_LOW>;
+		vana-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		avdd-supply = <&vreg_bob>;
+		dovdd-supply = <&vreg_lvs1a_1p8>;
+		dvdd-supply = <&camera_rear_ldo>;
+
+		port {
+			os04c10_wide_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <388000000>;
+				remote-endpoint = <&csiphy0_ep>;
+			};
+		};
+	};
+
+	/* Camera 1: road (OS04C10 at different address) */
+	camera@10 {
+		compatible = "ovti,os04c10";
+		reg = <0x10>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam1_default>;
+		clocks = <&clock_camcc CAM_CC_MCLK1_CLK>;
+		clock-names = "extclk";
+		reset-gpios = <&tlmm 7 GPIO_ACTIVE_LOW>;
+		vana-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		avdd-supply = <&vreg_bob>;
+		dovdd-supply = <&vreg_lvs1a_1p8>;
+		dvdd-supply = <&camera_rear_ldo>;
+
+		port {
+			os04c10_road_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <388000000>;
+				remote-endpoint = <&csiphy1_ep>;
+			};
+		};
+	};
+};
+
+/* Replace OX03C10 driver camera with OS04C10 on cci_i2c1 */
+&cci_i2c1 {
+	/delete-node/ camera@36;
+
+	/* Camera 2: driver (OS04C10) */
+	camera@36 {
+		compatible = "ovti,os04c10";
+		reg = <0x36>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam2_default>;
+		clocks = <&clock_camcc CAM_CC_MCLK2_CLK>;
+		clock-names = "extclk";
+		reset-gpios = <&tlmm 12 GPIO_ACTIVE_LOW>;
+		vana-gpios = <&tlmm 8 GPIO_ACTIVE_HIGH>;
+		avdd-supply = <&vreg_bob>;
+		dovdd-supply = <&vreg_lvs1a_1p8>;
+		dvdd-supply = <&camera_rear_ldo>;
+
+		port {
+			os04c10_driver_ep: endpoint {
+				data-lanes = <0 1 2 3>;
+				link-frequencies = /bits/ 64 <388000000>;
+				remote-endpoint = <&csiphy2_ep>;
+			};
+		};
+	};
+};
+
+/* Update CAMSS csiphy endpoints to point at OS04C10 sensors */
+&csiphy0_ep {
+	remote-endpoint = <&os04c10_wide_ep>;
+};
+
+&csiphy1_ep {
+	remote-endpoint = <&os04c10_road_ep>;
+};
+
+&csiphy2_ep {
+	remote-endpoint = <&os04c10_driver_ep>;
+};
