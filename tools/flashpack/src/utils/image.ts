@@ -29,21 +29,37 @@ export class ImageManager {
 
   async downloadImage(image: ManifestEntry, onProgress?: ProgressCallback) {
     const fileName = `${image.name}-${image.hash_raw}.img`;
-    let writable: FileSystemWritableFileStream;
-    try {
-      const fileHandle = await this.root!.getFileHandle(fileName, { create: true });
-      writable = await fileHandle.createWritable();
-    } catch (e) {
-      throw new Error(`Error opening file handle: ${e}`, { cause: e as Error });
-    }
+    const fileHandle = await this.root!.getFileHandle(fileName, { create: true });
+    const writable = await fileHandle.createWritable();
 
-    console.debug(`[ImageManager] Downloading ${image.name} from ${image.url}`);
-    const stream = await fetchStream(image.url, { mode: "cors" }, { onProgress });
     try {
-      await stream.pipeTo(writable);
+      if (image.chunks && image.chunks.length > 0) {
+        // Download chunks sequentially and reassemble
+        let bytesDownloaded = 0;
+        for (const chunk of image.chunks) {
+          console.debug(`[ImageManager] Downloading chunk ${chunk.url}`);
+          const stream = await fetchStream(chunk.url, { mode: "cors" }, {
+            onProgress: (chunkProgress) => {
+              onProgress?.((bytesDownloaded + chunkProgress * chunk.size) / image.size);
+            },
+          });
+          const reader = stream.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await writable.write(value);
+          }
+          bytesDownloaded += chunk.size;
+        }
+      } else {
+        // Single file download
+        console.debug(`[ImageManager] Downloading ${image.name} from ${image.url}`);
+        const stream = await fetchStream(image.url, { mode: "cors" }, { onProgress });
+        await stream.pipeTo(writable);
+      }
       onProgress?.(1);
     } catch (e) {
-      throw new Error(`Error downloading image: ${e}`, { cause: e as Error });
+      throw new Error(`Error downloading ${image.name}: ${e}`, { cause: e as Error });
     }
   }
 

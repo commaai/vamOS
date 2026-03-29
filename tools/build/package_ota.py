@@ -12,8 +12,10 @@ FIRMWARE_DIR = ROOT / "firmware"
 OTA_OUTPUT_DIR = OUTPUT_DIR / "ota"
 
 SECTOR_SIZE = 4096
+CHUNK_SIZE = 52_428_800  # 50 MB - must be under raw.githubusercontent.com's 100 MB limit
 
 RELEASE_URL = os.environ.get("RELEASE_URL", "https://github.com/commaai/vamos/releases/download/untagged")
+BRANCH_BASE_URL = os.environ.get("BRANCH_BASE_URL", "")
 
 GPT = namedtuple('GPT', ['lun', 'name', 'path', 'start_sector', 'num_sectors', 'has_ab', 'full_check'])
 GPTS = [
@@ -73,14 +75,13 @@ def process_file(entry):
   sha256.update(b'\x00' * ((SECTOR_SIZE - (size % SECTOR_SIZE)) % SECTOR_SIZE))
   ondevice_hash = sha256.hexdigest()
 
-  # Copy to output directory
-  out_fn = OTA_OUTPUT_DIR / f"{entry.name}-{hash_raw}.img"
-  print(f"  copying to {out_fn.name}")
-  shutil.copy(entry.path, out_fn)
+  base_url = BRANCH_BASE_URL or RELEASE_URL
+  base_name = f"{entry.name}-{hash_raw}.img"
+  out_fn = OTA_OUTPUT_DIR / base_name
 
   ret = {
     "name": entry.name,
-    "url": f"{RELEASE_URL}/{out_fn.name}",
+    "url": f"{base_url}/{base_name}",
     "hash": hash,
     "hash_raw": hash_raw,
     "size": size,
@@ -96,6 +97,27 @@ def process_file(entry):
       "start_sector": entry.start_sector,
       "num_sectors": entry.num_sectors,
     }
+
+  # Split large files into chunks for raw.githubusercontent.com (100 MB limit)
+  if BRANCH_BASE_URL and size > CHUNK_SIZE:
+    chunks = []
+    chunk_idx = 0
+    with open(entry.path, 'rb') as f:
+      while True:
+        data = f.read(CHUNK_SIZE)
+        if not data:
+          break
+        chunk_name = f"{base_name}.{chunk_idx:02d}"
+        chunk_path = OTA_OUTPUT_DIR / chunk_name
+        chunk_path.write_bytes(data)
+        chunks.append({"url": f"{base_url}/{chunk_name}", "size": len(data)})
+        print(f"  chunk {chunk_idx}: {chunk_name} ({len(data)} bytes)")
+        chunk_idx += 1
+    ret["url"] = ""
+    ret["chunks"] = chunks
+  else:
+    print(f"  copying to {base_name}")
+    shutil.copy(entry.path, out_fn)
 
   return ret
 

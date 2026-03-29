@@ -203,12 +203,12 @@ async function init() {
   $("init-status").textContent = "loading programmer + manifest...";
 
   try {
-    const [programmer, { tag, manifest }] = await Promise.all([
+    const [programmer, manifest] = await Promise.all([
       loadProgrammer(),
       getManifest(),
     ]);
 
-    console.info("[flashpack] Release:", tag, "- entries:", manifest.length);
+    console.info("[flashpack] Manifest loaded:", manifest.length, "entries");
     manager = new FlashManager(programmer, {});
     await manager.initialize(manifest);
 
