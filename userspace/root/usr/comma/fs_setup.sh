@@ -52,6 +52,13 @@ if [[ ! -d /data/persist ]]; then
   sudo cp -r /system/persist /data
 fi
 
+# zram compressed swap
+echo lz4 > /sys/block/zram0/comp_algorithm
+echo 512M > /sys/block/zram0/disksize
+mkswap /dev/zram0
+swapon -p 100 /dev/zram0
+echo 10 > /proc/sys/vm/swappiness
+
 # Signal readiness for services that depend on the overlay
 mkdir -p /run
 chmod 0755 /run
