@@ -134,13 +134,13 @@ jobs:
           VERSION=$(cat userspace/root/VERSION)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
           BRANCH_BASE_URL="https://raw.githubusercontent.com/${{ github.repository }}/release-images"
-          BRANCH_BASE_URL=$BRANCH_BASE_URL python3 tools/build/package_ota.py
+          BRANCH_BASE_URL=$BRANCH_BASE_URL python3 tools/build/package_release.py
 
       - name: push images to release-images branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd build/ota
+          cd build/release-images
           git init
           git checkout --orphan release-images
           git add .

@@ -9,7 +9,7 @@ from collections import namedtuple
 ROOT = Path(__file__).parent.parent.parent
 OUTPUT_DIR = ROOT / "build"
 FIRMWARE_DIR = ROOT / "firmware"
-OTA_OUTPUT_DIR = OUTPUT_DIR / "ota"
+OTA_OUTPUT_DIR = OUTPUT_DIR / "release-images"
 
 SECTOR_SIZE = 4096
 CHUNK_SIZE = 52_428_800  # 50 MB - must be under raw.githubusercontent.com's 100 MB limit
