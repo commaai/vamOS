@@ -1,0 +1,27 @@
+From e2623a4ff05ddd112d01c384680526edfa3adc28 Mon Sep 17 00:00:00 2001
+From: Andrei Radulescu <andi.radulescu@gmail.com>
+Date: Sun, 29 Mar 2026 13:52:14 +0300
+Subject: [PATCH] drm/msm: remove ADRENO_QUIRK_4GB_VA from a630 to use SMMU's
+ full address space
+
+---
+ drivers/gpu/drm/msm/adreno/a6xx_catalog.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+index 44df6410bce1..8ce6a5d44d6f 100644
+--- a/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
++++ b/drivers/gpu/drm/msm/adreno/a6xx_catalog.c
+@@ -930,8 +930,7 @@ static const struct adreno_info a6xx_gpus[] = {
+ 			[ADRENO_FW_GMU] = "a630_gmu.bin",
+ 		},
+ 		.gmem = SZ_1M,
+-		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT |
+-			  ADRENO_QUIRK_4GB_VA,
++		.quirks = ADRENO_QUIRK_HAS_CACHED_COHERENT,
+ 		.inactive_period = DRM_MSM_INACTIVE_PERIOD,
+ 		.init = a6xx_gpu_init,
+ 		.zapfw = "a630_zap.mdt",
+-- 
+2.50.1 (Apple Git-155)
+
