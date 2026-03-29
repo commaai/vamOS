@@ -64,47 +64,6 @@ jobs:
             build/rootfs-profile.md
           if-no-files-found: error
 
-      - name: download master baseline
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p baseline
-          RUN_ID=$(gh run list --workflow=build.yml --branch=master \
-            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
-          if [ -n "$RUN_ID" ]; then
-            gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
-          fi
-
-      - name: post PR comment
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Generate diff (gracefully handles missing baseline)
-          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
-          PROFILE_MD=$(cat build/rootfs-profile.md)
-
-          # Assemble comment with hidden marker for find-and-update
-          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
-            '<!-- rootfs-profile-bot -->' \
-            '## vamOS System Profile' \
-            '### Changes vs master' \
-            "$DIFF_MD" \
-            "$PROFILE_MD"
-
-          # Find existing comment by marker
-          COMMENT_ID=$(gh api \
-            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --jq '.[] | select(.body | contains("<!-- rootfs-profile-bot -->")) | .id' \
-            | head -1)
-
-          if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
-              -X PATCH -f body="$COMMENT_BODY"
-          else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT_BODY"
-          fi
 
   release:
     if: github.event_name == 'push'
