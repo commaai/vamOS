@@ -62,6 +62,9 @@ build_kernel() {
   # Install the device tree files
   install_dts
 
+  # Install camera driver source
+  install_camera
+
   # Cross-compilation setup
   ARCH_HOST=$(uname -m)
   export ARCH=arm64
@@ -161,12 +164,27 @@ cleanup() {
   rm -rf "$TMP_DIR"
 }
 
+install_camera() {
+  local camera_dir="$DIR/kernel/camera"
+
+  if [ -d "$camera_dir" ]; then
+    echo "-- Installing camera driver source --"
+    cp -r "$camera_dir/drivers/media/platform/msm" "$KERNEL_DIR/drivers/media/platform/"
+    mkdir -p "$KERNEL_DIR/include/uapi/media"
+    cp "$camera_dir/include/uapi/media/"*.h "$KERNEL_DIR/include/uapi/media/"
+  fi
+}
+
 install_dts() {
   local dst_dir="$KERNEL_DIR/arch/arm64/boot/dts/qcom"
 
   echo "-- Installing DTS/DTSI files --"
 
   cp "$COMMON_DTSI" "$dst_dir/"
+  # Install camera DTSI if it exists
+  if [ -f "$DIR/kernel/dts/sdm845-comma-camera.dtsi" ]; then
+    cp "$DIR/kernel/dts/sdm845-comma-camera.dtsi" "$dst_dir/"
+  fi
   for dts in "${DTS_FILES[@]}"; do
     cp "$dts" "$dst_dir/"
   done
@@ -199,6 +217,7 @@ git config --global --add safe.directory '$KERNEL_DIR'
 $(declare -f apply_patches)
 $(declare -f build_kernel)
 $(declare -f clean_kernel_tree)
+$(declare -f install_camera)
 $(declare -f install_dts)
 
 build_kernel

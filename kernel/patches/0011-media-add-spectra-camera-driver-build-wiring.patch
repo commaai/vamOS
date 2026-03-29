@@ -1,0 +1,20 @@
+--- a/drivers/media/platform/Kconfig
++++ b/drivers/media/platform/Kconfig
+@@ -78,6 +78,7 @@ source "drivers/media/platform/imagination/Kconfig"
+ source "drivers/media/platform/intel/Kconfig"
+ source "drivers/media/platform/marvell/Kconfig"
+ source "drivers/media/platform/mediatek/Kconfig"
++source "drivers/media/platform/msm/Kconfig"
+ source "drivers/media/platform/microchip/Kconfig"
+ source "drivers/media/platform/nuvoton/Kconfig"
+ source "drivers/media/platform/nvidia/Kconfig"
+--- a/drivers/media/platform/Makefile
++++ b/drivers/media/platform/Makefile
+@@ -17,6 +17,7 @@ obj-y += intel/
+ obj-y += marvell/
+ obj-y += mediatek/
+ obj-y += microchip/
++obj-y += msm/
+ obj-y += nuvoton/
+ obj-y += nvidia/
+ obj-y += nxp/
