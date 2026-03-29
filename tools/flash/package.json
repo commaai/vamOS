@@ -1,5 +1,5 @@
 {
-  "name": "vamos-flash",
+  "name": "flashpack",
   "type": "module",
   "scripts": {
     "dev": "bun run serve.ts",
