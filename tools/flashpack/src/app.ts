@@ -23,7 +23,9 @@ function showStep(id: string) {
 }
 
 function getStepLabels(): string[] {
-  const steps = ["Device", "Connect"];
+  const steps = ["Device"];
+  if (isWindows) steps.push("Driver");
+  steps.push("Connect");
   if (isLinux && selectedDevice === "comma3") steps.push("Unbind");
   steps.push("Flash");
   return steps;
@@ -56,7 +58,8 @@ function updateStepper(current: number) {
 
 function navigateTo(label: string) {
   const stepMap: Record<string, () => void> = {
-    "Device": () => { showStep("step-device"); renderDevicePicker(); },
+    "Device": () => { selectedDevice = null; showStep("step-device"); renderDevicePicker(); },
+    "Driver": () => { showStep("step-zadig"); renderZadig(); },
     "Connect": () => { showStep("step-connect"); renderConnect(); },
     "Unbind": () => { showStep("step-unbind"); renderUnbind(); },
   };
@@ -121,9 +124,40 @@ function renderDevicePicker() {
   $("pick-comma3").onclick = () => select("comma3");
   $("pick-comma4").onclick = () => select("comma4");
   $("btn-device-next").onclick = () => {
+    if (isWindows) {
+      showStep("step-zadig");
+      renderZadig();
+      updateStepper(getStepLabels().indexOf("Driver"));
+    } else {
+      showStep("step-connect");
+      renderConnect();
+      updateStepper(getStepLabels().indexOf("Connect"));
+    }
+  };
+}
+
+function renderZadig() {
+  const vendorId = selectedDevice === "comma4" ? "3801" : "05C6";
+  $("step-zadig").innerHTML = `
+    <div data-stepper></div>
+    <h2>install USB driver</h2>
+    <p class="subtitle">Windows needs a driver to communicate with your device</p>
+    <div class="instructions" style="max-width: 32rem;">
+      <ol>
+        <li><span class="step-num">1</span><span>Download and run <a href="https://zadig.akeo.ie/" target="_blank" style="color: var(--pink); font-weight: 700;">Zadig</a></span></li>
+        <li><span class="step-num">2</span><span>Under <strong>Device</strong> in the menu bar, select <strong>Create New Device</strong></span></li>
+        <li><span class="step-num">3</span><span>Fill in the form:<br>
+          Name: <code style="background: rgba(255,255,255,0.1); padding: 0.125rem 0.5rem; border-radius: 0.25rem;">${selectedDevice === "comma4" ? "comma four" : "comma 3/3X"}</code><br>
+          USB ID: <code style="background: rgba(255,255,255,0.1); padding: 0.125rem 0.5rem; border-radius: 0.25rem;">${vendorId}</code> and <code style="background: rgba(255,255,255,0.1); padding: 0.125rem 0.5rem; border-radius: 0.25rem;">9008</code></span></li>
+        <li><span class="step-num">4</span><span>Click <strong>Install Driver</strong></span></li>
+      </ol>
+    </div>
+    <button class="btn btn-primary" id="btn-zadig-done">done!</button>
+  `;
+  $("btn-zadig-done").onclick = () => {
     showStep("step-connect");
     renderConnect();
-    updateStepper(1);
+    updateStepper(getStepLabels().indexOf("Connect"));
   };
 }
 
@@ -156,11 +190,11 @@ function renderConnect() {
     if (isLinux && selectedDevice === "comma3") {
       showStep("step-unbind");
       renderUnbind();
-      updateStepper(2);
+      updateStepper(getStepLabels().indexOf("Unbind"));
     } else {
       showStep("step-webusb");
       renderWebUSB();
-      updateStepper(getStepLabels().length - 1);
+      updateStepper(getStepLabels().indexOf("Flash"));
     }
   };
 }
