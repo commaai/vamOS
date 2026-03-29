@@ -23,7 +23,12 @@ export interface ManifestEntry {
   };
 }
 
-export async function getManifest(): Promise<ManifestEntry[]> {
+interface Manifest {
+  version: string;
+  images: ManifestEntry[];
+}
+
+export async function getManifest(): Promise<Manifest> {
   const res = await fetch(MANIFEST_URL);
   if (!res.ok) throw new Error(`Failed to fetch manifest: ${res.status}`);
   return res.json();

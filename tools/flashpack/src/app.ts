@@ -203,14 +203,14 @@ async function init() {
   $("init-status").textContent = "loading programmer + manifest...";
 
   try {
-    const [programmer, manifest] = await Promise.all([
+    const [programmer, { version, images }] = await Promise.all([
       loadProgrammer(),
       getManifest(),
     ]);
 
-    console.info("[flashpack] Manifest loaded:", manifest.length, "entries");
+    console.info(`[flashpack] Manifest v${version}: ${images.length} images`);
     manager = new FlashManager(programmer, {});
-    await manager.initialize(manifest);
+    await manager.initialize(images);
 
     if (manager.error !== ErrorCode.NONE) {
       throw new Error("Initialization failed");
