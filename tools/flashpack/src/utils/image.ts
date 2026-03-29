@@ -50,6 +50,7 @@ export class ImageManager {
           }
           bytesDownloaded += chunk.size;
         }
+        await writable.close();
       } else {
         console.debug(`[ImageManager] Downloading ${image.name} from ${image.url}`);
         const stream = await fetchStream(image.url, { mode: "cors" }, { onProgress });
