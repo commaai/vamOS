@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+import os
+import sys
 import time
 from smbus2 import SMBus
 from collections import namedtuple
@@ -102,18 +104,60 @@ CONFIGS = {
   ],
 }
 
+
 class Amplifier:
   AMP_I2C_BUS = 0
   AMP_ADDRESS = 0x10
 
-  def __init__(self, debug=False):
+  def __init__(self, model: str = "", debug=False):
     self.debug = debug
+    self.model = model
+    self.amp_i2c_bus = self._resolve_i2c_bus()
+
+  def _candidate_i2c_buses(self) -> List[int]:
+    # Allow explicit override for bringup/debug.
+    env_bus = os.getenv("COMMA_AMP_I2C_BUS")
+    candidates: List[int] = []
+    if env_bus is not None:
+      try:
+        candidates.append(int(env_bus))
+      except ValueError:
+        pass
+
+    # Model-specific priority: tizi amp is on i2c-10.
+    model_bus_order = {
+      "tizi": [10, 0],
+      "tici": [0, 10],
+      "mici": [0, 10],
+    }
+    candidates.extend(model_bus_order.get(self.model, [self.AMP_I2C_BUS, 10]))
+
+    # De-duplicate while preserving order.
+    ordered = []
+    for bus in candidates:
+      if bus not in ordered:
+        ordered.append(bus)
+    return ordered
+
+  def _resolve_i2c_bus(self) -> int:
+    for bus in self._candidate_i2c_buses():
+      dev = f"/dev/i2c-{bus}"
+      if not os.path.exists(dev):
+        continue
+      try:
+        with SMBus(bus) as b:
+          # Probe a stable register.
+          b.read_byte_data(self.AMP_ADDRESS, 0x51, force=True)
+        return bus
+      except OSError:
+        continue
+    raise OSError("No usable I2C bus found for amplifier")
 
   def _get_shutdown_config(self, amp_disabled: bool) -> AmpConfig:
     return AmpConfig("Global shutdown", 0b0 if amp_disabled else 0b1, 0x51, 7, 0b10000000)
 
   def _set_configs(self, configs: List[AmpConfig]) -> None:
-    with SMBus(self.AMP_I2C_BUS) as bus:
+    with SMBus(self.amp_i2c_bus) as bus:
       for config in configs:
         if self.debug:
           print(f"Setting \"{config.name}\" to {config.value}:")
@@ -155,7 +199,14 @@ if __name__ == "__main__":
   model = model.split('comma ')[-1]
 
   if model in CONFIGS:
-    amp = Amplifier()
-    amp.initialize_configuration(model)
+    try:
+      amp = Amplifier(model=model)
+      print(f"Using amp i2c bus {amp.amp_i2c_bus} for model {model}")
+      if not amp.initialize_configuration(model):
+        print(f"Failed to initialize amplifier for {model}", file=sys.stderr)
+        sys.exit(1)
+    except OSError as e:
+      print(f"Failed to access amplifier for {model}: {e}", file=sys.stderr)
+      sys.exit(1)
   else:
     print(f"Skipping, no config for {model}")

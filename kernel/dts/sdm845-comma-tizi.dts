@@ -80,6 +80,11 @@
 };
 
 &q6afedai {
+	qi2s@18 {
+		reg = <SECONDARY_MI2S_RX>;
+		qcom,sd-lines = <0>;
+	};
+
 	qi2s@21 {
 		reg = <TERTIARY_MI2S_TX>;
 		qcom,sd-lines = <0>;
@@ -90,10 +95,10 @@
 	model = "comma tizi";
 
 	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&sec_mi2s_mclk_active &sec_mi2s_active &sec_mi2s_sd1_active
-	             &tert_mi2s_active &tert_mi2s_sd0_active>;
-	pinctrl-1 = <&sec_mi2s_mclk_sleep &sec_mi2s_sleep &sec_mi2s_sd1_sleep
-	             &tert_mi2s_sleep &tert_mi2s_sd0_sleep>;
+	pinctrl-0 = <&sec_mi2s_mclk_active &sec_mi2s_active &sec_mi2s_sd0_active &sec_mi2s_sd1_active
+	             &tert_mi2s_active &tert_mi2s_sd0_active &tert_mi2s_sd1_active>;
+	pinctrl-1 = <&sec_mi2s_mclk_sleep &sec_mi2s_sleep &sec_mi2s_sd0_sleep &sec_mi2s_sd1_sleep
+	             &tert_mi2s_sleep &tert_mi2s_sd0_sleep &tert_mi2s_sd1_sleep>;
 
 	capture-dai-link {
 		link-name = "Capture";

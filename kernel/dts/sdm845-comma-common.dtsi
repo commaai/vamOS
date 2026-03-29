@@ -1,6 +1,7 @@
 /dts-v1/;
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/clock/qcom,rpmh.h>
 #include <dt-bindings/sound/qcom,q6afe.h>
 #include <dt-bindings/sound/qcom,q6asm.h>
 #include "sdm845.dtsi"
@@ -19,6 +20,8 @@
 	generic_codec: audio-codec {
 		compatible = "commaai,generic-codec";
 		#sound-dai-cells = <0>;
+		clock-names = "mclk";
+		clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
 	};
 
 	lcd3v3: lcd3v3 {
