@@ -1,0 +1,240 @@
+From 3cc93a2f698f25525c278f42a366cd8b1780c474 Mon Sep 17 00:00:00 2001
+From: Robin Reckmann <robin.reckmann@gmail.com>
+Date: Tue, 17 Feb 2026 23:58:40 +0900
+Subject: [PATCH] Enable sound playback and capture
+
+---
+ arch/arm64/boot/dts/qcom/sdm845.dtsi | 60 +++++++++++++++++++++++++++
+ sound/soc/codecs/Kconfig             |  5 +++
+ sound/soc/codecs/Makefile            |  2 +
+ sound/soc/codecs/generic-codec.c     | 99 +++++++++++++++++++++++++++++++++++
+ sound/soc/qcom/sdm845.c              |  1 +
+ 5 files changed, 167 insertions(+)
+ create mode 100644 sound/soc/codecs/generic-codec.c
+
+diff --git a/arch/arm64/boot/dts/qcom/sdm845.dtsi b/arch/arm64/boot/dts/qcom/sdm845.dtsi
+index 9c0d1a77498f4f..f3f7c334da5395 100644
+--- a/arch/arm64/boot/dts/qcom/sdm845.dtsi
++++ b/arch/arm64/boot/dts/qcom/sdm845.dtsi
+@@ -3258,6 +3258,66 @@
+ 				};
+ 			};
+ 
++			sec_mi2s_mclk_sleep: sec-mi2s-mclk-sleep-state {
++				pins = "gpio79";
++				function = "gpio";
++				drive-strength = <2>;
++				bias-pull-down;
++				input-enable;
++			};
++
++			sec_mi2s_mclk_active: sec-mi2s-mclk-active-state {
++				pins = "gpio79";
++				function = "sec_mi2s";
++				drive-strength = <8>;
++				bias-disable;
++			};
++
++			sec_mi2s_sleep: sec-mi2s-sleep-state {
++				pins = "gpio80", "gpio81";
++				function = "gpio";
++				drive-strength = <2>;
++				bias-disable;
++				input-enable;
++			};
++
++			sec_mi2s_active: sec-mi2s-active-state {
++				pins = "gpio80", "gpio81";
++				function = "sec_mi2s";
++				drive-strength = <8>;
++				bias-disable;
++			};
++
++			sec_mi2s_sd0_sleep: sec-mi2s-sd0-sleep-state {
++				pins = "gpio82";
++				function = "gpio";
++				drive-strength = <2>;
++				bias-pull-down;
++				input-enable;
++			};
++
++			sec_mi2s_sd0_active: sec-mi2s-sd0-active-state {
++				pins = "gpio82";
++				function = "sec_mi2s";
++				drive-strength = <8>;
++				bias-disable;
++			};
++
++			sec_mi2s_sd1_sleep: sec-mi2s-sd1-sleep-state {
++				pins = "gpio83";
++				function = "gpio";
++				drive-strength = <2>;
++				bias-pull-down;
++				input-enable;
++			};
++
++			sec_mi2s_sd1_active: sec-mi2s-sd1-active-state {
++				pins = "gpio83";
++				function = "sec_mi2s";
++				drive-strength = <8>;
++				bias-disable;
++			};
++
+ 			quat_mi2s_sleep: quat-mi2s-sleep-state {
+ 				pins = "gpio58", "gpio59";
+ 				function = "gpio";
+diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
+index 160c07699a8b72..1aff6a6a8ad45d 100644
+--- a/sound/soc/codecs/Kconfig
++++ b/sound/soc/codecs/Kconfig
+@@ -2783,4 +2783,9 @@ config SND_SOC_LPASS_TX_MACRO
+ 	select SND_SOC_LPASS_MACRO_COMMON
+ 	tristate "Qualcomm TX Macro in LPASS(Low Power Audio SubSystem)"
+ 
++config SND_SOC_GENERIC_CODEC
++	tristate "Generic dummy codec"
++	help
++	  Simple generic codec exposing a fixed 48kHz/16-bit stereo DAI.
++
+ endmenu
+diff --git a/sound/soc/codecs/Makefile b/sound/soc/codecs/Makefile
+index bd95a7c911d5c1..e36a7bd1223c1c 100644
+--- a/sound/soc/codecs/Makefile
++++ b/sound/soc/codecs/Makefile
+@@ -139,6 +139,7 @@ snd-soc-es8389-y := es8389.o
+ snd-soc-framer-y := framer-codec.o
+ snd-soc-fs-amp-lib-y := fs-amp-lib.o
+ snd-soc-fs210x-y := fs210x.o
++snd-soc-generic-codec-y := generic-codec.o
+ snd-soc-gtm601-y := gtm601.o
+ snd-soc-hdac-hdmi-y := hdac_hdmi.o
+ snd-soc-hdac-hda-y := hdac_hda.o
+@@ -570,6 +571,7 @@ obj-$(CONFIG_SND_SOC_ES8389)    += snd-soc-es8389.o
+ obj-$(CONFIG_SND_SOC_FRAMER)	+= snd-soc-framer.o
+ obj-$(CONFIG_SND_SOC_FS_AMP_LIB)+= snd-soc-fs-amp-lib.o
+ obj-$(CONFIG_SND_SOC_FS210X)	+= snd-soc-fs210x.o
++obj-$(CONFIG_SND_SOC_GENERIC_CODEC) += snd-soc-generic-codec.o
+ obj-$(CONFIG_SND_SOC_GTM601)    += snd-soc-gtm601.o
+ obj-$(CONFIG_SND_SOC_HDAC_HDMI) += snd-soc-hdac-hdmi.o
+ obj-$(CONFIG_SND_SOC_HDAC_HDA) += snd-soc-hdac-hda.o
+diff --git a/sound/soc/codecs/generic-codec.c b/sound/soc/codecs/generic-codec.c
+new file mode 100644
+index 00000000000000..85500432393da1
+--- /dev/null
++++ b/sound/soc/codecs/generic-codec.c
+@@ -0,0 +1,99 @@
++/*
++ * Generic I2S codec driver
++ *
++ * Copyright (C) 2024 comma.ai
++ *
++ * This software is licensed under the terms of the GNU General Public
++ * License version 2, as published by the Free Software Foundation, and
++ * may be copied, distributed, and modified under those terms.
++ *
++ * This program is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ */
++
++#include <linux/module.h>
++#include <linux/of.h>
++#include <linux/platform_device.h>
++
++#include <sound/soc.h>
++#include <sound/pcm.h>
++
++static struct snd_soc_dai_driver generic_dai = {
++	.name = "HiFi",
++	.playback = {
++		.stream_name  = "HiFi Playback",
++		.channels_min = 2,
++		.channels_max = 2,
++		.rates        = SNDRV_PCM_RATE_48000,
++		.formats      = SNDRV_PCM_FMTBIT_S16_LE,
++	},
++	.capture = {
++		.stream_name  = "HiFi Capture",
++		.channels_min = 2,
++		.channels_max = 2,
++		.rates        = SNDRV_PCM_RATE_48000,
++		.formats      = SNDRV_PCM_FMTBIT_S16_LE,
++	},
++    .ops = &(const struct snd_soc_dai_ops){},
++};
++
++static const struct snd_soc_dapm_widget generic_dapm_widgets[] = {
++	SND_SOC_DAPM_INPUT("IN_L"),
++	SND_SOC_DAPM_INPUT("IN_R"),
++
++	SND_SOC_DAPM_OUTPUT("OUT_L"),
++	SND_SOC_DAPM_OUTPUT("OUT_R"),
++};
++
++static const struct snd_soc_dapm_route generic_dapm_routes[] = {
++	{ "OUT_L", NULL, "HiFi Playback" },
++	{ "OUT_R", NULL, "HiFi Playback" },
++
++	{ "HiFi Capture", NULL, "IN_L" },
++	{ "HiFi Capture", NULL, "IN_R" },
++};
++
++static const struct snd_soc_component_driver generic_component = {
++	.dapm_widgets = generic_dapm_widgets,
++	.num_dapm_widgets = ARRAY_SIZE(generic_dapm_widgets),
++	.dapm_routes = generic_dapm_routes,
++	.num_dapm_routes = ARRAY_SIZE(generic_dapm_routes),
++};
++
++static int generic_codec_probe(struct platform_device *pdev)
++{
++	int ret;
++
++	ret = devm_snd_soc_register_component(&pdev->dev, &generic_component,
++					      &generic_dai, 1);
++	if (ret) {
++		dev_err(&pdev->dev, "Failed to register generic codec: %d\n",
++			ret);
++		return ret;
++	}
++
++	dev_info(&pdev->dev, "Registered generic codec\n");
++	return 0;
++}
++
++static const struct of_device_id generic_codec_of_match[] = {
++	{ .compatible = "commaai,generic-codec" },
++	{}
++};
++MODULE_DEVICE_TABLE(of, generic_codec_of_match);
++
++static struct platform_driver generic_codec_driver = {
++	.probe = generic_codec_probe,
++	.driver = {
++		.name           = "generic-codec",
++		.of_match_table = generic_codec_of_match,
++	},
++};
++module_platform_driver(generic_codec_driver);
++
++MODULE_DESCRIPTION("Generic codec driver");
++MODULE_AUTHOR("Robbe Derks <robbe@comma.ai>");
++MODULE_LICENSE("GPL");
++MODULE_ALIAS("platform:generic-codec");
+\ No newline at end of file
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index a233b80049ee74..fb202f14039373 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -220,6 +220,7 @@ static int sdm845_snd_hw_params(struct snd_pcm_substream *substream,
+ 		break;
+ 	case QUATERNARY_MI2S_RX:
+ 	case SECONDARY_MI2S_RX:
++	case SECONDARY_MI2S_TX:
+ 		break;
+ 	default:
+ 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
+-- 
+2.53.0
+

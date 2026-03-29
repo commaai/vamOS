@@ -1,6 +1,8 @@
 /dts-v1/;
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 #include "sdm845.dtsi"
 #include "pm8998.dtsi"
 #include "pmi8998.dtsi"
@@ -12,6 +14,11 @@
 
 	chosen {
 		stdout-path = "serial0:115200n8";
+	};
+
+	generic_codec: audio-codec {
+		compatible = "commaai,generic-codec";
+		#sound-dai-cells = <0>;
 	};
 
 	lcd3v3: lcd3v3 {
@@ -344,6 +351,11 @@
 	};
 };
 
+&adsp_pas {
+	status = "okay";
+	firmware-name = "qcom/sdm845/adsp.mdt";
+};
+
 &gcc {
 	protected-clocks = <GCC_QSPI_CORE_CLK>,
 			   <GCC_QSPI_CORE_CLK_SRC>,
@@ -389,6 +401,83 @@
 
 &qupv3_id_1 {
 	status = "okay";
+};
+
+&q6afedai {
+	qi2s@18 {
+		reg = <SECONDARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+
+	qi2s@19 {
+		reg = <SECONDARY_MI2S_TX>;
+		qcom,sd-lines = <0>;
+	};
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+	};
+};
+
+&sound {
+	status = "okay";
+
+	compatible = "qcom,sdm845-sndcard";
+	model = "comma four";
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sec_mi2s_active &sec_mi2s_sd0_active &sec_mi2s_sd1_active>;
+	pinctrl-1 = <&sec_mi2s_sleep &sec_mi2s_sd0_sleep &sec_mi2s_sd1_sleep>;
+
+	mm1-dai-link {
+		link-name = "MultiMedia1";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		};
+	};
+
+	capture-dai-link {
+		link-name = "Capture";
+		cpu {
+			sound-dai = <&q6afedai SECONDARY_MI2S_TX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&generic_codec>;
+		};
+	};
+
+	playback-dai-link {
+		link-name = "Playback";
+		cpu {
+			sound-dai = <&q6afedai SECONDARY_MI2S_RX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&generic_codec>;
+		};
+	};
 };
 
 &spi0 {
