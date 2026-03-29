@@ -51,7 +51,7 @@ function renderLanding() {
       <span class="bounce" style="animation-delay: 0.2s">🗺️</span>
       <span class="bounce" style="animation-delay: 0.4s">🌟</span>
     </div>
-    <h1>~*~ vamOS Flash ~*~</h1>
+    <h1>~*~ flashpack ~*~</h1>
     <p class="subtitle">can YOU help me flash vamOS onto my comma device??</p>
     <div id="init-status" style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 0.875rem;"></div>
     <button class="btn btn-primary" id="btn-start" disabled>vamonos!!</button>
@@ -208,7 +208,7 @@ async function init() {
       getManifest(),
     ]);
 
-    console.info("[vamOS Flash] Release:", tag, "- entries:", manifest.length);
+    console.info("[flashpack] Release:", tag, "- entries:", manifest.length);
     manager = new FlashManager(programmer, {});
     await manager.initialize(manifest);
 
@@ -219,7 +219,7 @@ async function init() {
     $("init-status").textContent = `ready! (${manager.step === Step.READY ? "manifest loaded" : "..."})`;
     ($("btn-start") as HTMLButtonElement).disabled = false;
   } catch (err: any) {
-    console.error("[vamOS Flash] Init failed:", err);
+    console.error("[flashpack] Init failed:", err);
     $("init-status").textContent = "";
     const el = $("init-error");
     el.style.display = "block";
