@@ -90,9 +90,8 @@ build_kernel() {
   echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
   KCONFIG_CONFIG=out/.config \
     bash scripts/kconfig/merge_config.sh \
-    -m out/.config "$CONFIG_FRAGMENT"
-  # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
-  # can find the blobs without symlinking into the kernel tree
+    -m -y out/.config "$CONFIG_FRAGMENT"
+  # Point EXTRA_FIRMWARE_DIR to our firmware directory
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
   make olddefconfig O=out
 
@@ -192,6 +191,10 @@ DTS_FILES=(
   '${DTS_FILES[0]}'
   '${DTS_FILES[1]}'
 )
+
+# building both kernel and system at same time cause git dubious ownership errors
+git config --global --add safe.directory '$DIR'
+git config --global --add safe.directory '$KERNEL_DIR'
 
 $(declare -f apply_patches)
 $(declare -f build_kernel)

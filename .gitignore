@@ -3,3 +3,5 @@
 
 **/.DS_Store
 **/*.tar.xz
+
+__pycache__/

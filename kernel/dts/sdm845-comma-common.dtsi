@@ -366,12 +366,53 @@
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
 
+&gmu {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/sdm845/a630_zap.mbn";
+	};
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
 
 &qupv3_id_1 {
 	status = "okay";
+};
+
+&spi0 {
+	status = "okay";
+
+	panda_spi: spidev@0 {
+		compatible = "commaai,panda";
+		spi-max-frequency = <50000000>;
+		reg = <0>;
+	};
+};
+
+&uart6 {
+	status = "okay";
+	pinctrl-0 = <&qup_uart6_4pin>;
+
+	bluetooth {
+		compatible = "qcom,wcn3990-bt";
+		vddio-supply = <&vreg_s4a_1p8>;
+		vddxo-supply = <&vreg_l7a_1p8>;
+		vddrf-supply = <&vreg_l17a_1p3>;
+		vddch0-supply = <&vreg_l25a_3p3>;
+		max-speed = <3200000>;
+	};
 };
 
 &uart9 {

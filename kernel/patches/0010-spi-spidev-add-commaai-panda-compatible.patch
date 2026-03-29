@@ -1,0 +1,34 @@
+From 566e9f46796f570d676a64584a7b0081f1273b93 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Sat, 28 Mar 2026 14:18:11 -0700
+Subject: [PATCH] spi: spidev: add commaai,panda compatible
+
+Register the commaai,panda compatible string in spidev to expose
+the comma Panda as /dev/spidevB.C from device tree.
+---
+ drivers/spi/spidev.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/spi/spidev.c b/drivers/spi/spidev.c
+index 5300c942a..52a758dbe 100644
+--- a/drivers/spi/spidev.c
++++ b/drivers/spi/spidev.c
+@@ -705,6 +705,7 @@ static const struct class spidev_class = {
+ static const struct spi_device_id spidev_spi_ids[] = {
+ 	{ .name = /* abb */ "spi-sensor" },
+ 	{ .name = /* cisco */ "spi-petra" },
++	{ .name = /* commaai */ "panda" },
+ 	{ .name = /* dh */ "dhcom-board" },
+ 	{ .name = /* elgin */ "jg10309-01" },
+ 	{ .name = /* gocontroll */ "moduline-module-slot"},
+@@ -738,6 +739,7 @@ static int spidev_of_check(struct device *dev)
+ static const struct of_device_id spidev_dt_ids[] = {
+ 	{ .compatible = "abb,spi-sensor", .data = &spidev_of_check },
+ 	{ .compatible = "cisco,spi-petra", .data = &spidev_of_check },
++	{ .compatible = "commaai,panda", .data = &spidev_of_check },
+ 	{ .compatible = "dh,dhcom-board", .data = &spidev_of_check },
+ 	{ .compatible = "elgin,jg10309-01", .data = &spidev_of_check },
+ 	{ .compatible = "gocontroll,moduline-module-slot", .data = &spidev_of_check},
+-- 
+2.46.0
+

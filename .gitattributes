@@ -11,3 +11,4 @@ userspace/root/usr/share/fonts/*.woff2 filter=lfs diff=lfs merge=lfs -text
 *.png filter=lfs diff=lfs merge=lfs -text
 kernel/firmware/**/*.mbn filter=lfs diff=lfs merge=lfs -text
 kernel/firmware/**/*.bin filter=lfs diff=lfs merge=lfs -text
+kernel/firmware/**/*.tlv filter=lfs diff=lfs merge=lfs -text
