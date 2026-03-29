@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "vamos-flash",
+      "name": "flashpack",
       "dependencies": {
         "@commaai/qdl": "github:commaai/qdl.js",
       },
