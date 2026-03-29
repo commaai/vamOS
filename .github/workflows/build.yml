@@ -132,19 +132,21 @@ jobs:
       - name: generate manifest
         run: |
           VERSION=$(cat userspace/root/VERSION)
+          BRANCH="v${VERSION}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          BASE_URL="https://raw.githubusercontent.com/${{ github.repository }}/release-images"
+          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
+          BASE_URL="https://raw.githubusercontent.com/${{ github.repository }}/${BRANCH}"
           BASE_URL=$BASE_URL python3 tools/build/package_ota.py
 
-      - name: push images to release-images branch
+      - name: push images to version branch
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           cd build/ota
           git init
-          git checkout --orphan release-images
+          git checkout --orphan "$BRANCH"
           git add .
           git -c user.name="github-actions" -c user.email="actions@github.com" \
-            commit -m "release images for v${VERSION}"
+            commit -m "release images for $BRANCH"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin release-images
+          git push --force origin "$BRANCH"
