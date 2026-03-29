@@ -35,7 +35,7 @@ function updateStepper(current: number) {
     el.innerHTML = "";
     const stepper = document.createElement("div");
     stepper.className = "stepper";
-    labels.forEach((_, i) => {
+    labels.forEach((label, i) => {
       if (i > 0) {
         const line = document.createElement("div");
         line.className = "stepper-line" + (i <= current ? " done" : "");
@@ -44,9 +44,26 @@ function updateStepper(current: number) {
       const dot = document.createElement("div");
       dot.className = "stepper-dot" + (i === current ? " active" : i < current ? " done" : "");
       dot.textContent = i < current ? "\u2713" : String(i + 1);
+      if (i < current) {
+        dot.style.cursor = "pointer";
+        dot.onclick = () => navigateTo(label);
+      }
       stepper.appendChild(dot);
     });
     el.appendChild(stepper);
+  }
+}
+
+function navigateTo(label: string) {
+  const stepMap: Record<string, () => void> = {
+    "Device": () => { showStep("step-device"); renderDevicePicker(); },
+    "Connect": () => { showStep("step-connect"); renderConnect(); },
+    "Unbind": () => { showStep("step-unbind"); renderUnbind(); },
+  };
+  const handler = stepMap[label];
+  if (handler) {
+    handler();
+    updateStepper(getStepLabels().indexOf(label));
   }
 }
 
