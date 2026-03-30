@@ -1,88 +1,15 @@
 From 3cc93a2f698f25525c278f42a366cd8b1780c474 Mon Sep 17 00:00:00 2001
 From: Robin Reckmann <robin.reckmann@gmail.com>
 Date: Tue, 17 Feb 2026 23:58:40 +0900
-Subject: [PATCH] Enable sound playback and capture
+Subject: [PATCH] sound: add generic I2S codec driver
 
 ---
- arch/arm64/boot/dts/qcom/sdm845.dtsi | 60 +++++++++++++++++++++++++++
- sound/soc/codecs/Kconfig             |  5 +++
- sound/soc/codecs/Makefile            |  2 +
- sound/soc/codecs/generic-codec.c     | 99 +++++++++++++++++++++++++++++++++++
- sound/soc/qcom/sdm845.c              |  1 +
- 5 files changed, 167 insertions(+)
+ sound/soc/codecs/Kconfig         |  5 +++
+ sound/soc/codecs/Makefile        |  2 +
+ sound/soc/codecs/generic-codec.c | 99 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 106 insertions(+)
  create mode 100644 sound/soc/codecs/generic-codec.c
 
-diff --git a/arch/arm64/boot/dts/qcom/sdm845.dtsi b/arch/arm64/boot/dts/qcom/sdm845.dtsi
-index 9c0d1a77498f4f..f3f7c334da5395 100644
---- a/arch/arm64/boot/dts/qcom/sdm845.dtsi
-+++ b/arch/arm64/boot/dts/qcom/sdm845.dtsi
-@@ -3258,6 +3258,66 @@
- 				};
- 			};
- 
-+			sec_mi2s_mclk_sleep: sec-mi2s-mclk-sleep-state {
-+				pins = "gpio79";
-+				function = "gpio";
-+				drive-strength = <2>;
-+				bias-pull-down;
-+				input-enable;
-+			};
-+
-+			sec_mi2s_mclk_active: sec-mi2s-mclk-active-state {
-+				pins = "gpio79";
-+				function = "sec_mi2s";
-+				drive-strength = <8>;
-+				bias-disable;
-+			};
-+
-+			sec_mi2s_sleep: sec-mi2s-sleep-state {
-+				pins = "gpio80", "gpio81";
-+				function = "gpio";
-+				drive-strength = <2>;
-+				bias-disable;
-+				input-enable;
-+			};
-+
-+			sec_mi2s_active: sec-mi2s-active-state {
-+				pins = "gpio80", "gpio81";
-+				function = "sec_mi2s";
-+				drive-strength = <8>;
-+				bias-disable;
-+			};
-+
-+			sec_mi2s_sd0_sleep: sec-mi2s-sd0-sleep-state {
-+				pins = "gpio82";
-+				function = "gpio";
-+				drive-strength = <2>;
-+				bias-pull-down;
-+				input-enable;
-+			};
-+
-+			sec_mi2s_sd0_active: sec-mi2s-sd0-active-state {
-+				pins = "gpio82";
-+				function = "sec_mi2s";
-+				drive-strength = <8>;
-+				bias-disable;
-+			};
-+
-+			sec_mi2s_sd1_sleep: sec-mi2s-sd1-sleep-state {
-+				pins = "gpio83";
-+				function = "gpio";
-+				drive-strength = <2>;
-+				bias-pull-down;
-+				input-enable;
-+			};
-+
-+			sec_mi2s_sd1_active: sec-mi2s-sd1-active-state {
-+				pins = "gpio83";
-+				function = "sec_mi2s";
-+				drive-strength = <8>;
-+				bias-disable;
-+			};
-+
- 			quat_mi2s_sleep: quat-mi2s-sleep-state {
- 				pins = "gpio58", "gpio59";
- 				function = "gpio";
 diff --git a/sound/soc/codecs/Kconfig b/sound/soc/codecs/Kconfig
 index 160c07699a8b72..1aff6a6a8ad45d 100644
 --- a/sound/soc/codecs/Kconfig
@@ -90,7 +17,7 @@ index 160c07699a8b72..1aff6a6a8ad45d 100644
 @@ -2783,4 +2783,9 @@ config SND_SOC_LPASS_TX_MACRO
  	select SND_SOC_LPASS_MACRO_COMMON
  	tristate "Qualcomm TX Macro in LPASS(Low Power Audio SubSystem)"
- 
+
 +config SND_SOC_GENERIC_CODEC
 +	tristate "Generic dummy codec"
 +	help
@@ -223,18 +150,6 @@ index 00000000000000..85500432393da1
 +MODULE_LICENSE("GPL");
 +MODULE_ALIAS("platform:generic-codec");
 \ No newline at end of file
-diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
-index a233b80049ee74..fb202f14039373 100644
---- a/sound/soc/qcom/sdm845.c
-+++ b/sound/soc/qcom/sdm845.c
-@@ -220,6 +220,7 @@ static int sdm845_snd_hw_params(struct snd_pcm_substream *substream,
- 		break;
- 	case QUATERNARY_MI2S_RX:
- 	case SECONDARY_MI2S_RX:
-+	case SECONDARY_MI2S_TX:
- 		break;
- 	default:
- 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
--- 
+--
 2.53.0
 

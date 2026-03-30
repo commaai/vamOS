@@ -483,6 +483,68 @@
 	};
 };
 
+&tlmm {
+	sec_mi2s_mclk_sleep: sec-mi2s-mclk-sleep-state {
+		pins = "gpio79";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	sec_mi2s_mclk_active: sec-mi2s-mclk-active-state {
+		pins = "gpio79";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	sec_mi2s_sleep: sec-mi2s-sleep-state {
+		pins = "gpio80", "gpio81";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-disable;
+		input-enable;
+	};
+
+	sec_mi2s_active: sec-mi2s-active-state {
+		pins = "gpio80", "gpio81";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	sec_mi2s_sd0_sleep: sec-mi2s-sd0-sleep-state {
+		pins = "gpio82";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	sec_mi2s_sd0_active: sec-mi2s-sd0-active-state {
+		pins = "gpio82";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	sec_mi2s_sd1_sleep: sec-mi2s-sd1-sleep-state {
+		pins = "gpio83";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	sec_mi2s_sd1_active: sec-mi2s-sd1-active-state {
+		pins = "gpio83";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
 &spi0 {
 	status = "okay";
 

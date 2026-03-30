@@ -1,0 +1,24 @@
+From 3cc93a2f698f25525c278f42a366cd8b1780c474 Mon Sep 17 00:00:00 2001
+From: Robin Reckmann <robin.reckmann@gmail.com>
+Date: Tue, 17 Feb 2026 23:58:40 +0900
+Subject: [PATCH] Enable sound playback and capture
+
+---
+ sound/soc/qcom/sdm845.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+index a233b80049ee74..fb202f14039373 100644
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -220,6 +220,7 @@ static int sdm845_snd_hw_params(struct snd_pcm_substream *substream,
+ 		break;
+ 	case QUATERNARY_MI2S_RX:
+ 	case SECONDARY_MI2S_RX:
++	case SECONDARY_MI2S_TX:
+ 		break;
+ 	default:
+ 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
+--
+2.53.0
+

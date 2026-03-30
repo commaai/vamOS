@@ -79,6 +79,69 @@
 	data-lanes = <0 1 2 3>;
 };
 
+&tlmm {
+	tert_mi2s_mclk_sleep: tert-mi2s-mclk-sleep-state {
+		pins = "gpio74";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_mclk_active: tert-mi2s-mclk-active-state {
+		pins = "gpio74";
+		function = "tert_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	tert_mi2s_sleep: tert-mi2s-sleep-state {
+		pins = "gpio75", "gpio76";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_active: tert-mi2s-active-state {
+		pins = "gpio75", "gpio76";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
+	};
+
+	tert_mi2s_sd0_sleep: tert-mi2s-sd0-sleep-state {
+		pins = "gpio77";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_sd0_active: tert-mi2s-sd0-active-state {
+		pins = "gpio77";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	tert_mi2s_sd1_sleep: tert-mi2s-sd1-sleep-state {
+		pins = "gpio78";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_sd1_active: tert-mi2s-sd1-active-state {
+		pins = "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
 &q6afedai {
 	qi2s@18 {
 		reg = <SECONDARY_MI2S_RX>;
