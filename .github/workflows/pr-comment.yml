@@ -1,0 +1,84 @@
+name: pr comment
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+env:
+  SHA: ${{ github.event.pull_request.head.sha }}
+
+jobs:
+  pr-comment:
+    if: github.repository == 'commaai/vamOS'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: wait for build
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ env.SHA }}
+          check-name: build-system
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
+          wait-interval: 20
+
+      - name: get build run ID
+        id: get_run_id
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          RUN_ID=$(gh api "repos/${{ github.repository }}/commits/${{ env.SHA }}/check-runs" \
+            --jq '.check_runs[] | select(.name == "build-system") | .html_url | capture("(?<n>[0-9]+)") | .n' \
+            | head -1)
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+
+      - name: download rootfs profile
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ steps.get_run_id.outputs.run_id }}
+          name: rootfs-profile
+          path: build/
+
+      - name: download master baseline
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p baseline
+          RUN_ID=$(gh run list --workflow=build.yml --branch=master \
+            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
+          if [ -n "$RUN_ID" ]; then
+            gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
+          fi
+
+      - name: post PR comment
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
+          PROFILE_MD=$(cat build/rootfs-profile.md)
+
+          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
+            '<!-- rootfs-profile-bot -->' \
+            '## vamOS System Profile' \
+            '### Changes vs master' \
+            "$DIFF_MD" \
+            "$PROFILE_MD"
+
+          COMMENT_ID=$(gh api \
+            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
+            --jq '.[] | select(.body | contains("<!-- rootfs-profile-bot -->")) | .id' \
+            | head -1)
+
+          if [ -n "$COMMENT_ID" ]; then
+            gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
+              -X PATCH -f body="$COMMENT_BODY"
+          else
+            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT_BODY"
+          fi
