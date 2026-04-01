@@ -64,48 +64,6 @@ jobs:
             build/rootfs-profile.md
           if-no-files-found: error
 
-      - name: download master baseline
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p baseline
-          RUN_ID=$(gh run list --workflow=build.yml --branch=master \
-            --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
-          if [ -n "$RUN_ID" ]; then
-            gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
-          fi
-
-      - name: post PR comment
-        if: github.event_name == 'pull_request'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # Generate diff (gracefully handles missing baseline)
-          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
-          PROFILE_MD=$(cat build/rootfs-profile.md)
-
-          # Assemble comment with hidden marker for find-and-update
-          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
-            '<!-- rootfs-profile-bot -->' \
-            '## vamOS System Profile' \
-            '### Changes vs master' \
-            "$DIFF_MD" \
-            "$PROFILE_MD"
-
-          # Find existing comment by marker
-          COMMENT_ID=$(gh api \
-            "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --jq '.[] | select(.body | contains("<!-- rootfs-profile-bot -->")) | .id' \
-            | head -1)
-
-          if [ -n "$COMMENT_ID" ]; then
-            gh api "repos/${{ github.repository }}/issues/comments/$COMMENT_ID" \
-              -X PATCH -f body="$COMMENT_BODY"
-          else
-            gh pr comment "${{ github.event.pull_request.number }}" --body "$COMMENT_BODY"
-          fi
-
   release:
     if: github.event_name == 'push'
     needs: [build-kernel, build-system]
@@ -130,23 +88,29 @@ jobs:
           path: build/
 
       - name: generate manifest
+        env:
+          RELEASE_URL: https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}
         run: |
           VERSION=$(cat userspace/root/VERSION)
-          BRANCH="v${VERSION}"
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "BRANCH=$BRANCH" >> $GITHUB_ENV
-          BASE_URL="https://raw.githubusercontent.com/${{ github.repository }}/${BRANCH}"
-          BASE_URL=$BASE_URL python3 tools/build/package_ota.py
+          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
+          RELEASE_URL=$RELEASE_URL python3 tools/build/package_ota.py
 
-      - name: push images to version branch
+      - name: create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          cd build/ota
-          git init
-          git checkout --orphan "$BRANCH"
-          git add .
-          git -c user.name="github-actions" -c user.email="actions@github.com" \
-            commit -m "release images for $BRANCH"
-          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git"
-          git push --force origin "$BRANCH"
+          TAG="v${VERSION}"
+
+          # Delete existing release if it exists
+          gh release delete "$TAG" --yes 2>/dev/null || true
+          git tag -d "$TAG" 2>/dev/null || true
+          git push origin ":refs/tags/$TAG" 2>/dev/null || true
+
+          # Create release with all images and manifest
+          gh release create "$TAG" \
+            --title "vamOS $TAG" \
+            --target "${{ github.sha }}" \
+            --notes "Automated release from commit ${{ github.sha }}" \
+            build/ota/*.img \
+            build/ota/manifest.json
