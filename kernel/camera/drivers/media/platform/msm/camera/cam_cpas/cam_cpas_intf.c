@@ -549,6 +549,40 @@ static int cam_cpas_subdev_register(struct platform_device *pdev)
 	return rc;
 }
 
+/*
+ * VAMOS: Enable Titan Top GDSC via genpd framework.
+ * Attach programmatically (no DT power-domains — causes boot hang).
+ * Use pm_runtime_set_active to mark device active, which triggers
+ * genpd_runtime_resume -> gdsc_enable via the power domain callback.
+ */
+#include <linux/pm_domain.h>
+#include <linux/pm_runtime.h>
+#include <dt-bindings/clock/qcom,camcc-sdm845.h>
+
+static int cam_cpas_gdsc_enable(struct platform_device *pdev)
+{
+	struct device_node *camcc_np;
+	struct of_phandle_args pd_args;
+	int rc;
+
+	camcc_np = of_find_compatible_node(NULL, NULL, "qcom,sdm845-camcc");
+	if (!camcc_np)
+		return -ENODEV;
+
+	pd_args.np = camcc_np;
+	pd_args.args_count = 1;
+	pd_args.args[0] = TITAN_TOP_GDSC;
+
+	rc = of_genpd_add_device(&pd_args, &pdev->dev);
+	of_node_put(camcc_np);
+	if (rc)
+		return rc;
+
+	pm_runtime_enable(&pdev->dev);
+	pm_runtime_set_active(&pdev->dev);
+	return 0;
+}
+
 static int cam_cpas_dev_probe(struct platform_device *pdev)
 {
 	struct cam_cpas_hw_caps *hw_caps;
@@ -566,6 +600,11 @@ static int cam_cpas_dev_probe(struct platform_device *pdev)
 
 	mutex_init(&g_cpas_intf->intf_lock);
 	g_cpas_intf->pdev = pdev;
+
+	/* VAMOS: enable Titan Top GDSC before clocks */
+	rc = cam_cpas_gdsc_enable(pdev);
+	if (rc)
+		CAM_ERR(CAM_CPAS, "GDSC enable failed rc=%d, continuing anyway", rc);
 
 	rc = cam_cpas_hw_probe(pdev, &g_cpas_intf->hw_intf);
 	if (rc || (g_cpas_intf->hw_intf == NULL)) {
