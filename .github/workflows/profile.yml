@@ -1,4 +1,4 @@
-name: pr comment
+name: profile
 
 on:
   pull_request_target:
