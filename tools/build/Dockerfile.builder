@@ -33,7 +33,7 @@ RUN git clone https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.
     && git checkout v1.8.5 \
     && apk add --no-cache autoconf automake libtool \
     && autoreconf -fi \
-    && ./configure --enable-lz4 --enable-lzma --disable-fuse \
+    && ./configure --enable-lz4 --enable-lzma --disable-fuse --enable-multithreading \
     && make -j$(nproc) \
     && make install \
     && rm -rf /tmp/erofs-utils
