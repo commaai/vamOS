@@ -45,14 +45,14 @@ comma threex:
 - [x] usb
 - [x] modem
 - [ ] sound
-- [ ] SPI
+- [x] SPI
 - [ ] GPS
 - [ ] cameras (OX03C10)
   - [ ] kernel wiring
   - [ ] ISP
   - [ ] openpilot
-- [ ] graphics
-  - [ ] gpu
+- [x] graphics
+  - [x] gpu
 - [ ] opencl - via rusticl / msm_drm
 - [ ] Venus? (video encode/decode)
 
@@ -65,14 +65,14 @@ comma four:
 - [x] usb
 - [x] modem
 - [ ] sound
-- [ ] SPI
+- [x] SPI
 - [ ] GPS
 - [ ] cameras (OS04C10)
   - [ ] kernel wiring
   - [ ] ISP
   - [ ] openpilot
-- [ ] graphics
-  - [ ] gpu
+- [x] graphics
+  - [x] gpu
 - [ ] opencl - via rusticl / msm_drm
 - [ ] Venus (video encode/decode)
 
