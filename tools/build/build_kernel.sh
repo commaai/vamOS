@@ -192,6 +192,10 @@ DTS_FILES=(
   '${DTS_FILES[1]}'
 )
 
+# building both kernel and system at same time cause git dubious ownership errors
+git config --global --add safe.directory '$DIR'
+git config --global --add safe.directory '$KERNEL_DIR'
+
 $(declare -f apply_patches)
 $(declare -f build_kernel)
 $(declare -f clean_kernel_tree)

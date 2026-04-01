@@ -66,9 +66,10 @@ RUN cd /tmp/vamos/uv && \
     MAKEFLAGS="-j$(nproc)" UV_CONCURRENT_BUILDS=4 UV_NO_CACHE=1 UV_PROJECT_ENVIRONMENT=$XDG_DATA_HOME/venv \
     uv sync --frozen --inexact
 
-# Install firmware from upstream linux-firmware (ath10k WiFi + modem)
+# Install firmware from upstream linux-firmware (ath10k WiFi + modem + Bluetooth)
 COPY ./kernel/firmware/ath10k/WCN3990/hw1.0 /lib/firmware/ath10k/WCN3990/hw1.0
 COPY ./kernel/firmware/qcom/sdm845 /lib/firmware/qcom/sdm845
+COPY ./kernel/firmware/qca /lib/firmware/qca
 RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sdm845/wlanmdsp.mbn
 
 # Root filesystem overlay — all userspace files at their final paths

@@ -366,12 +366,39 @@
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
 
+&gmu {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/sdm845/a630_zap.mbn";
+	};
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
 &qupv3_id_0 {
 	status = "okay";
 };
 
 &qupv3_id_1 {
 	status = "okay";
+};
+
+&spi0 {
+	status = "okay";
+
+	panda_spi: spidev@0 {
+		compatible = "commaai,panda";
+		spi-max-frequency = <50000000>;
+		reg = <0>;
+	};
 };
 
 &uart6 {
