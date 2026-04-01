@@ -23,6 +23,9 @@
 #include "cam_req_mgr_util.h"
 #include "cam_req_mgr_core.h"
 #include "cam_subdev.h"
+
+/* VAMOS: used to gate late_initcall on CPAS probe success */
+extern int cam_cpas_get_cpas_hw_version(uint32_t *hw_version);
 #include "cam_mem_mgr.h"
 #include "cam_debug_util.h"
 /* VAMOS: removed <linux/slub_def.h> — not includable in mainline, slab.h suffices */
@@ -783,6 +786,16 @@ static int __init cam_req_mgr_init(void)
 
 static int __init cam_req_mgr_late_init(void)
 {
+	uint32_t hw_version;
+
+	/*
+	 * VAMOS: Only create subdev nodes if CPAS probed successfully.
+	 * When CPAS fails, downstream components leave stale entries
+	 * in the v4l2 subdev list that cause NULL pointer panics.
+	 */
+	if (cam_cpas_get_cpas_hw_version(&hw_version))
+		return 0;
+
 	return cam_dev_mgr_create_subdev_nodes();
 }
 
