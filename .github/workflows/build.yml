@@ -119,7 +119,7 @@ jobs:
           TAG="v${VERSION}"
           cd vamos-images
           git checkout --orphan release
-          cp ../build/ota/*.img .
+          cp ../build/ota/*.img* .
           git add .
           git -c user.name="github-actions" -c user.email="actions@github.com" \
             commit -m "release images for $TAG"
