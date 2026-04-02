@@ -59,7 +59,7 @@ export class FlashManager {
   }
 
   private setMessage(message: string) {
-    if (message) console.info("[Flash]", message);
+    if (message) console.info("[flashpack]", message);
     this.callbacks.onMessageChange?.(message);
   }
 
@@ -85,7 +85,7 @@ export class FlashManager {
     try {
       await this.imageManager.init();
     } catch (err: any) {
-      console.error("[Flash] Failed to initialize image manager:", err);
+      console.error("[flashpack] Failed to initialize image manager:", err);
       if (err?.message?.startsWith("Not enough storage")) {
         this.setError(ErrorCode.STORAGE_SPACE);
         this.setMessage(err.message);
@@ -96,7 +96,7 @@ export class FlashManager {
     }
 
     this.manifest = manifest;
-    console.info("[Flash] Loaded manifest:", this.manifest.length, "entries");
+    console.info("[flashpack] Loaded manifest:", this.manifest.length, "entries");
     this.setStep(Step.READY);
   }
 
@@ -111,21 +111,21 @@ export class FlashManager {
         this.setStep(Step.READY);
         return;
       }
-      console.error("[Flash] Connection error:", err);
+      console.error("[flashpack] Connection error:", err);
       this.setError(ErrorCode.LOST_CONNECTION);
       return;
     }
 
-    console.info("[Flash] Connected");
+    console.info("[flashpack] Connected");
     this.callbacks.onConnectionChange?.(true);
 
     try {
       const storageInfo = await this.device.getStorageInfo();
       const serial = Number(storageInfo.serial_num).toString(16).padStart(8, "0");
       this.callbacks.onSerialChange?.(serial);
-      console.info("[Flash] Serial:", serial);
+      console.info("[flashpack] Serial:", serial);
     } catch (err) {
-      console.warn("[Flash] Could not read storage info:", err);
+      console.warn("[flashpack] Could not read storage info:", err);
     }
   }
 
@@ -135,7 +135,7 @@ export class FlashManager {
 
     const gptImages = this.manifest!.filter((e) => !!e.gpt);
     if (gptImages.length === 0) {
-      console.error("[Flash] No GPT images found");
+      console.error("[flashpack] No GPT images found");
       this.setError(ErrorCode.REPAIR_FAILED);
       return;
     }
@@ -153,7 +153,7 @@ export class FlashManager {
         onRepair(1.0);
       }
     } catch (err) {
-      console.error("[Flash] Partition table repair failed:", err);
+      console.error("[flashpack] Partition table repair failed:", err);
       this.setError(ErrorCode.REPAIR_FAILED);
     }
   }
@@ -166,7 +166,7 @@ export class FlashManager {
 
     const [found, persistLun, partition] = await this.device.detectPartition("persist");
     if (!found || luns.indexOf(persistLun) < 0) {
-      console.error("[Flash] Could not find persist partition");
+      console.error("[flashpack] Could not find persist partition");
       this.setError(ErrorCode.ERASE_FAILED);
       return;
     }
@@ -182,7 +182,7 @@ export class FlashManager {
         }
       }
     } catch (err) {
-      console.error("[Flash] Erase failed:", err);
+      console.error("[flashpack] Erase failed:", err);
       this.setError(ErrorCode.ERASE_FAILED);
     }
   }
@@ -217,7 +217,7 @@ export class FlashManager {
           // Skip partitions that don't exist on this device
           const [found] = await this.device.detectPartition(partitionName);
           if (!found) {
-            console.warn(`[Flash] Partition ${partitionName} not found, skipping`);
+            console.warn(`[flashpack] Partition ${partitionName} not found, skipping`);
             onSlotProgress(1.0);
             continue;
           }
@@ -237,7 +237,7 @@ export class FlashManager {
         }
       }
     } catch (err) {
-      console.error("[Flash] Flash failed:", err);
+      console.error("[flashpack] Flash failed:", err);
       this.setError(ErrorCode.FLASH_FAILED);
     }
   }
