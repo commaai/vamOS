@@ -13,7 +13,7 @@ OTA_OUTPUT_DIR = OUTPUT_DIR / "ota"
 
 SECTOR_SIZE = 4096
 
-RELEASE_URL = os.environ.get("RELEASE_URL", "https://github.com/commaai/vamos/releases/download/untagged")
+IMAGES_URL = os.environ.get("IMAGES_URL", "https://github.com/commaai/vamos-images/raw/latest")
 
 GPT = namedtuple('GPT', ['lun', 'name', 'path', 'start_sector', 'num_sectors', 'has_ab', 'full_check'])
 GPTS = [
@@ -80,7 +80,7 @@ def process_file(entry):
 
   ret = {
     "name": entry.name,
-    "url": f"{RELEASE_URL}/{out_fn.name}",
+    "url": f"{IMAGES_URL}/{out_fn.name}",
     "hash": hash,
     "hash_raw": hash_raw,
     "size": size,

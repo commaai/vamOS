@@ -88,13 +88,30 @@ jobs:
           path: build/
 
       - name: generate manifest
-        env:
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}
         run: |
           VERSION=$(cat userspace/root/VERSION)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
-          RELEASE_URL=$RELEASE_URL python3 tools/build/package_ota.py
+          IMAGES_URL="https://github.com/${{ github.repository_owner }}/vamos-images/raw/v${VERSION}"
+          IMAGES_URL=$IMAGES_URL python3 tools/build/package_ota.py
+
+      - name: push images to vamos-images
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/vamos-images
+          ssh-key: ${{ secrets.VAMOS_IMAGES_DEPLOY_KEY }}
+          path: vamos-images
+
+      - name: commit and tag images
+        run: |
+          TAG="v${VERSION}"
+          cd vamos-images
+          git checkout --orphan "$TAG"
+          cp ../build/ota/*.img .
+          git add .
+          git -c user.name="github-actions" -c user.email="actions@github.com" \
+            commit -m "release images for $TAG"
+          git tag "$TAG"
+          git push origin "$TAG" --force
 
       - name: create release
         env:
@@ -107,10 +124,9 @@ jobs:
           git tag -d "$TAG" 2>/dev/null || true
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
-          # Create release with all images and manifest
+          # Create release with manifest only
           gh release create "$TAG" \
             --title "vamOS $TAG" \
             --target "${{ github.sha }}" \
             --notes "Automated release from commit ${{ github.sha }}" \
-            build/ota/*.img \
             build/ota/manifest.json
