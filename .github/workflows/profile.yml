@@ -20,14 +20,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: wait for build
-        uses: lewagon/wait-on-check-action@v1.6.0
+        uses: lewagon/wait-on-check-action@v1.3.4
         with:
           ref: ${{ env.SHA }}
           check-name: build-system
           repo-token: ${{ secrets.GITHUB_TOKEN }}
           allowed-conclusions: success
           wait-interval: 20
-          checks-discovery-timeout: 300
 
       - name: get build run ID
         id: get_run_id
