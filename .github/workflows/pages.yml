@@ -33,6 +33,11 @@ jobs:
           bun install
           bun run build
 
+      # To deploy to a custom domain (e.g. flashpack.comma.ai),
+      # uncomment this step and configure DNS to point to GitHub Pages
+      # - name: set custom domain
+      #   run: echo "flashpack.comma.ai" > tools/flashpack/dist/CNAME
+
       - name: configure pages
         uses: actions/configure-pages@v5
 
