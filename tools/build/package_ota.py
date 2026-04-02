@@ -12,8 +12,10 @@ FIRMWARE_DIR = ROOT / "firmware"
 OTA_OUTPUT_DIR = OUTPUT_DIR / "ota"
 
 SECTOR_SIZE = 4096
+CHUNK_SIZE = 52_428_800  # 50 MB - must be under raw.githubusercontent.com's 100 MB limit
 
-RELEASE_URL = os.environ.get("RELEASE_URL", "https://github.com/commaai/vamos/releases/download/untagged")
+VERSION = open(ROOT / "userspace" / "root" / "VERSION").read().strip()
+IMAGES_URL = os.environ.get("IMAGES_URL", f"https://github.com/commaai/vamos-images/raw/v{VERSION}")
 
 GPT = namedtuple('GPT', ['lun', 'name', 'path', 'start_sector', 'num_sectors', 'has_ab', 'full_check'])
 GPTS = [
@@ -73,14 +75,30 @@ def process_file(entry):
   sha256.update(b'\x00' * ((SECTOR_SIZE - (size % SECTOR_SIZE)) % SECTOR_SIZE))
   ondevice_hash = sha256.hexdigest()
 
-  # Copy to output directory
-  out_fn = OTA_OUTPUT_DIR / f"{entry.name}-{hash_raw}.img"
-  print(f"  copying to {out_fn.name}")
-  shutil.copy(entry.path, out_fn)
+  base_name = f"{entry.name}-{hash_raw}.img"
+
+  # Write file(s) to output directory, splitting into chunks if needed
+  chunks = None
+  if size > CHUNK_SIZE:
+    chunks = []
+    chunk_idx = 0
+    with open(entry.path, 'rb') as f:
+      while True:
+        data = f.read(CHUNK_SIZE)
+        if not data:
+          break
+        chunk_name = f"{base_name}.{chunk_idx:02d}"
+        (OTA_OUTPUT_DIR / chunk_name).write_bytes(data)
+        chunks.append({"url": f"{IMAGES_URL}/{chunk_name}", "size": len(data)})
+        print(f"  chunk {chunk_idx}: {chunk_name} ({len(data)} bytes)")
+        chunk_idx += 1
+  else:
+    print(f"  copying to {base_name}")
+    shutil.copy(entry.path, OTA_OUTPUT_DIR / base_name)
 
   ret = {
     "name": entry.name,
-    "url": f"{RELEASE_URL}/{out_fn.name}",
+    "url": f"{IMAGES_URL}/{base_name}",
     "hash": hash,
     "hash_raw": hash_raw,
     "size": size,
@@ -89,6 +107,10 @@ def process_file(entry):
     "has_ab": entry.has_ab,
     "ondevice_hash": ondevice_hash,
   }
+
+  if chunks:
+    ret["url"] = ""
+    ret["chunks"] = chunks
 
   if isinstance(entry, GPT):
     ret["gpt"] = {

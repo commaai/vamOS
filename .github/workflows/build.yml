@@ -87,16 +87,48 @@ jobs:
           name: system.erofs.img
           path: build/
 
+      - name: check deploy key
+        id: check-key
+        run: |
+          if [ -n "${{ secrets.VAMOS_IMAGES_DEPLOY_KEY }}" ]; then
+            echo "has_key=true" >> $GITHUB_OUTPUT
+          else
+            echo "has_key=false" >> $GITHUB_OUTPUT
+            echo "::warning::VAMOS_IMAGES_DEPLOY_KEY secret is not set — skipping image publish and release."
+          fi
+
       - name: generate manifest
-        env:
-          RELEASE_URL: https://github.com/${{ github.repository }}/releases/download/v${{ env.VERSION }}
+        if: steps.check-key.outputs.has_key == 'true'
         run: |
           VERSION=$(cat userspace/root/VERSION)
           echo "VERSION=$VERSION" >> $GITHUB_ENV
-          RELEASE_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}"
-          RELEASE_URL=$RELEASE_URL python3 tools/build/package_ota.py
+          IMAGES_URL="https://github.com/${{ github.repository_owner }}/vamos-images/raw/v${VERSION}"
+          IMAGES_URL=$IMAGES_URL python3 tools/build/package_ota.py
+
+      - name: push images to vamos-images
+        if: steps.check-key.outputs.has_key == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/vamos-images
+          ssh-key: ${{ secrets.VAMOS_IMAGES_DEPLOY_KEY }}
+          path: vamos-images
+
+      - name: commit and tag images
+        if: steps.check-key.outputs.has_key == 'true'
+        run: |
+          TAG="v${VERSION}"
+          cd vamos-images
+          git checkout --orphan release
+          cp ../build/ota/*.img* .
+          cp ../build/ota/manifest.json .
+          git add .
+          git -c user.name="github-actions" -c user.email="actions@github.com" \
+            commit -m "release images for $TAG"
+          git tag "$TAG"
+          git push origin "refs/tags/$TAG" --force
 
       - name: create release
+        if: steps.check-key.outputs.has_key == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -107,10 +139,22 @@ jobs:
           git tag -d "$TAG" 2>/dev/null || true
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
-          # Create release with all images and manifest
+          MANIFEST_URL="https://github.com/${{ github.repository_owner }}/vamos-images/raw/${TAG}/manifest.json"
+
+          # Create release linking to manifest
+          NOTES="Automated release from commit ${{ github.sha }}
+
+          Manifest: ${MANIFEST_URL}"
           gh release create "$TAG" \
             --title "vamOS $TAG" \
             --target "${{ github.sha }}" \
-            --notes "Automated release from commit ${{ github.sha }}" \
-            build/ota/*.img \
-            build/ota/manifest.json
+            --notes "$NOTES"
+
+      - name: post setup instructions
+        if: steps.check-key.outputs.has_key == 'false'
+        run: |
+          echo "::warning::VAMOS_IMAGES_DEPLOY_KEY is not configured. To enable image publishing:"
+          echo "::warning::1. Create a ${{ github.repository_owner }}/vamos-images repo"
+          echo "::warning::2. Generate an SSH deploy key: ssh-keygen -t ed25519 -f vamos-images-deploy-key -N \"\""
+          echo "::warning::3. Add the public key to ${{ github.repository_owner }}/vamos-images as a deploy key with write access"
+          echo "::warning::4. Add the private key as VAMOS_IMAGES_DEPLOY_KEY secret in ${{ github.repository }}"
