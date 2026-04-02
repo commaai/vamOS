@@ -40,7 +40,7 @@ export interface FlashCallbacks {
 }
 
 export class FlashManager {
-  private callbacks: FlashCallbacks;
+  callbacks: FlashCallbacks;
   private device: qdlDevice;
   private imageManager: ImageManager;
   private manifest: ManifestEntry[] | null = null;
