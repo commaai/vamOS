@@ -78,7 +78,6 @@ function renderLanding() {
     </div>
     <h1>~*~ flashpack ~*~</h1>
     <p class="subtitle">can YOU help me flash vamOS onto my comma device??</p>
-    <div id="init-status" style="color: var(--cyan); margin-bottom: 1.5rem; font-size: 0.875rem;"></div>
     <button class="btn btn-primary" id="btn-start" disabled>vamonos!!</button>
     <div id="no-webusb" style="display:none;" class="error-box">
       oh no!! swiper swiped ur WebUSB!! please use <a href="https://www.google.com/chrome/" target="_blank" style="color:var(--pink);font-weight:700;">Google Chrome</a>!
@@ -330,8 +329,6 @@ async function init() {
     return;
   }
 
-  $("init-status").textContent = "loading programmer + manifest...";
-
   try {
     const [programmer, { version, manifest }] = await Promise.all([
       loadProgrammer(),
@@ -351,11 +348,9 @@ async function init() {
       throw new Error("Initialization failed");
     }
 
-    $("init-status").textContent = "";
     ($("btn-start") as HTMLButtonElement).disabled = false;
   } catch (err: any) {
     console.error("[flashpack] Init failed:", err);
-    $("init-status").textContent = "";
     const el = $("init-error");
     el.style.display = "block";
     el.textContent = "failed to load: " + (err.message || err);
