@@ -120,6 +120,7 @@ jobs:
           cd vamos-images
           git checkout --orphan release
           cp ../build/ota/*.img* .
+          cp ../build/ota/manifest.json .
           git add .
           git -c user.name="github-actions" -c user.email="actions@github.com" \
             commit -m "release images for $TAG"
@@ -138,12 +139,15 @@ jobs:
           git tag -d "$TAG" 2>/dev/null || true
           git push origin ":refs/tags/$TAG" 2>/dev/null || true
 
-          # Create release with manifest only
+          MANIFEST_URL="https://github.com/${{ github.repository_owner }}/vamos-images/raw/${TAG}/manifest.json"
+
+          # Create release linking to manifest
           gh release create "$TAG" \
             --title "vamOS $TAG" \
             --target "${{ github.sha }}" \
-            --notes "Automated release from commit ${{ github.sha }}" \
-            build/ota/manifest.json
+            --notes "Automated release from commit ${{ github.sha }}
+
+Manifest: ${MANIFEST_URL}"
 
       - name: post setup instructions
         if: steps.check-key.outputs.has_key == 'false'
