@@ -1,4 +1,5 @@
 const REPO = "commaai/vamOS";
+const IMAGES_REPO = "commaai/vamos-images";
 const VERSION_URL = `https://raw.githubusercontent.com/${REPO}/master/userspace/root/VERSION`;
 
 export interface ChunkInfo {
@@ -29,7 +30,7 @@ export async function getManifest(): Promise<ManifestEntry[]> {
   if (!versionRes.ok) throw new Error(`Failed to fetch version: ${versionRes.status}`);
   const version = (await versionRes.text()).trim();
 
-  const manifestUrl = `https://raw.githubusercontent.com/${REPO}/v${version}/manifest.json`;
+  const manifestUrl = `https://raw.githubusercontent.com/${IMAGES_REPO}/v${version}/manifest.json`;
   const res = await fetch(manifestUrl);
   if (!res.ok) throw new Error(`Failed to fetch manifest: ${res.status}`);
   return res.json();
