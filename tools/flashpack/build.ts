@@ -1,8 +1,13 @@
+const gitSha = Bun.spawnSync(["git", "rev-parse", "HEAD"]).stdout.toString().trim();
+
 const build = await Bun.build({
   entrypoints: ["./src/index.html"],
   outdir: "./dist",
   sourcemap: "linked",
   minify: true,
+  define: {
+    "process.env.GIT_SHA": JSON.stringify(gitSha),
+  },
 });
 
 if (!build.success) {

@@ -9,7 +9,7 @@ export interface ChunkInfo {
 
 export interface ManifestEntry {
   name: string;
-  url: string;
+  url?: string;
   hash: string;
   hash_raw: string;
   size: number;
@@ -25,7 +25,7 @@ export interface ManifestEntry {
   };
 }
 
-export async function getManifest(): Promise<ManifestEntry[]> {
+export async function getManifest(): Promise<{ version: string; manifest: ManifestEntry[] }> {
   const versionRes = await fetch(VERSION_URL);
   if (!versionRes.ok) throw new Error(`Failed to fetch version: ${versionRes.status}`);
   const version = (await versionRes.text()).trim();
@@ -33,5 +33,6 @@ export async function getManifest(): Promise<ManifestEntry[]> {
   const manifestUrl = `https://raw.githubusercontent.com/${IMAGES_REPO}/v${version}/manifest.json`;
   const res = await fetch(manifestUrl);
   if (!res.ok) throw new Error(`Failed to fetch manifest: ${res.status}`);
-  return res.json();
+  const manifest = await res.json();
+  return { version, manifest };
 }

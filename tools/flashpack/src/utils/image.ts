@@ -3,7 +3,7 @@ import type { ManifestEntry } from "./manifest";
 
 type ProgressCallback = (progress: number) => void;
 
-const MIN_QUOTA_GB = 5.25;
+const MIN_QUOTA_GB = 3;
 
 export class ImageManager {
   root: FileSystemDirectoryHandle | null = null;

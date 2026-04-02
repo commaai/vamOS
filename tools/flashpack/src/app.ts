@@ -1,7 +1,7 @@
 import { FlashManager, Step, ErrorCode, loadProgrammer } from "./utils/manager";
 import { getManifest } from "./utils/manifest";
 
-import portsThree from "./assets/qdl-ports-three.svg";
+import portsThree from "./assets/qdl-ports-threex.svg";
 import portsFour from "./assets/qdl-ports-four.svg";
 import comma3X from "./assets/comma3X.webp";
 import commaFour from "./assets/four_screen_on.webp";
@@ -333,10 +333,15 @@ async function init() {
   $("init-status").textContent = "loading programmer + manifest...";
 
   try {
-    const [programmer, manifest] = await Promise.all([
+    const [programmer, { version, manifest }] = await Promise.all([
       loadProgrammer(),
       getManifest(),
     ]);
+
+    const sha = process.env.GIT_SHA || "master";
+    const versionLink = document.getElementById("version-link") as HTMLAnchorElement;
+    versionLink.href = `https://github.com/commaai/vamOS/tree/${sha}`;
+    versionLink.textContent = sha.slice(0, 7);
 
     console.info("[flashpack] Manifest loaded:", manifest.length, "entries");
     manager = new FlashManager(programmer, {});
@@ -346,7 +351,7 @@ async function init() {
       throw new Error("Initialization failed");
     }
 
-    $("init-status").textContent = `ready! (${manager.step === Step.READY ? "manifest loaded" : "..."})`;
+    $("init-status").textContent = "";
     ($("btn-start") as HTMLButtonElement).disabled = false;
   } catch (err: any) {
     console.error("[flashpack] Init failed:", err);
