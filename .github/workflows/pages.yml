@@ -2,7 +2,7 @@ name: deploy pages
 
 on:
   push:
-    branches: [master,flash]
+    branches: [master]
     paths:
       - 'tools/flashpack/**'
       - '.github/workflows/pages.yml'
