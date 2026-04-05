@@ -20,6 +20,29 @@ DTS_FILES=(
   "$DIR/kernel/dts/sdm845-comma-tizi.dts"
 )
 
+HOST_OS="$(uname)"
+KERNEL_LINUX_VOLUME="vamos-kernel-linux"
+CCACHE_VOLUME="vamos-kernel-ccache"
+KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
+CONTAINER_ID=""
+
+prepare_ccache_volume() {
+  if ! docker volume inspect "$CCACHE_VOLUME" >/dev/null 2>&1; then
+    docker volume create "$CCACHE_VOLUME" >/dev/null
+    docker run --rm \
+      --entrypoint sh \
+      -v "$CCACHE_VOLUME:/ccache" \
+      vamos-builder \
+      -lc "mkdir -p /ccache && chown $(id -u):$(id -g) /ccache && chmod 0775 /ccache"
+  fi
+}
+
+kernel_workspace_ready() {
+  docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
+    -lc "test -f /linux/Makefile && test \"\$(cat /linux/.vamos-kernel-rev 2>/dev/null)\" = \"$KERNEL_REV\"" \
+    >/dev/null
+}
+
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
   "$DIR/vamos" setup
@@ -34,7 +57,22 @@ docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
   --build-arg GID="$(id -g)"
 
 echo "Starting vamos-builder container"
-CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
+if [ "$HOST_OS" = "Darwin" ]; then
+  if ! kernel_workspace_ready; then
+    echo "Kernel workspace volume is missing or uninitialized; running ./vamos setup"
+    "$DIR/vamos" setup
+  fi
+  prepare_ccache_volume
+  CONTAINER_ID=$(docker run -d \
+    -u "$(id -u):$(id -g)" \
+    -v "$DIR":"$DIR" \
+    -v "$KERNEL_LINUX_VOLUME:$KERNEL_DIR" \
+    -v "$CCACHE_VOLUME:/ccache" \
+    -w "$DIR" \
+    vamos-builder)
+else
+  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
+fi
 
 trap cleanup EXIT
 
@@ -70,14 +108,18 @@ build_kernel() {
   fi
 
   # ccache
-  export CCACHE_DIR="$DIR/.ccache"
+  if [ "$HOST_OS" = "Darwin" ]; then
+    export CCACHE_DIR="/ccache"
+  else
+    export CCACHE_DIR="$DIR/.ccache"
+  fi
   export PATH="/usr/lib/ccache/bin:$PATH"
 
   # Reproducible builds
   export KBUILD_BUILD_USER="vamos"
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
-  
+
   GIT_REV="$(git -C $DIR rev-parse --short HEAD)"
   export LOCALVERSION="-vamos-$GIT_REV"
 
@@ -155,7 +197,15 @@ clean_kernel_tree() {
 cleanup() {
   echo "Cleaning up container and kernel tree..."
 
-  clean_kernel_tree
+  if [ "$HOST_OS" = "Darwin" ]; then
+    docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash >/dev/null 2>&1 <<EOF || true
+$(declare -f clean_kernel_tree)
+KERNEL_DIR='$KERNEL_DIR'
+clean_kernel_tree
+EOF
+  else
+    clean_kernel_tree
+  fi
 
   docker container rm -f "${CONTAINER_ID:-}" >/dev/null 2>&1 || true
   rm -rf "$TMP_DIR"
@@ -176,6 +226,7 @@ install_dts() {
 docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash <<EOF
 set -e
 
+HOST_OS='$HOST_OS'
 BASE_DEFCONFIG='$BASE_DEFCONFIG'
 CONFIG_FRAGMENT='$CONFIG_FRAGMENT'
 COMMON_DTSI='$COMMON_DTSI'
