@@ -8,8 +8,33 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")/.." >/dev/null && pwd)"
 
+seed_kernel_workspace() {
+  local linux_volume sync_container_id kernel_rev
+
+  linux_volume="vamos-kernel-linux"
+  kernel_rev="$(git -C "$DIR/kernel/linux" rev-parse HEAD)"
+
+  echo "Syncing kernel/linux into Docker volume"
+  sync_container_id=$(docker run -d --entrypoint tail -v "$linux_volume:/linux" vamos-builder -f /dev/null)
+
+  docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
+
+  tar -C "$DIR/kernel/linux" -cf - . | docker exec -i "$sync_container_id" tar -xf - -C /linux
+  docker exec "$sync_container_id" sh -lc "printf '%s\n' '$kernel_rev' > /linux/.vamos-kernel-rev"
+  docker container rm -f "$sync_container_id" >/dev/null
+}
+
 setup() {
   git -C "$DIR" submodule update --init --depth 1
+  if [ "$(uname)" = "Darwin" ]; then
+    export DOCKER_BUILDKIT=1
+    docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
+      --build-arg UNAME="$(id -nu)" \
+      --build-arg UID="$(id -u)" \
+      --build-arg GID="$(id -g)"
+    docker volume create "vamos-kernel-linux" >/dev/null
+    seed_kernel_workspace
+  fi
   if [ "$(uname)" = "Linux" ]; then
     UDEV_RULES="/etc/udev/rules.d/99-qualcomm-edl.rules"
     if [ ! -f "$UDEV_RULES" ]; then
