@@ -38,6 +38,18 @@ jobs:
           path: build/boot.img
           if-no-files-found: error
 
+      - name: upload kernel profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-profile
+          path: |
+            build/kernel-profile.json
+            build/kernel-objects.json
+            build/kernel-symbols.json
+            build/kernel-config.txt
+            build/kernel-profile.md
+          if-no-files-found: error
+
   build-system:
     runs-on: ubuntu-24.04-arm
     steps:

@@ -149,6 +149,9 @@ build_kernel() {
   echo "-- Building kernel with $(nproc) cores --"
   make -j$(nproc) O=out Image.gz "${dtb_targets[@]}"
 
+  echo "-- Collecting kernel profile --"
+  bash "$DIR/tools/profile/kernel.sh" collect out "$OUT_DIR"
+
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
   IMAGE_GZ_DTB="$TMP_DIR/Image.gz-dtb"

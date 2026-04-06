@@ -24,14 +24,46 @@ seed_kernel_workspace() {
   docker container rm -f "$sync_container_id" >/dev/null
 }
 
-setup() {
-  git -C "$DIR" submodule update --init --depth 1
-  if [ "$(uname)" = "Darwin" ]; then
+ensure_builder_image() {
+  if ! docker image inspect vamos-builder >/dev/null 2>&1; then
+    echo "Building vamos-builder docker image"
     export DOCKER_BUILDKIT=1
     docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
       --build-arg UNAME="$(id -nu)" \
       --build-arg UID="$(id -u)" \
       --build-arg GID="$(id -g)"
+  fi
+}
+
+collect_kernel_profile_from_volume() {
+  local linux_volume output_dir
+
+  linux_volume="vamos-kernel-linux"
+  output_dir=${1:-"$DIR/build"}
+
+  ensure_builder_image
+
+  if ! docker volume inspect "$linux_volume" >/dev/null 2>&1; then
+    echo "Missing Docker volume $linux_volume. Run ./vamos setup or ./vamos build kernel first."
+    exit 1
+  fi
+
+  mkdir -p "$output_dir"
+
+  docker run --rm \
+    --entrypoint bash \
+    -u "$(id -u):$(id -g)" \
+    -v "$DIR:$DIR" \
+    -v "$linux_volume:/linux" \
+    -w "$DIR" \
+    vamos-builder \
+    "$DIR/tools/profile/kernel.sh" collect /linux/out "$output_dir"
+}
+
+setup() {
+  git -C "$DIR" submodule update --init --depth 1
+  if [ "$(uname)" = "Darwin" ]; then
+    ensure_builder_image
     docker volume create "vamos-kernel-linux" >/dev/null
     seed_kernel_workspace
   fi
@@ -67,7 +99,35 @@ case "${1:-}" in
     esac ;;
   profile)
     shift
-    exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+    case "${1:-}" in
+      kernel)
+        shift
+        case "${1:-}" in
+          ""|collect)
+            if [ "$#" -le 1 ]; then
+              if [ "$(uname)" = "Darwin" ]; then
+                collect_kernel_profile_from_volume "$DIR/build"
+                exit 0
+              fi
+              exec bash "$DIR/tools/profile/kernel.sh" collect "$DIR/kernel/linux/out" "$DIR/build"
+            fi
+            shift
+            if [ "$(uname)" = "Darwin" ] && [ "$#" -eq 1 ]; then
+              collect_kernel_profile_from_volume "$1"
+              exit 0
+            fi
+            exec bash "$DIR/tools/profile/kernel.sh" collect "$@" ;;
+          diff)
+            shift
+            exec bash "$DIR/tools/profile/kernel.sh" diff "$@" ;;
+          *)
+            exec bash "$DIR/tools/profile/kernel.sh" "$@" ;;
+        esac ;;
+      ""|diff)
+        exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+      *)
+        exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+    esac ;;
   *)
     echo "Usage: vamos <setup|build|flash|profile>"
     echo ""
@@ -79,6 +139,15 @@ case "${1:-}" in
     echo "  flash firmware     Flash firmware partitions to device via EDL"
     echo "  flash gpt          Flash GPT partition tables to device via EDL"
     echo "  flash all          Flash gpt + firmware + kernel + system"
-    echo "  profile [diff]     Profile rootfs or diff two profiles"
+    echo "  profile            Collect a rootfs profile"
+    echo "  profile diff <baseline_json> <current_json>"
+    echo "                     Diff two rootfs profiles"
+    echo "  profile kernel [out_dir output_dir]"
+    echo "                     Collect a kernel profile. On macOS with the Docker volume"
+    echo "                     workflow, this reads /linux/out from the volume and writes"
+    echo "                     into build/ by default without rebuilding. On Linux,"
+    echo "                     it collects from kernel/linux/out into build/ by default."
+    echo "  profile kernel diff <baseline_json> <current_json>"
+    echo "                     Diff two kernel profiles"
     exit 1 ;;
 esac
