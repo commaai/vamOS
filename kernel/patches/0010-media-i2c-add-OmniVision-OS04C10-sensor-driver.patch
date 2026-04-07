@@ -1,23 +1,23 @@
 From: Andrei Radulescu <andi.radulescu@gmail.com>
-Subject: [PATCH] media: i2c: add OmniVision OX03C10 sensor driver
+Subject: [PATCH] media: i2c: add OmniVision OS04C10 sensor driver
 
-Thin power/probe V4L2 sensor driver for the OX03C10 (1928x1208, 12-bit
-RAW Bayer, 4-lane MIPI CSI-2, 1200 Mbps/lane). All register programming
-is done by userspace (camerad) via the SENSOR_WRITE_REGS ioctl defined
-in qcom-camss-vfe.h. The kernel handles power sequencing, clock setup,
+V4L2 sensor driver for the OS04C10 (2688x1520, 12-bit RAW Bayer,
+4-lane MIPI CSI-2, 1200 Mbps/lane). All register programming is done
+by userspace (camerad) via the SENSOR_WRITE_REGS ioctl defined in
+qcom-camss-vfe.h. The kernel handles power sequencing, clock setup,
 CCI transport, and chip ID verification.
 
 ---
 diff --git a/drivers/media/i2c/Kconfig b/drivers/media/i2c/Kconfig
-index cdd7ba5da0d5..a1b2c3d4e5f6 100644
+index a1b2c3d4e5f6..d1d8e6697de3 100644
 --- a/drivers/media/i2c/Kconfig
 +++ b/drivers/media/i2c/Kconfig
-@@ -1718,6 +1718,20 @@ config VIDEO_MAX96717
+@@ -1732,6 +1732,20 @@ config VIDEO_OX03C10
  	  To compile this driver as a module, choose M here: the
- 	  module will be called max96717.
+ 	  module will be called ox03c10.
  
-+config VIDEO_OX03C10
-+	tristate "OmniVision OX03C10 sensor support"
++config VIDEO_OS04C10
++	tristate "OmniVision OS04C10 sensor support"
 +	depends on I2C && VIDEO_DEV
 +	select V4L2_CCI_I2C
 +	select V4L2_FWNODE
@@ -25,39 +25,39 @@ index cdd7ba5da0d5..a1b2c3d4e5f6 100644
 +	select MEDIA_CONTROLLER
 +	help
 +	  This is a Video4Linux2 sensor driver for the OmniVision
-+	  OX03C10 camera sensor.
++	  OS04C10 camera sensor.
 +
 +	  To compile this driver as a module, choose M here: the
-+	  module will be called ox03c10.
++	  module will be called os04c10.
 +
  endmenu
  
  endif # VIDEO_DEV
 diff --git a/drivers/media/i2c/Makefile b/drivers/media/i2c/Makefile
-index 57cdd8dc96f6..b1c2d3e4f5a6 100644
+index b1c2d3e4f5a6..beaecba8131d 100644
 --- a/drivers/media/i2c/Makefile
 +++ b/drivers/media/i2c/Makefile
-@@ -120,6 +120,7 @@ obj-$(CONFIG_VIDEO_OV9282) += ov9282.o
- obj-$(CONFIG_VIDEO_OV9640) += ov9640.o
+@@ -121,6 +121,7 @@ obj-$(CONFIG_VIDEO_OV9640) += ov9640.o
  obj-$(CONFIG_VIDEO_OV9650) += ov9650.o
  obj-$(CONFIG_VIDEO_OV9734) += ov9734.o
-+obj-$(CONFIG_VIDEO_OX03C10) += ox03c10.o
+ obj-$(CONFIG_VIDEO_OX03C10) += ox03c10.o
++obj-$(CONFIG_VIDEO_OS04C10) += os04c10.o
  obj-$(CONFIG_VIDEO_RDACM20) += rdacm20.o
  obj-$(CONFIG_VIDEO_RDACM21) += rdacm21.o
  obj-$(CONFIG_VIDEO_RJ54N1) += rj54n1cb0c.o
-diff --git a/drivers/media/i2c/ox03c10.c b/drivers/media/i2c/ox03c10.c
+diff --git a/drivers/media/i2c/os04c10.c b/drivers/media/i2c/os04c10.c
 new file mode 100644
-index 000000000000..46520edb7f35
+index 000000000000..1d416bba12bd
 --- /dev/null
-+++ b/drivers/media/i2c/ox03c10.c
-@@ -0,0 +1,525 @@
++++ b/drivers/media/i2c/os04c10.c
+@@ -0,0 +1,517 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
-+ * OmniVision OX03C10 CMOS Image Sensor Driver
++ * OmniVision OS04C10 CMOS Image Sensor Driver
 + *
-+ * Thin power/probe stub for the OX03C10 (1928x1208, 12-bit RAW,
-+ * 4-lane MIPI CSI-2). All register programming is done by userspace
-+ * (camerad) via the SENSOR_WRITE_REGS ioctl.
++ * V4L2 sensor driver for the OS04C10 (2688x1520 native, 4-lane MIPI CSI-2).
++ * All register programming is done by userspace (camerad) via the
++ * SENSOR_WRITE_REGS ioctl.
 + */
 +
 +#include <linux/clk.h>
@@ -76,32 +76,31 @@ index 000000000000..46520edb7f35
 +
 +#include <uapi/linux/qcom-camss-vfe.h>
 +
-+/* MIPI link frequency for 4-lane 12-bit @ 1200 Mbps/lane */
-+#define OX03C10_LINK_FREQ		600000000ULL
-+#define OX03C10_PIXEL_RATE		88000000ULL
++#define OS04C10_LINK_FREQ		600000000ULL
++#define OS04C10_PIXEL_RATE		88000000ULL
 +
 +/* Chip ID */
-+#define OX03C10_REG_CHIP_ID_H		CCI_REG8(0x300a)
-+#define OX03C10_REG_CHIP_ID_L		CCI_REG8(0x300b)
-+#define OX03C10_CHIP_ID_H		0x58
-+#define OX03C10_CHIP_ID_L		0x03
++#define OS04C10_REG_CHIP_ID_H		CCI_REG8(0x300a)
++#define OS04C10_REG_CHIP_ID_L		CCI_REG8(0x300b)
++#define OS04C10_CHIP_ID_H		0x53
++#define OS04C10_CHIP_ID_L		0x04
 +
-+#define OX03C10_NATIVE_WIDTH		1928
-+#define OX03C10_NATIVE_HEIGHT		1224
++#define OS04C10_NATIVE_WIDTH		2688
++#define OS04C10_NATIVE_HEIGHT		1520
 +
-+#define to_ox03c10(_sd) container_of(_sd, struct ox03c10, sd)
++#define to_os04c10(_sd) container_of(_sd, struct os04c10, sd)
 +
-+static const s64 ox03c10_link_freq_menu[] = {
-+	OX03C10_LINK_FREQ,
++static const s64 os04c10_link_freq_menu[] = {
++	OS04C10_LINK_FREQ,
 +};
 +
-+static const char *const ox03c10_supplies[] = {
++static const char *const os04c10_supplies[] = {
 +	"avdd",
 +	"dovdd",
 +	"dvdd",
 +};
 +
-+struct ox03c10 {
++struct os04c10 {
 +	struct v4l2_subdev sd;
 +	struct media_pad pad;
 +	struct v4l2_ctrl_handler ctrl_handler;
@@ -112,17 +111,16 @@ index 000000000000..46520edb7f35
 +	struct regmap *cci;
 +	struct clk *clk;
 +	struct gpio_desc *reset_gpio;
-+	struct regulator_bulk_data supplies[ARRAY_SIZE(ox03c10_supplies)];
++	struct regulator_bulk_data supplies[ARRAY_SIZE(os04c10_supplies)];
 +	unsigned long link_freq_bitmap;
 +	bool powered;
-+
 +};
 +
-+/* --- SENSOR_WRITE_REGS ioctl: userspace register writes via CCI --- */
++/* --- SENSOR_WRITE_REGS ioctl --- */
 +
-+static long ox03c10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
++static long os04c10_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg)
 +{
-+	struct ox03c10 *sensor = to_ox03c10(sd);
++	struct os04c10 *sensor = to_os04c10(sd);
 +	struct sensor_write_regs_cmd *wcmd = arg;
 +	struct sensor_reg_write *regs;
 +	int i, ret = 0;
@@ -130,7 +128,6 @@ index 000000000000..46520edb7f35
 +	if (cmd != SENSOR_WRITE_REGS)
 +		return -ENOTTY;
 +
-+	/* Ensure sensor is powered on for register writes */
 +	ret = pm_runtime_resume_and_get(sensor->dev);
 +	if (ret < 0)
 +		return ret;
@@ -168,9 +165,9 @@ index 000000000000..46520edb7f35
 +	return ret;
 +}
 +
-+/* --- V4L2 subdev ops (format enumeration, no controls) --- */
++/* --- V4L2 subdev ops --- */
 +
-+static int ox03c10_get_fmt(struct v4l2_subdev *sd,
++static int os04c10_get_fmt(struct v4l2_subdev *sd,
 +			    struct v4l2_subdev_state *sd_state,
 +			    struct v4l2_subdev_format *fmt)
 +{
@@ -180,9 +177,9 @@ index 000000000000..46520edb7f35
 +		mf = v4l2_subdev_state_get_format(sd_state, fmt->pad);
 +	} else {
 +		mf = &fmt->format;
-+		mf->width = OX03C10_NATIVE_WIDTH;
-+		mf->height = OX03C10_NATIVE_HEIGHT;
-+		mf->code = MEDIA_BUS_FMT_SGRBG12_1X12;
++		mf->width = OS04C10_NATIVE_WIDTH;
++		mf->height = OS04C10_NATIVE_HEIGHT;
++		mf->code = MEDIA_BUS_FMT_SBGGR12_1X12;
 +		mf->field = V4L2_FIELD_NONE;
 +		mf->colorspace = V4L2_COLORSPACE_RAW;
 +		mf->quantization = V4L2_QUANTIZATION_FULL_RANGE;
@@ -191,63 +188,61 @@ index 000000000000..46520edb7f35
 +	return 0;
 +}
 +
-+static int ox03c10_set_fmt(struct v4l2_subdev *sd,
++static int os04c10_set_fmt(struct v4l2_subdev *sd,
 +			    struct v4l2_subdev_state *sd_state,
 +			    struct v4l2_subdev_format *fmt)
 +{
-+	/* only one mode, force it */
-+	fmt->format.width = OX03C10_NATIVE_WIDTH;
-+	fmt->format.height = OX03C10_NATIVE_HEIGHT;
-+	fmt->format.code = MEDIA_BUS_FMT_SGRBG12_1X12;
++	fmt->format.width = OS04C10_NATIVE_WIDTH;
++	fmt->format.height = OS04C10_NATIVE_HEIGHT;
++	fmt->format.code = MEDIA_BUS_FMT_SBGGR12_1X12;
 +	fmt->format.field = V4L2_FIELD_NONE;
 +	fmt->format.colorspace = V4L2_COLORSPACE_RAW;
 +	fmt->format.quantization = V4L2_QUANTIZATION_FULL_RANGE;
 +	fmt->format.xfer_func = V4L2_XFER_FUNC_NONE;
 +
-+	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY) {
++	if (fmt->which == V4L2_SUBDEV_FORMAT_TRY)
 +		*v4l2_subdev_state_get_format(sd_state, fmt->pad) = fmt->format;
-+	}
++
 +	return 0;
 +}
 +
-+static int ox03c10_enum_mbus_code(struct v4l2_subdev *sd,
++static int os04c10_enum_mbus_code(struct v4l2_subdev *sd,
 +				   struct v4l2_subdev_state *sd_state,
 +				   struct v4l2_subdev_mbus_code_enum *code)
 +{
 +	if (code->index > 0)
 +		return -EINVAL;
-+	code->code = MEDIA_BUS_FMT_SGRBG12_1X12;
++	code->code = MEDIA_BUS_FMT_SBGGR12_1X12;
 +	return 0;
 +}
 +
-+static int ox03c10_enum_frame_size(struct v4l2_subdev *sd,
++static int os04c10_enum_frame_size(struct v4l2_subdev *sd,
 +				    struct v4l2_subdev_state *sd_state,
 +				    struct v4l2_subdev_frame_size_enum *fse)
 +{
-+	if (fse->index > 0 || fse->code != MEDIA_BUS_FMT_SGRBG12_1X12)
++	if (fse->index > 0 || fse->code != MEDIA_BUS_FMT_SBGGR12_1X12)
 +		return -EINVAL;
-+	fse->min_width = OX03C10_NATIVE_WIDTH;
-+	fse->max_width = OX03C10_NATIVE_WIDTH;
-+	fse->min_height = OX03C10_NATIVE_HEIGHT;
-+	fse->max_height = OX03C10_NATIVE_HEIGHT;
++	fse->min_width = OS04C10_NATIVE_WIDTH;
++	fse->max_width = OS04C10_NATIVE_WIDTH;
++	fse->min_height = OS04C10_NATIVE_HEIGHT;
++	fse->max_height = OS04C10_NATIVE_HEIGHT;
 +	return 0;
 +}
 +
-+static int ox03c10_init_state(struct v4l2_subdev *sd,
++static int os04c10_init_state(struct v4l2_subdev *sd,
 +			       struct v4l2_subdev_state *sd_state)
 +{
 +	struct v4l2_mbus_framefmt *mf =
 +		v4l2_subdev_state_get_format(sd_state, 0);
-+	mf->width = OX03C10_NATIVE_WIDTH;
-+	mf->height = OX03C10_NATIVE_HEIGHT;
-+	mf->code = MEDIA_BUS_FMT_SGRBG12_1X12;
++	mf->width = OS04C10_NATIVE_WIDTH;
++	mf->height = OS04C10_NATIVE_HEIGHT;
++	mf->code = MEDIA_BUS_FMT_SBGGR12_1X12;
 +	mf->field = V4L2_FIELD_NONE;
 +	mf->colorspace = V4L2_COLORSPACE_RAW;
 +	return 0;
 +}
 +
-+/* s_stream: power only, no register writes */
-+static int ox03c10_set_stream(struct v4l2_subdev *sd, int enable)
++static int os04c10_set_stream(struct v4l2_subdev *sd, int enable)
 +{
 +	struct i2c_client *client = v4l2_get_subdevdata(sd);
 +
@@ -258,50 +253,50 @@ index 000000000000..46520edb7f35
 +	return 0;
 +}
 +
-+static const struct v4l2_subdev_video_ops ox03c10_video_ops = {
-+	.s_stream = ox03c10_set_stream,
++static const struct v4l2_subdev_video_ops os04c10_video_ops = {
++	.s_stream = os04c10_set_stream,
 +};
 +
-+static const struct v4l2_subdev_pad_ops ox03c10_pad_ops = {
-+	.get_fmt = ox03c10_get_fmt,
-+	.set_fmt = ox03c10_set_fmt,
-+	.enum_mbus_code = ox03c10_enum_mbus_code,
-+	.enum_frame_size = ox03c10_enum_frame_size,
++static const struct v4l2_subdev_pad_ops os04c10_pad_ops = {
++	.get_fmt = os04c10_get_fmt,
++	.set_fmt = os04c10_set_fmt,
++	.enum_mbus_code = os04c10_enum_mbus_code,
++	.enum_frame_size = os04c10_enum_frame_size,
 +};
 +
-+static const struct v4l2_subdev_core_ops ox03c10_core_ops = {
++static const struct v4l2_subdev_core_ops os04c10_core_ops = {
 +	.subscribe_event = v4l2_ctrl_subdev_subscribe_event,
 +	.unsubscribe_event = v4l2_event_subdev_unsubscribe,
-+	.ioctl = ox03c10_ioctl,
++	.ioctl = os04c10_ioctl,
 +};
 +
-+static const struct v4l2_subdev_ops ox03c10_subdev_ops = {
-+	.core = &ox03c10_core_ops,
-+	.video = &ox03c10_video_ops,
-+	.pad = &ox03c10_pad_ops,
++static const struct v4l2_subdev_ops os04c10_subdev_ops = {
++	.core = &os04c10_core_ops,
++	.video = &os04c10_video_ops,
++	.pad = &os04c10_pad_ops,
 +};
 +
-+static const struct media_entity_operations ox03c10_subdev_entity_ops = {
++static const struct media_entity_operations os04c10_subdev_entity_ops = {
 +	.link_validate = v4l2_subdev_link_validate,
 +};
 +
-+static const struct v4l2_subdev_internal_ops ox03c10_internal_ops = {
-+	.init_state = ox03c10_init_state,
++static const struct v4l2_subdev_internal_ops os04c10_internal_ops = {
++	.init_state = os04c10_init_state,
 +};
 +
 +/* --- Power management --- */
 +
-+static int ox03c10_power_on(struct device *dev)
++static int os04c10_power_on(struct device *dev)
 +{
 +	struct i2c_client *client = to_i2c_client(dev);
 +	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-+	struct ox03c10 *sensor = to_ox03c10(sd);
++	struct os04c10 *sensor = to_os04c10(sd);
 +	int ret;
 +
 +	if (sensor->reset_gpio)
 +		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
 +
-+	ret = regulator_bulk_enable(ARRAY_SIZE(ox03c10_supplies),
++	ret = regulator_bulk_enable(ARRAY_SIZE(os04c10_supplies),
 +				    sensor->supplies);
 +	if (ret) {
 +		dev_err(sensor->dev, "Failed to enable regulators\n");
@@ -317,7 +312,6 @@ index 000000000000..46520edb7f35
 +	if (sensor->reset_gpio)
 +		gpiod_set_value_cansleep(sensor->reset_gpio, 0);
 +
-+	/* Wait for sensor to come out of reset */
 +	fsleep(30000);
 +
 +	sensor->powered = true;
@@ -326,16 +320,16 @@ index 000000000000..46520edb7f35
 +error_regulators:
 +	if (sensor->reset_gpio)
 +		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
-+	regulator_bulk_disable(ARRAY_SIZE(ox03c10_supplies),
++	regulator_bulk_disable(ARRAY_SIZE(os04c10_supplies),
 +			       sensor->supplies);
 +	return ret;
 +}
 +
-+static int ox03c10_power_off(struct device *dev)
++static int os04c10_power_off(struct device *dev)
 +{
 +	struct i2c_client *client = to_i2c_client(dev);
 +	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-+	struct ox03c10 *sensor = to_ox03c10(sd);
++	struct os04c10 *sensor = to_os04c10(sd);
 +
 +	if (!sensor->powered)
 +		return 0;
@@ -344,41 +338,40 @@ index 000000000000..46520edb7f35
 +	if (sensor->reset_gpio)
 +		gpiod_set_value_cansleep(sensor->reset_gpio, 1);
 +	clk_disable_unprepare(sensor->clk);
-+	regulator_bulk_disable(ARRAY_SIZE(ox03c10_supplies),
++	regulator_bulk_disable(ARRAY_SIZE(os04c10_supplies),
 +			       sensor->supplies);
-+
 +	return 0;
 +}
 +
 +/* --- Probe --- */
 +
-+static int ox03c10_identify_module(struct ox03c10 *sensor)
++static int os04c10_identify_module(struct os04c10 *sensor)
 +{
 +	struct i2c_client *client = v4l2_get_subdevdata(&sensor->sd);
 +	u64 val_h, val_l;
 +	int ret;
 +
-+	ret = cci_read(sensor->cci, OX03C10_REG_CHIP_ID_H, &val_h, NULL);
++	ret = cci_read(sensor->cci, OS04C10_REG_CHIP_ID_H, &val_h, NULL);
 +	if (ret)
 +		return ret;
 +
-+	ret = cci_read(sensor->cci, OX03C10_REG_CHIP_ID_L, &val_l, NULL);
++	ret = cci_read(sensor->cci, OS04C10_REG_CHIP_ID_L, &val_l, NULL);
 +	if (ret)
 +		return ret;
 +
-+	if (val_h != OX03C10_CHIP_ID_H || val_l != OX03C10_CHIP_ID_L) {
++	if (val_h != OS04C10_CHIP_ID_H || val_l != OS04C10_CHIP_ID_L) {
 +		dev_err(&client->dev,
 +			"chip id mismatch: expected %02x%02x, got %02llx%02llx\n",
-+			OX03C10_CHIP_ID_H, OX03C10_CHIP_ID_L, val_h, val_l);
++			OS04C10_CHIP_ID_H, OS04C10_CHIP_ID_L, val_h, val_l);
 +		return -ENXIO;
 +	}
 +
-+	dev_info(&client->dev, "OX03C10 chip ID verified: 0x%02llx%02llx\n",
++	dev_info(&client->dev, "OS04C10 chip ID verified: 0x%02llx%02llx\n",
 +		 val_h, val_l);
 +	return 0;
 +}
 +
-+static int ox03c10_parse_hw_config(struct ox03c10 *sensor)
++static int os04c10_parse_hw_config(struct os04c10 *sensor)
 +{
 +	struct fwnode_handle *endpoint;
 +	struct v4l2_fwnode_endpoint ep_cfg = {
@@ -396,11 +389,11 @@ index 000000000000..46520edb7f35
 +	if (IS_ERR(sensor->reset_gpio))
 +		return PTR_ERR(sensor->reset_gpio);
 +
-+	for (i = 0; i < ARRAY_SIZE(ox03c10_supplies); i++)
-+		sensor->supplies[i].supply = ox03c10_supplies[i];
++	for (i = 0; i < ARRAY_SIZE(os04c10_supplies); i++)
++		sensor->supplies[i].supply = os04c10_supplies[i];
 +
 +	ret = devm_regulator_bulk_get(sensor->dev,
-+				      ARRAY_SIZE(ox03c10_supplies),
++				      ARRAY_SIZE(os04c10_supplies),
 +				      sensor->supplies);
 +	if (ret)
 +		return dev_err_probe(sensor->dev, ret,
@@ -420,8 +413,8 @@ index 000000000000..46520edb7f35
 +
 +	ret = v4l2_link_freq_to_bitmap(sensor->dev, ep_cfg.link_frequencies,
 +				       ep_cfg.nr_of_link_frequencies,
-+				       ox03c10_link_freq_menu,
-+				       ARRAY_SIZE(ox03c10_link_freq_menu),
++				       os04c10_link_freq_menu,
++				       ARRAY_SIZE(os04c10_link_freq_menu),
 +				       &sensor->link_freq_bitmap);
 +
 +error_out:
@@ -430,9 +423,9 @@ index 000000000000..46520edb7f35
 +	return ret;
 +}
 +
-+static int ox03c10_probe(struct i2c_client *client)
++static int os04c10_probe(struct i2c_client *client)
 +{
-+	struct ox03c10 *sensor;
++	struct os04c10 *sensor;
 +	int ret;
 +
 +	sensor = devm_kzalloc(&client->dev, sizeof(*sensor), GFP_KERNEL);
@@ -446,37 +439,36 @@ index 000000000000..46520edb7f35
 +		return dev_err_probe(sensor->dev, PTR_ERR(sensor->cci),
 +				     "Failed to initialize CCI\n");
 +
-+	v4l2_i2c_subdev_init(&sensor->sd, client, &ox03c10_subdev_ops);
++	v4l2_i2c_subdev_init(&sensor->sd, client, &os04c10_subdev_ops);
 +
-+	ret = ox03c10_parse_hw_config(sensor);
++	ret = os04c10_parse_hw_config(sensor);
 +	if (ret)
 +		return ret;
 +
-+	ret = ox03c10_power_on(sensor->dev);
++	ret = os04c10_power_on(sensor->dev);
 +	if (ret)
 +		return dev_err_probe(sensor->dev, ret,
 +				     "Could not power on the device\n");
 +
-+	ret = ox03c10_identify_module(sensor);
++	ret = os04c10_identify_module(sensor);
 +	if (ret) {
 +		dev_err(&client->dev, "failed to find sensor: %d\n", ret);
 +		goto error_power_off;
 +	}
 +
-+	/* Minimal controls: link_freq and pixel_rate for CSIPHY configuration */
 +	v4l2_ctrl_handler_init(&sensor->ctrl_handler, 2);
 +
 +	sensor->link_freq = v4l2_ctrl_new_int_menu(
 +		&sensor->ctrl_handler, NULL, V4L2_CID_LINK_FREQ,
-+		ARRAY_SIZE(ox03c10_link_freq_menu) - 1, 0,
-+		ox03c10_link_freq_menu);
++		ARRAY_SIZE(os04c10_link_freq_menu) - 1, 0,
++		os04c10_link_freq_menu);
 +	if (sensor->link_freq)
 +		sensor->link_freq->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 +
 +	sensor->pixel_rate = v4l2_ctrl_new_std(
 +		&sensor->ctrl_handler, NULL, V4L2_CID_PIXEL_RATE,
-+		OX03C10_PIXEL_RATE, OX03C10_PIXEL_RATE, 1,
-+		OX03C10_PIXEL_RATE);
++		OS04C10_PIXEL_RATE, OS04C10_PIXEL_RATE, 1,
++		OS04C10_PIXEL_RATE);
 +	if (sensor->pixel_rate)
 +		sensor->pixel_rate->flags |= V4L2_CTRL_FLAG_READ_ONLY;
 +
@@ -488,10 +480,10 @@ index 000000000000..46520edb7f35
 +
 +	sensor->sd.ctrl_handler = &sensor->ctrl_handler;
 +
-+	sensor->sd.internal_ops = &ox03c10_internal_ops;
++	sensor->sd.internal_ops = &os04c10_internal_ops;
 +	sensor->sd.flags |=
 +		V4L2_SUBDEV_FL_HAS_DEVNODE | V4L2_SUBDEV_FL_HAS_EVENTS;
-+	sensor->sd.entity.ops = &ox03c10_subdev_entity_ops;
++	sensor->sd.entity.ops = &os04c10_subdev_entity_ops;
 +	sensor->sd.entity.function = MEDIA_ENT_F_CAM_SENSOR;
 +
 +	sensor->pad.flags = MEDIA_PAD_FL_SOURCE;
@@ -531,14 +523,14 @@ index 000000000000..46520edb7f35
 +	v4l2_ctrl_handler_free(sensor->sd.ctrl_handler);
 +
 +error_power_off:
-+	ox03c10_power_off(sensor->dev);
++	os04c10_power_off(sensor->dev);
 +	return ret;
 +}
 +
-+static void ox03c10_remove(struct i2c_client *client)
++static void os04c10_remove(struct i2c_client *client)
 +{
 +	struct v4l2_subdev *sd = i2c_get_clientdata(client);
-+	struct ox03c10 *sensor = to_ox03c10(sd);
++	struct os04c10 *sensor = to_os04c10(sd);
 +
 +	v4l2_async_unregister_subdev(sd);
 +	v4l2_subdev_cleanup(sd);
@@ -547,32 +539,32 @@ index 000000000000..46520edb7f35
 +
 +	pm_runtime_disable(&client->dev);
 +	if (!pm_runtime_status_suspended(&client->dev))
-+		ox03c10_power_off(&client->dev);
++		os04c10_power_off(&client->dev);
 +	pm_runtime_set_suspended(&client->dev);
 +}
 +
-+static const struct of_device_id ox03c10_of_match[] = {
-+	{ .compatible = "ovti,ox03c10" },
++static const struct of_device_id os04c10_of_match[] = {
++	{ .compatible = "ovti,os04c10" },
 +	{}
 +};
-+MODULE_DEVICE_TABLE(of, ox03c10_of_match);
++MODULE_DEVICE_TABLE(of, os04c10_of_match);
 +
-+static const struct dev_pm_ops ox03c10_pm_ops = {
-+	SET_RUNTIME_PM_OPS(ox03c10_power_off, ox03c10_power_on, NULL)
++static const struct dev_pm_ops os04c10_pm_ops = {
++	SET_RUNTIME_PM_OPS(os04c10_power_off, os04c10_power_on, NULL)
 +};
 +
-+static struct i2c_driver ox03c10_i2c_driver = {
++static struct i2c_driver os04c10_i2c_driver = {
 +	.driver = {
-+		.name = "ox03c10",
-+		.of_match_table = of_match_ptr(ox03c10_of_match),
-+		.pm = &ox03c10_pm_ops,
++		.name = "os04c10",
++		.of_match_table = of_match_ptr(os04c10_of_match),
++		.pm = &os04c10_pm_ops,
 +	},
-+	.probe = ox03c10_probe,
-+	.remove = ox03c10_remove,
++	.probe = os04c10_probe,
++	.remove = os04c10_remove,
 +};
 +
-+module_i2c_driver(ox03c10_i2c_driver);
++module_i2c_driver(os04c10_i2c_driver);
 +
-+MODULE_DESCRIPTION("OmniVision OX03C10 sensor driver");
++MODULE_DESCRIPTION("OmniVision OS04C10 sensor driver");
 +MODULE_AUTHOR("Andrei Radulescu <andi.radulescu@gmail.com>");
 +MODULE_LICENSE("GPL");
