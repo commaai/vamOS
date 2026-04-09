@@ -33,7 +33,9 @@ seed_kernel_workspace() {
 }
 
 setup() {
-  git -C "$DIR" submodule update --init --depth 1
+  if ! git -C "$DIR/kernel/linux" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$DIR" submodule update --init --depth 1
+  fi
   if [ "$(uname)" = "Darwin" ]; then
     export DOCKER_BUILDKIT=1
     docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
