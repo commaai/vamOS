@@ -23,7 +23,6 @@ DTS_FILES=(
 HOST_OS="$(uname)"
 KERNEL_LINUX_VOLUME="vamos-kernel-linux"
 CCACHE_VOLUME="vamos-kernel-ccache"
-KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
 CONTAINER_ID=""
 
 prepare_ccache_volume() {
@@ -47,6 +46,8 @@ kernel_workspace_ready() {
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
   "$DIR/vamos" setup
 fi
+
+KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
 
 # Build docker container
 echo "Building vamos-builder docker image"
