@@ -39,7 +39,7 @@ prepare_ccache_volume() {
 
 kernel_workspace_ready() {
   docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
-    -lc "test -f /linux/Makefile && test \"\$(cat /linux/.vamos-kernel-rev 2>/dev/null)\" = \"$KERNEL_REV\"" \
+    -lc "test -f /linux/Makefile && test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
     >/dev/null
 }
 

@@ -8,6 +8,16 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")/.." >/dev/null && pwd)"
 
+prepare_kernel_volume() {
+  local linux_volume prep_container_id
+
+  linux_volume="vamos-kernel-linux"
+  prep_container_id=$(docker run -d --entrypoint tail -v "$linux_volume:/linux" vamos-builder -f /dev/null)
+
+  docker exec "$prep_container_id" sh -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
+  docker container rm -f "$prep_container_id" >/dev/null
+}
+
 seed_kernel_workspace() {
   local linux_volume sync_container_id kernel_rev
 
@@ -15,12 +25,10 @@ seed_kernel_workspace() {
   kernel_rev="$(git -C "$DIR/kernel/linux" rev-parse HEAD)"
 
   echo "Syncing kernel/linux into Docker volume"
-  sync_container_id=$(docker run -d --entrypoint tail -v "$linux_volume:/linux" vamos-builder -f /dev/null)
+  sync_container_id=$(docker run -d --entrypoint tail -v "$DIR:/repo:ro" -v "$linux_volume:/linux" vamos-builder -f /dev/null)
 
   docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
-
-  tar -C "$DIR/kernel/linux" -cf - . | docker exec -i "$sync_container_id" tar -xf - -C /linux
-  docker exec "$sync_container_id" sh -lc "printf '%s\n' '$kernel_rev' > /linux/.vamos-kernel-rev"
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone --no-local /repo/kernel/linux . >/dev/null 2>&1 && git checkout --force '$kernel_rev' >/dev/null 2>&1"
   docker container rm -f "$sync_container_id" >/dev/null
 }
 
@@ -33,6 +41,7 @@ setup() {
       --build-arg UID="$(id -u)" \
       --build-arg GID="$(id -g)"
     docker volume create "vamos-kernel-linux" >/dev/null
+    prepare_kernel_volume
     seed_kernel_workspace
   fi
   if [ "$(uname)" = "Linux" ]; then
