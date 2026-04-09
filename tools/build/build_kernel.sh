@@ -25,6 +25,27 @@ KERNEL_LINUX_VOLUME="vamos-kernel-linux"
 CCACHE_VOLUME="vamos-kernel-ccache"
 CONTAINER_ID=""
 
+prepare_kernel_volume() {
+  local prep_container_id
+
+  docker volume create "$KERNEL_LINUX_VOLUME" >/dev/null
+  prep_container_id=$(docker run -d --entrypoint tail -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
+
+  docker exec "$prep_container_id" sh -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
+  docker container rm -f "$prep_container_id" >/dev/null
+}
+
+seed_kernel_workspace() {
+  local sync_container_id
+
+  echo "Syncing kernel/linux into Docker volume"
+  sync_container_id=$(docker run -d --entrypoint tail -v "$DIR:/repo:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
+
+  docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone --no-local /repo/kernel/linux . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
+  docker container rm -f "$sync_container_id" >/dev/null
+}
+
 prepare_ccache_volume() {
   if ! docker volume inspect "$CCACHE_VOLUME" >/dev/null 2>&1; then
     docker volume create "$CCACHE_VOLUME" >/dev/null
@@ -38,7 +59,7 @@ prepare_ccache_volume() {
 
 kernel_workspace_ready() {
   docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
-    -lc "test -f /linux/Makefile && test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
+    -lc "test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
     >/dev/null
 }
 
@@ -60,8 +81,9 @@ docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
 echo "Starting vamos-builder container"
 if [ "$HOST_OS" = "Darwin" ]; then
   if ! kernel_workspace_ready; then
-    echo "Kernel workspace volume is missing or uninitialized; running ./vamos setup"
-    "$DIR/vamos" setup
+    echo "Kernel workspace volume is missing, uninitialized, or out of date; reseeding"
+    prepare_kernel_volume
+    seed_kernel_workspace
   fi
   prepare_ccache_volume
   CONTAINER_ID=$(docker run -d \
