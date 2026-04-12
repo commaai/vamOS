@@ -26,13 +26,12 @@ CCACHE_VOLUME="vamos-kernel-ccache"
 CONTAINER_ID=""
 
 prepare_kernel_volume() {
-  local prep_container_id
-
   docker volume create "$KERNEL_LINUX_VOLUME" >/dev/null
-  prep_container_id=$(docker run -d --entrypoint tail -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
-
-  docker exec "$prep_container_id" sh -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
-  docker container rm -f "$prep_container_id" >/dev/null
+  docker run --rm \
+    --entrypoint sh \
+    -v "$KERNEL_LINUX_VOLUME:/linux" \
+    vamos-builder \
+    -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
 }
 
 seed_kernel_workspace() {
@@ -42,6 +41,7 @@ seed_kernel_workspace() {
   sync_container_id=$(docker run -d --entrypoint tail -v "$DIR:/repo:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
 
   docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
+  # Force pack-based transfer from the macOS bind mount into the Docker volume.
   docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone --no-local /repo/kernel/linux . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
   docker container rm -f "$sync_container_id" >/dev/null
 }
@@ -58,6 +58,7 @@ prepare_ccache_volume() {
 }
 
 kernel_workspace_ready() {
+  docker volume inspect "$KERNEL_LINUX_VOLUME" >/dev/null 2>&1 || return 1
   docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
     -lc "test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
     >/dev/null
