@@ -7,7 +7,6 @@ cd "$DIR"
 TOOLS="$DIR/tools/bin"
 KERNEL_DIR="$DIR/kernel/linux"
 PATCHES_DIR="$DIR/kernel/patches"
-KBUILD_OUT="$DIR/build/kernel-out"
 TMP_DIR="$DIR/build/tmp-kernel"
 OUT_DIR="$DIR/build"
 BOOT_IMG=./boot.img
@@ -21,19 +20,90 @@ DTS_FILES=(
   "$DIR/kernel/dts/sdm845-comma-tizi.dts"
 )
 
+HOST_OS="$(uname)"
+KERNEL_LINUX_VOLUME="vamos-kernel-linux"
+CCACHE_VOLUME="vamos-kernel-ccache"
+CONTAINER_ID=""
+
+prepare_kernel_volume() {
+  docker volume create "$KERNEL_LINUX_VOLUME" >/dev/null
+  docker run --rm \
+    --entrypoint sh \
+    -v "$KERNEL_LINUX_VOLUME:/linux" \
+    vamos-builder \
+    -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
+}
+
+seed_kernel_workspace() {
+  local sync_container_id
+
+  echo "Syncing kernel/linux into Docker volume"
+  sync_container_id=$(docker run -d --entrypoint tail -v "$DIR:/repo:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
+
+  docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
+  # Force pack-based transfer from the macOS bind mount into the Docker volume.
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone --no-local /repo/kernel/linux . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
+  docker container rm -f "$sync_container_id" >/dev/null
+}
+
+prepare_ccache_volume() {
+  if ! docker volume inspect "$CCACHE_VOLUME" >/dev/null 2>&1; then
+    docker volume create "$CCACHE_VOLUME" >/dev/null
+    docker run --rm \
+      --entrypoint sh \
+      -v "$CCACHE_VOLUME:/ccache" \
+      vamos-builder \
+      -lc "mkdir -p /ccache && chown $(id -u):$(id -g) /ccache && chmod 0775 /ccache"
+  fi
+}
+
+kernel_workspace_ready() {
+  docker volume inspect "$KERNEL_LINUX_VOLUME" >/dev/null 2>&1 || return 1
+  docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
+    -lc "test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
+    >/dev/null
+}
+
 # Check submodule initted, need to run setup
 if [ ! -f "$KERNEL_DIR/Makefile" ]; then
   "$DIR/vamos" setup
 fi
 
-clean_kernel_tree() {
-  git -C "$KERNEL_DIR" reset --hard HEAD >/dev/null 2>&1 || true
-  git -C "$KERNEL_DIR" clean -fd >/dev/null 2>&1 || true
-}
+KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
+
+# Build docker container
+echo "Building vamos-builder docker image"
+export DOCKER_BUILDKIT=1
+docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
+  --build-arg UNAME="$(id -nu)" \
+  --build-arg UID="$(id -u)" \
+  --build-arg GID="$(id -g)"
+
+echo "Starting vamos-builder container"
+if [ "$HOST_OS" = "Darwin" ]; then
+  if ! kernel_workspace_ready; then
+    echo "Kernel workspace volume is missing, uninitialized, or out of date; reseeding"
+    prepare_kernel_volume
+    seed_kernel_workspace
+  fi
+  prepare_ccache_volume
+  CONTAINER_ID=$(docker run -d \
+    -u "$(id -u):$(id -g)" \
+    -v "$DIR":"$DIR" \
+    -v "$KERNEL_LINUX_VOLUME:$KERNEL_DIR" \
+    -v "$CCACHE_VOLUME:/ccache" \
+    -w "$DIR" \
+    vamos-builder)
+else
+  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
+fi
+
+trap cleanup EXIT
 
 apply_patches() {
   cd "$KERNEL_DIR"
 
+  # Reset submodule to committed state for deterministic builds
   echo "-- Resetting kernel submodule to clean state --"
   clean_kernel_tree
 
@@ -45,27 +115,12 @@ apply_patches() {
       git apply --whitespace=error "$patch"
     done
   fi
-
-  cd "$DIR"
 }
 
-# Reset kernel source and apply patches before starting container
-apply_patches
-
-# Build docker container
-echo "Building vamos-builder docker image"
-export DOCKER_BUILDKIT=1
-docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
-  --build-arg UNAME="$(id -nu)" \
-  --build-arg UID="$(id -u)" \
-  --build-arg GID="$(id -g)"
-
-echo "Starting vamos-builder container"
-CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
-
-trap cleanup EXIT
-
 build_kernel() {
+  # Apply patches to kernel tree
+  apply_patches
+
   # Install the device tree files
   install_dts
 
@@ -76,38 +131,35 @@ build_kernel() {
     export CROSS_COMPILE=aarch64-none-elf-
   fi
 
-  # ccache (use CC= directly instead of PATH symlinks for reliability)
-  export CCACHE_DIR="$DIR/.ccache"
-  if [ -n "$CROSS_COMPILE" ]; then
-    CC_CMD="ccache ${CROSS_COMPILE}gcc"
+  # ccache
+  if [ "$HOST_OS" = "Darwin" ]; then
+    export CCACHE_DIR="/ccache"
   else
-    CC_CMD="ccache gcc"
+    export CCACHE_DIR="$DIR/.ccache"
   fi
+  export PATH="/usr/lib/ccache/bin:$PATH"
 
   # Reproducible builds
   export KBUILD_BUILD_USER="vamos"
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
-  
+
   GIT_REV="$(git -C $DIR rev-parse --short HEAD)"
   export LOCALVERSION="-vamos-$GIT_REV"
 
   # Build kernel
   cd "$KERNEL_DIR"
 
-  mkdir -p "$KBUILD_OUT"
-
   echo "-- Loading base config $BASE_DEFCONFIG --"
-  make CC="$CC_CMD" O="$KBUILD_OUT" "$BASE_DEFCONFIG"
+  make O=out "$BASE_DEFCONFIG"
 
   echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
-  KCONFIG_CONFIG="$KBUILD_OUT/.config" \
+  KCONFIG_CONFIG=out/.config \
     bash scripts/kconfig/merge_config.sh \
-    -m "$KBUILD_OUT/.config" "$CONFIG_FRAGMENT"
-  # Point EXTRA_FIRMWARE_DIR to our firmware directory so the kernel build
-  # can find the blobs without symlinking into the kernel tree
-  echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> "$KBUILD_OUT/.config"
-  make CC="$CC_CMD" O="$KBUILD_OUT" olddefconfig
+    -m -y out/.config "$CONFIG_FRAGMENT"
+  # Point EXTRA_FIRMWARE_DIR to our firmware directory
+  echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
+  make olddefconfig O=out
 
   local dtb_targets=()
   local dts_name
@@ -119,16 +171,16 @@ build_kernel() {
   done
 
   echo "-- Building kernel with $(nproc) cores --"
-  make CC="$CC_CMD" -j$(nproc) O="$KBUILD_OUT" Image.gz "${dtb_targets[@]}"
+  make -j$(nproc) O=out Image.gz "${dtb_targets[@]}"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
   IMAGE_GZ_DTB="$TMP_DIR/Image.gz-dtb"
-  cp "$KBUILD_OUT/arch/arm64/boot/Image.gz" "$IMAGE_GZ_DTB"
+  cp out/arch/arm64/boot/Image.gz "$IMAGE_GZ_DTB"
 
   for dts in "${DTS_FILES[@]}"; do
     dts_name="$(basename "$dts")"
-    dtb_path="$KBUILD_OUT/arch/arm64/boot/dts/qcom/${dts_name%.dts}.dtb"
+    dtb_path="out/arch/arm64/boot/dts/qcom/${dts_name%.dts}.dtb"
     cat "$dtb_path" >> "$IMAGE_GZ_DTB"
   done
 
@@ -161,10 +213,23 @@ build_kernel() {
   ls -lh "$OUT_DIR/boot.img"
 }
 
+clean_kernel_tree() {
+  git -C "$KERNEL_DIR" reset --hard HEAD >/dev/null 2>&1 || true
+  git -C "$KERNEL_DIR" clean -fd >/dev/null 2>&1 || true
+}
+
 cleanup() {
   echo "Cleaning up container and kernel tree..."
 
-  clean_kernel_tree
+  if [ "$HOST_OS" = "Darwin" ]; then
+    docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash >/dev/null 2>&1 <<EOF || true
+$(declare -f clean_kernel_tree)
+KERNEL_DIR='$KERNEL_DIR'
+clean_kernel_tree
+EOF
+  else
+    clean_kernel_tree
+  fi
 
   docker container rm -f "${CONTAINER_ID:-}" >/dev/null 2>&1 || true
   rm -rf "$TMP_DIR"
@@ -185,6 +250,7 @@ install_dts() {
 docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash <<EOF
 set -e
 
+HOST_OS='$HOST_OS'
 BASE_DEFCONFIG='$BASE_DEFCONFIG'
 CONFIG_FRAGMENT='$CONFIG_FRAGMENT'
 COMMON_DTSI='$COMMON_DTSI'
@@ -192,7 +258,6 @@ DIR='$DIR'
 TOOLS='$TOOLS'
 KERNEL_DIR='$KERNEL_DIR'
 PATCHES_DIR='$PATCHES_DIR'
-KBUILD_OUT='$KBUILD_OUT'
 TMP_DIR='$TMP_DIR'
 OUT_DIR='$OUT_DIR'
 BOOT_IMG='$BOOT_IMG'
@@ -206,7 +271,9 @@ DTS_FILES=(
 git config --global --add safe.directory '$DIR'
 git config --global --add safe.directory '$KERNEL_DIR'
 
+$(declare -f apply_patches)
 $(declare -f build_kernel)
+$(declare -f clean_kernel_tree)
 $(declare -f install_dts)
 
 build_kernel
