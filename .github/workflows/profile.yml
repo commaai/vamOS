@@ -29,6 +29,16 @@ jobs:
           wait-interval: 20
           checks-discovery-timeout: 300
 
+      - name: wait for kernel build
+        uses: lewagon/wait-on-check-action@v1.6.0
+        with:
+          ref: ${{ env.SHA }}
+          check-name: build-kernel
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          allowed-conclusions: success
+          wait-interval: 20
+          checks-discovery-timeout: 300
+
       - name: get build run ID
         id: get_run_id
         env:
@@ -47,6 +57,14 @@ jobs:
           name: rootfs-profile
           path: build/
 
+      - name: download kernel profile
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          run_id: ${{ steps.get_run_id.outputs.run_id }}
+          name: kernel-profile
+          path: build/
+
       - name: download master baseline
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -56,21 +74,39 @@ jobs:
             --status=success --limit=1 --json databaseId --jq '.[0].databaseId')
           if [ -n "$RUN_ID" ]; then
             gh run download "$RUN_ID" --name rootfs-profile --dir baseline/ || true
+            gh run download "$RUN_ID" --name kernel-profile --dir baseline/ || true
           fi
 
       - name: post PR comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
-          PROFILE_MD=$(cat build/rootfs-profile.md)
+          ROOTFS_DIFF_MD=$(./vamos profile diff baseline/rootfs-profile.json build/rootfs-profile.json 2>/dev/null || echo "No baseline available")
+          ROOTFS_PROFILE_MD=$(cat build/rootfs-profile.md)
+          KERNEL_DIFF_MD=$(./vamos profile kernel diff baseline/kernel-profile.json build/kernel-profile.json 2>/dev/null || echo "No baseline available")
+          KERNEL_PROFILE_MD=$(cat build/kernel-profile.md)
 
-          printf -v COMMENT_BODY '%s\n%s\n\n%s\n%s\n\n---\n\n%s' \
-            '<!-- rootfs-profile-bot -->' \
-            '## vamOS System Profile' \
-            '### Changes vs master' \
-            "$DIFF_MD" \
-            "$PROFILE_MD"
+          COMMENT_BODY=$(cat <<EOF
+<!-- rootfs-profile-bot -->
+## vamOS Profiles
+
+### System Changes vs master
+$ROOTFS_DIFF_MD
+
+### Kernel Changes vs master
+$KERNEL_DIFF_MD
+
+---
+
+## System Profile Details
+$ROOTFS_PROFILE_MD
+
+---
+
+## Kernel Profile Details
+$KERNEL_PROFILE_MD
+EOF
+          )
 
           COMMENT_ID=$(gh api \
             "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \

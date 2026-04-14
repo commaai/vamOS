@@ -209,6 +209,10 @@ build_kernel() {
   rm -f $BOOT_IMG.nonsecure $BOOT_IMG.sha256 $BOOT_IMG.sig $BOOT_IMG.sig.padded
 
   mv $BOOT_IMG "$OUT_DIR/"
+
+  echo "-- Collecting kernel profile --"
+  bash "$DIR/tools/profile/kernel.sh"
+
   echo "-- Done! boot.img: $OUT_DIR/boot.img --"
   ls -lh "$OUT_DIR/boot.img"
 }

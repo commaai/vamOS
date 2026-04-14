@@ -42,7 +42,15 @@ case "${1:-}" in
     esac ;;
   profile)
     shift
-    exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+    case "${1:-}" in
+      kernel)
+        shift
+        exec bash "$DIR/tools/profile/kernel.sh" "$@" ;;
+      ""|diff)
+        exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+      *)
+        exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+    esac ;;
   *)
     echo "Usage: vamos <setup|build|flash|profile>"
     echo ""
@@ -54,6 +62,12 @@ case "${1:-}" in
     echo "  flash firmware     Flash firmware partitions to device via EDL"
     echo "  flash gpt          Flash GPT partition tables to device via EDL"
     echo "  flash all          Flash gpt + firmware + kernel + system"
-    echo "  profile [diff]     Profile rootfs or diff two profiles"
+    echo "  profile            Collect a rootfs profile"
+    echo "  profile diff <baseline_json> <current_json>"
+    echo "                     Diff two rootfs profiles"
+    echo "  profile kernel"
+    echo "                     Collect a kernel profile"
+    echo "  profile kernel diff <baseline_json> <current_json>"
+    echo "                     Diff two kernel profiles"
     exit 1 ;;
 esac
