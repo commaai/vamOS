@@ -74,7 +74,7 @@ format_bytes() {
   '
 }
 
-fmt_binary_bytes() {
+format_delta_bytes() {
   local bytes=${1:-0}
   local abs=$bytes
   local sign=""
@@ -86,10 +86,6 @@ fmt_binary_bytes() {
   fi
 
   format_bytes "$abs" "$sign"
-}
-
-fmt_bytes() {
-  format_bytes "${1:-0}"
 }
 
 fmt_percent_change() {
@@ -177,7 +173,7 @@ rows_with_display_delta() {
   echo "$rows_json" | jq -r '.[] | [.label, (.delta | tostring)] | @tsv' | while IFS=$'\t' read -r label delta; do
     printf '{"label":%s,"display_delta":%s}\n' \
       "$(printf '%s' "$label" | jq -R .)" \
-      "$(printf '%s' "$(fmt_binary_bytes "$delta")" | jq -R .)"
+      "$(printf '%s' "$(format_delta_bytes "$delta")" | jq -R .)"
   done | jq -s '.'
 }
 
@@ -271,16 +267,16 @@ if [ "${1:-}" != "diff" ]; then
   {
     echo "| Metric | Value |"
     echo "|--------|-------|"
-    echo "| Image | $(fmt_bytes "$image_size") |"
-    echo "| Image.gz | $(fmt_bytes "$image_gz_size") |"
-    echo "| vmlinux | $(fmt_bytes "$vmlinux_size") |"
+    echo "| Image | $(format_bytes "$image_size") |"
+    echo "| Image.gz | $(format_bytes "$image_gz_size") |"
+    echo "| vmlinux | $(format_bytes "$vmlinux_size") |"
     if [ -n "$boot_img_size" ]; then
-      echo "| boot.img | $(fmt_bytes "$boot_img_size") |"
+      echo "| boot.img | $(format_bytes "$boot_img_size") |"
     fi
-    echo "| .text | $(fmt_bytes "$text_size") |"
-    echo "| .rodata | $(fmt_bytes "$rodata_size") |"
-    echo "| .data | $(fmt_bytes "$data_size") |"
-    echo "| .bss | $(fmt_bytes "$bss_size") |"
+    echo "| .text | $(format_bytes "$text_size") |"
+    echo "| .rodata | $(format_bytes "$rodata_size") |"
+    echo "| .data | $(format_bytes "$data_size") |"
+    echo "| .bss | $(format_bytes "$bss_size") |"
     echo "| Objects tracked | $(echo "$OBJECTS_JSON" | jq 'length') |"
     echo ""
     echo "### Largest Objects"
@@ -288,7 +284,7 @@ if [ "${1:-}" != "diff" ]; then
     echo "| Object | Size |"
     echo "|--------|------|"
     echo "$OBJECTS_JSON" | jq -r 'sort_by(.bytes) | reverse | .[:15][] | [.path, (.bytes|tostring)] | @tsv' | while IFS=$'\t' read -r path bytes; do
-      echo "| \`$path\` | $(fmt_bytes "$bytes") |"
+      echo "| \`$path\` | $(format_bytes "$bytes") |"
     done
   } > "$OUTPUT_DIR/kernel-profile.md"
 
@@ -336,7 +332,7 @@ if [ "${1:-}" = "diff" ]; then
   echo "|--------|--------|"
   echo "$metric_rows" | jq -r '.[] | [.label, (.old|tostring), (.new|tostring)] | @tsv' | while IFS=$'\t' read -r label old new; do
     delta=$((new - old))
-    delta_human=$(fmt_binary_bytes "$delta")
+    delta_human=$(format_delta_bytes "$delta")
     pct=$(fmt_percent_change "$old" "$new")
     echo "| $label | $delta_human ($pct) |"
   done

@@ -86,31 +86,29 @@ jobs:
           KERNEL_DIFF_MD=$(./vamos profile kernel diff baseline/kernel-profile.json build/kernel-profile.json 2>/dev/null || echo "No baseline available")
           KERNEL_PROFILE_MD=$(cat build/kernel-profile.md)
 
-          COMMENT_BODY=$(cat <<EOF
-<!-- rootfs-profile-bot -->
-## vamOS Profiles
-
-### System Changes vs master
-$ROOTFS_DIFF_MD
-
-### Kernel Changes vs master
-$KERNEL_DIFF_MD
-
----
-
-## System Profile Details
-$ROOTFS_PROFILE_MD
-
----
-
-## Kernel Profile Details
-$KERNEL_PROFILE_MD
-EOF
-          )
+          COMMENT_BODY=$(printf '%s\n' \
+            '<!-- vamos-profile-bot -->' \
+            '## vamOS Profiles' \
+            '' \
+            '### System Changes vs master' \
+            "$ROOTFS_DIFF_MD" \
+            '' \
+            '### Kernel Changes vs master' \
+            "$KERNEL_DIFF_MD" \
+            '' \
+            '---' \
+            '' \
+            '## System Profile Details' \
+            "$ROOTFS_PROFILE_MD" \
+            '' \
+            '---' \
+            '' \
+            '## Kernel Profile Details' \
+            "$KERNEL_PROFILE_MD")
 
           COMMENT_ID=$(gh api \
             "repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments" \
-            --jq '.[] | select(.body | contains("<!-- rootfs-profile-bot -->")) | .id' \
+            --jq '.[] | select(.body | contains("<!-- vamos-profile-bot -->")) | .id' \
             | head -1)
 
           if [ -n "$COMMENT_ID" ]; then
