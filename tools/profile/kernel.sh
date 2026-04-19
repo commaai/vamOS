@@ -9,6 +9,9 @@ while [ -L "$SOURCE" ]; do
 done
 DIR="$(cd "$(dirname "$SOURCE")/../.." >/dev/null && pwd)"
 
+TOP_OBJECT_DELTAS_LIMIT=10
+TOP_SUBTREE_DELTAS_LIMIT=8
+
 usage() {
   cat <<'EOF'
 Usage:
@@ -170,7 +173,8 @@ emit_top_deltas_table() {
 
 rows_with_display_delta() {
   local rows_json=$1
-  echo "$rows_json" | jq -r '.[] | [.label, (.delta | tostring)] | @tsv' | while IFS=$'\t' read -r label delta; do
+  local limit=$2
+  echo "$rows_json" | jq -r --argjson limit "$limit" '.[:$limit][] | [.label, (.delta | tostring)] | @tsv' | while IFS=$'\t' read -r label delta; do
     printf '{"label":%s,"display_delta":%s}\n' \
       "$(printf '%s' "$label" | jq -R .)" \
       "$(printf '%s' "$(format_delta_bytes "$delta")" | jq -R .)"
@@ -362,8 +366,8 @@ if [ "${1:-}" = "diff" ]; then
     ')
 
   if [ "$(echo "$object_rows" | jq 'length')" -gt 0 ]; then
-    object_rows_with_display=$(rows_with_display_delta "$object_rows")
-    emit_top_deltas_table "Largest Object Deltas" 10 "$object_rows_with_display"
+    object_rows_with_display=$(rows_with_display_delta "$object_rows" "$TOP_OBJECT_DELTAS_LIMIT")
+    emit_top_deltas_table "Largest Object Deltas" "$TOP_OBJECT_DELTAS_LIMIT" "$object_rows_with_display"
   fi
 
   subtree_rows=$(jq -n \
@@ -399,8 +403,8 @@ if [ "${1:-}" = "diff" ]; then
     ')
 
   if [ "$(echo "$subtree_rows" | jq 'length')" -gt 0 ]; then
-    subtree_rows_with_display=$(rows_with_display_delta "$subtree_rows")
-    emit_top_deltas_table "Largest Subtree Deltas" 8 "$subtree_rows_with_display"
+    subtree_rows_with_display=$(rows_with_display_delta "$subtree_rows" "$TOP_SUBTREE_DELTAS_LIMIT")
+    emit_top_deltas_table "Largest Subtree Deltas" "$TOP_SUBTREE_DELTAS_LIMIT" "$subtree_rows_with_display"
   fi
 
   config_rows=$(jq -n --slurpfile old "$BASELINE" --slurpfile new "$CURRENT" '
