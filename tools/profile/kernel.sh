@@ -11,6 +11,7 @@ DIR="$(cd "$(dirname "$SOURCE")/../.." >/dev/null && pwd)"
 
 TOP_OBJECT_DELTAS_LIMIT=10
 TOP_SUBTREE_DELTAS_LIMIT=8
+INLINE_CONFIG_CHANGES_LIMIT=20
 
 usage() {
   cat <<'EOF'
@@ -332,6 +333,8 @@ if [ "${1:-}" = "diff" ]; then
     ]
   ')
 
+  echo "### Size Changes"
+  echo ""
   echo "| Metric | Change |"
   echo "|--------|--------|"
   echo "$metric_rows" | jq -r '.[] | [.label, (.old|tostring), (.new|tostring)] | @tsv' | while IFS=$'\t' read -r label old new; do
@@ -423,16 +426,20 @@ if [ "${1:-}" = "diff" ]; then
   ')
 
   if [ "$(echo "$config_rows" | jq 'length')" -gt 0 ]; then
-    echo "### Config Changes ($(echo "$config_rows" | jq 'length') total)"
+    config_count=$(echo "$config_rows" | jq 'length')
+    if [ "$config_count" -gt "$INLINE_CONFIG_CHANGES_LIMIT" ]; then
+      echo "<details><summary><h3>Config Changes ($config_count total)</h3></summary>"
+    else
+      echo "### Config Changes ($config_count total)"
+    fi
     echo ""
-    echo "| Option | Change |"
-    echo "|--------|--------|"
-    echo "$config_rows" | jq -r '.[0:20][] | [.key, "\(.old) -> \(.new)"] | @tsv' | while IFS=$'\t' read -r key change; do
-      echo "| \`$key\` | $change |"
+    echo "| Option | Before | After |"
+    echo "|--------|--------|-------|"
+    echo "$config_rows" | jq -r '.[] | [.key, .old, .new] | @tsv' | while IFS=$'\t' read -r key old new; do
+      echo "| \`$key\` | $old | $new |"
     done
-    if [ "$(echo "$config_rows" | jq 'length')" -gt 20 ]; then
-      echo ""
-      echo "_Showing first 20 config changes._"
+    if [ "$config_count" -gt "$INLINE_CONFIG_CHANGES_LIMIT" ]; then
+      echo "</details>"
     fi
     echo ""
   fi
