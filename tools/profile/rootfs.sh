@@ -124,17 +124,60 @@ SYMLINK_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type l | wc -l)
 # xbps packages — parse pkgdb plist directly (single XML file with all packages)
 
 PACKAGES_JSON="[]"
+PACKAGE_TREE_JSON="{}"
 PKG_COUNT=0
-PKGDB="$ROOTFS_DIR/usr/lib/xbps-db/pkgdb-0.38.plist"
+PKGDB="$ROOTFS_DIR/var/db/xbps/pkgdb-0.38.plist"
+if ! exec_container test -f "$PKGDB" 2>/dev/null; then
+  PKGDB="$ROOTFS_DIR/usr/lib/xbps-db/pkgdb-0.38.plist"
+fi
 if exec_container test -f "$PKGDB" 2>/dev/null; then
+  # Parse each package: name, auto-install, installed_size, and run_depends
   PACKAGES_RAW=$(exec_container awk '
-    /<key>pkgver<\/key>/ { getline; gsub(/.*<string>|<\/string>.*/, ""); pkgver=$0 }
-    /<key>installed_size<\/key>/ { getline; gsub(/.*<integer>|<\/integer>.*/, ""); if(pkgver) print $0 "\t" pkgver; pkgver="" }
+    BEGIN { depth=0; pkg=""; indeps=0 }
+    /<dict>/ { depth++ }
+    /<\/dict>/ {
+      if(depth==2 && pkg!="") {
+        if(deps) sub(/,$/, "", deps)
+        print pkg "\t" auto "\t" size "\t" deps
+        pkg=""; auto="true"; deps=""; size=0
+      }
+      depth--
+    }
+    depth==1 && /<key>/ {
+      k=$0; gsub(/.*<key>|<\/key>.*/, "", k)
+      if(k != "_XBPS_ALTERNATIVES_") { pkg=k; auto="true"; deps=""; size=0 }
+    }
+    depth==2 && /<key>automatic-install<\/key>/ { getline; auto=($0 ~ /true/) ? "true" : "false" }
+    depth==2 && /<key>installed_size<\/key>/ { getline; s=$0; gsub(/.*<integer>|<\/integer>.*/, "", s); size=s }
+    depth==2 && /<key>run_depends<\/key>/ { indeps=1; next }
+    indeps && /<\/array>/ { indeps=0; next }
+    indeps && /<string>/ {
+      d=$0; gsub(/.*<string>|<\/string>.*/, "", d)
+      gsub(/&[gl]t;.*/, "", d)
+      gsub(/[><=].*/, "", d)
+      if(match(d, /-[0-9]+\.[0-9]/)) d=substr(d, 1, RSTART-1)
+      deps = deps d ","
+    }
   ' "$PKGDB")
   if [ -n "$PACKAGES_RAW" ]; then
-    PACKAGES_JSON=$(echo "$PACKAGES_RAW" | sort -rn | jq -Rn '
-      [inputs | split("\t") | {name: .[1], bytes: (.[0] | tonumber)}]
+    # Build flat packages list (sorted by size desc) and full dependency tree
+    read_output=$(echo "$PACKAGES_RAW" | jq -Rn '
+      [inputs | split("\t") | {
+        name: .[0],
+        auto: (.[1] == "true"),
+        bytes: (.[2] | tonumber),
+        deps: (if .[3] != "" then (.[3] | split(",")) else [] end)
+      }] | {
+        packages: (sort_by(-.bytes) | [.[] | {name, bytes}]),
+        tree: (map({(.name): {
+          installed_size: .bytes,
+          automatic_install: .auto,
+          run_depends: .deps
+        }}) | add // {})
+      }
     ')
+    PACKAGES_JSON=$(echo "$read_output" | jq '.packages')
+    PACKAGE_TREE_JSON=$(echo "$read_output" | jq '.tree')
     PKG_COUNT=$(echo "$PACKAGES_JSON" | jq 'length')
   fi
 fi
@@ -219,6 +262,7 @@ jq -n \
   --argjson shared_libs "$SHARED_LIBS_JSON" \
   --arg xbps_total "$XBPS_TOTAL" \
   --arg other "$OTHER_BYTES" \
+  --argjson package_tree "$PACKAGE_TREE_JSON" \
   '{
     image_size_used_bytes: ($used | tonumber),
     image_size_total_bytes: ($total | tonumber),
@@ -228,6 +272,7 @@ jq -n \
     symlink_count: ($symlinks | tonumber),
     package_count: ($pkgs | tonumber),
     packages: $packages,
+    package_tree: $package_tree,
     top_directories: $top_directories,
     top_files: $top_files,
     python_venv: $python_venv,
@@ -281,6 +326,69 @@ fmt_pct() { echo "scale=1; $1 * 100 / $USED_BYTES" | bc; }
   echo "| Package | Size |"
   echo "|---------|------|"
   echo "$PACKAGES_JSON" | jq -r '.[:10][] | "| \(.name) | \(.bytes / 1048576 | . * 10 | floor / 10)MB |"'
+  echo ""
+
+  echo "<details><summary><h3>Package Dependency Analysis</h3></summary>"
+  echo ""
+  echo "Explicitly installed packages and the total cost of each (package + exclusive transitive deps)."
+  echo ""
+  echo "$PACKAGE_TREE_JSON" | jq -r '
+    . as $tree |
+    # Build reverse-dep map: for each package, who depends on it
+    ($tree | to_entries | reduce .[] as $e (
+      {};
+      . as $acc | reduce $e.value.run_depends[] as $dep (
+        $acc;
+        .[$dep] = ((.[$dep] // []) + [$e.key])
+      )
+    )) as $rdeps |
+    # All transitive deps (input: [pkg], output: [all deps excluding pkg])
+    def all_deps:
+      .[0] as $root |
+      def _walk:
+        . as $set |
+        [$set[] | ($tree[.].run_depends // [])[] |
+          select($tree[.]) |
+          select(IN($set[]; .) | not)] | unique as $new |
+        if ($new | length) == 0 then $set
+        else ($set + $new | unique) | _walk end;
+      _walk | [.[] | select(. != $root)];
+    # Removable set: input [pkg], output [pkg + orphaned transitive deps]
+    def removable:
+      . as $set |
+      [$set[] | ($tree[.].run_depends // [])[] |
+        select($tree[.]) |
+        select(IN($set[]; .) | not)] | unique as $candidates |
+      [$candidates[] | select(. as $d |
+        [$rdeps[$d][] | select(IN($set[]; .) | not)] | length == 0
+      )] as $new |
+      if ($new | length) == 0 then $set
+      else ($set + $new | unique) | removable end;
+    # Explicitly installed packages (automatic-install != true)
+    [keys[] | select($tree[.].automatic_install | not)] as $explicit |
+    # Build rows for explicit packages
+    [$explicit[] | . as $pkg |
+      ([$pkg] | removable) as $rm |
+      ([$pkg] | all_deps) as $alldeps |
+      {
+        name: $pkg,
+        size: $tree[$pkg].installed_size,
+        total: ([$rm[] | $tree[.].installed_size // 0] | add // 0),
+        exclusive_deps: ([$rm[] | select(. != $pkg)] | sort),
+        shared_deps: ([$alldeps[] | select(. as $d | $rm | index($d) | not)] | sort),
+        dep_count: ($alldeps | length)
+      }
+    ] |
+    sort_by(-.total) |
+    "| Package | Own Size | Total Removable | Exclusive Deps | Shared Deps |",
+    "|---------|----------|-----------------|----------------|-------------|",
+    (.[] |
+      (.exclusive_deps | join(", ")) as $excl |
+      (.shared_deps | join(", ")) as $shared |
+      "| \(.name) | \(.size / 1048576 * 10 | floor / 10)MB | \(.total / 1048576 * 10 | floor / 10)MB | \($excl) | \($shared) |"
+    )
+  '
+  echo "</details>"
   echo ""
 
   echo "<details><summary><h3>Top 30 Files by Size</h3></summary>"
