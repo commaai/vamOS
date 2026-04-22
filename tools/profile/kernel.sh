@@ -12,6 +12,9 @@ DIR="$(cd "$(dirname "$SOURCE")/../.." >/dev/null && pwd)"
 TOP_OBJECT_DELTAS_LIMIT=10
 TOP_SUBTREE_DELTAS_LIMIT=8
 INLINE_CONFIG_CHANGES_LIMIT=20
+OBJECT_DELTAS_TITLE="Largest Object Deltas"
+SUBTREE_DELTAS_TITLE="Largest Subtree Deltas"
+CONFIG_CHANGES_TITLE="Config Changes"
 
 usage() {
   cat <<'EOF'
@@ -370,7 +373,12 @@ if [ "${1:-}" = "diff" ]; then
 
   if [ "$(echo "$object_rows" | jq 'length')" -gt 0 ]; then
     object_rows_with_display=$(rows_with_display_delta "$object_rows" "$TOP_OBJECT_DELTAS_LIMIT")
-    emit_top_deltas_table "Largest Object Deltas" "$TOP_OBJECT_DELTAS_LIMIT" "$object_rows_with_display"
+    emit_top_deltas_table "$OBJECT_DELTAS_TITLE" "$TOP_OBJECT_DELTAS_LIMIT" "$object_rows_with_display"
+  else
+    echo "### $OBJECT_DELTAS_TITLE"
+    echo ""
+    echo "No object changes."
+    echo ""
   fi
 
   subtree_rows=$(jq -n \
@@ -407,7 +415,12 @@ if [ "${1:-}" = "diff" ]; then
 
   if [ "$(echo "$subtree_rows" | jq 'length')" -gt 0 ]; then
     subtree_rows_with_display=$(rows_with_display_delta "$subtree_rows" "$TOP_SUBTREE_DELTAS_LIMIT")
-    emit_top_deltas_table "Largest Subtree Deltas" "$TOP_SUBTREE_DELTAS_LIMIT" "$subtree_rows_with_display"
+    emit_top_deltas_table "$SUBTREE_DELTAS_TITLE" "$TOP_SUBTREE_DELTAS_LIMIT" "$subtree_rows_with_display"
+  else
+    echo "### $SUBTREE_DELTAS_TITLE"
+    echo ""
+    echo "No subtree changes."
+    echo ""
   fi
 
   config_rows=$(jq -n --slurpfile old "$BASELINE" --slurpfile new "$CURRENT" '
@@ -428,9 +441,9 @@ if [ "${1:-}" = "diff" ]; then
   if [ "$(echo "$config_rows" | jq 'length')" -gt 0 ]; then
     config_count=$(echo "$config_rows" | jq 'length')
     if [ "$config_count" -gt "$INLINE_CONFIG_CHANGES_LIMIT" ]; then
-      echo "<details><summary><h3>Config Changes ($config_count total)</h3></summary>"
+      echo "<details><summary><h3>$CONFIG_CHANGES_TITLE ($config_count total)</h3></summary>"
     else
-      echo "### Config Changes ($config_count total)"
+      echo "### $CONFIG_CHANGES_TITLE ($config_count total)"
     fi
     echo ""
     echo "| Option | Before | After |"
@@ -441,6 +454,11 @@ if [ "${1:-}" = "diff" ]; then
     if [ "$config_count" -gt "$INLINE_CONFIG_CHANGES_LIMIT" ]; then
       echo "</details>"
     fi
+    echo ""
+  else
+    echo "### $CONFIG_CHANGES_TITLE"
+    echo ""
+    echo "No config changes."
     echo ""
   fi
 
