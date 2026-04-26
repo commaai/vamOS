@@ -38,8 +38,7 @@ Example: `0001-defconfig-add-vamos.patch`
 comma threex:
 - [x] ufs
 - [x] display
-- [ ] i2c
-  - [ ] TODO: look at device tree
+- [x] i2c
 - [x] wifi
   - [ ] testing (set benchmarks, test case)
 - [x] usb
@@ -59,7 +58,7 @@ comma threex:
 comma four:
 - [x] ufs
 - [x] display
-- [ ] i2c (IMU/temp/...)
+- [x] i2c (IMU/temp/...)
 - [x] wifi
   - [ ] testing (set benchmarks, test case)
 - [x] usb
