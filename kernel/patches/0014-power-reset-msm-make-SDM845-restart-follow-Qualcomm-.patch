@@ -1,0 +1,78 @@
+diff --git a/drivers/power/reset/msm-poweroff.c b/drivers/power/reset/msm-poweroff.c
+index c7eb6dc8e90a..42d2cfc8d35e 100644
+--- a/drivers/power/reset/msm-poweroff.c
++++ b/drivers/power/reset/msm-poweroff.c
+@@ -4,19 +4,36 @@
+ 
+ #include <linux/delay.h>
+ #include <linux/err.h>
+ #include <linux/init.h>
+ #include <linux/kernel.h>
+ #include <linux/io.h>
++#include <linux/module.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+-#include <linux/module.h>
+-#include <linux/reboot.h>
+ #include <linux/pm.h>
++#include <linux/reboot.h>
+
+ static void __iomem *msm_ps_hold;
++static bool msm_force_warm_reboot;
++
++static int msm_restart_prepare(struct notifier_block *nb,
++			       unsigned long action, void *data)
++{
++	const char *cmd = data;
++
++	if (action == SYS_RESTART && (msm_force_warm_reboot || (cmd && *cmd)))
++		reboot_mode = REBOOT_WARM;
++
++	return NOTIFY_DONE;
++}
++
++static struct notifier_block msm_restart_nb = {
++	.notifier_call = msm_restart_prepare,
++	.priority = 255,
++};
+ 
+ static int do_msm_poweroff(struct sys_off_data *data)
+ {
+ 	writel(0, msm_ps_hold);
+ 	mdelay(10000);
+ 
+@@ -25,16 +42,29 @@ static int do_msm_poweroff(struct sys_off_data *data)
+ 
+ static int msm_restart_probe(struct platform_device *pdev)
+ {
++	int ret;
++
+ 	msm_ps_hold = devm_platform_ioremap_resource(pdev, 0);
+ 	if (IS_ERR(msm_ps_hold))
+ 		return PTR_ERR(msm_ps_hold);
+ 
+-	devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART,
+-				      128, do_msm_poweroff, NULL);
++	msm_force_warm_reboot = of_property_read_bool(pdev->dev.of_node,
++						      "qcom,force-warm-reboot");
++
++	ret = devm_register_reboot_notifier(&pdev->dev, &msm_restart_nb);
++	if (ret)
++		return ret;
++
++	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_RESTART,
++					    128, do_msm_poweroff, NULL);
++	if (ret)
++		return ret;
+ 
+-	devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_POWER_OFF,
+-				      SYS_OFF_PRIO_DEFAULT, do_msm_poweroff,
+-				      NULL);
++	ret = devm_register_sys_off_handler(&pdev->dev, SYS_OFF_MODE_POWER_OFF,
++					    SYS_OFF_PRIO_DEFAULT,
++					    do_msm_poweroff, NULL);
++	if (ret)
++		return ret;
+ 
+ 	return 0;
+ }
