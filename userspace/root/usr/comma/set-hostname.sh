@@ -1,6 +1,12 @@
-#!/bin/bash
+#!/bin/sh
 set -e
 
 SERIAL="$(/usr/comma/get-serial.sh)"
-echo "serial: '$SERIAL'"
-sysctl kernel.hostname="comma-$SERIAL"
+HOSTNAME="comma"
+
+if [ -n "$SERIAL" ] && [ "$SERIAL" != "(none)" ]; then
+  HOSTNAME="comma-$SERIAL"
+fi
+
+echo "hostname: '$HOSTNAME'"
+hostname "$HOSTNAME"
