@@ -352,6 +352,33 @@
 			   <GCC_LPASS_SWAY_CLK>;
 };
 
+&gmu {
+	status = "okay";
+};
+
+&gpi_dma0 {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+
+	zap-shader {
+		memory-region = <&gpu_mem>;
+		firmware-name = "qcom/sdm845/a630_zap.mbn";
+	};
+};
+
+&i2c4 {
+	status = "okay";
+	clock-frequency = <400000>;
+};
+
+&i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
 &mdss {
 	status = "okay";
 };
@@ -366,21 +393,9 @@
 	vdds-supply = <&vdda_mipi_dsi0_pll>;
 };
 
-&gmu {
+&mss_pil {
 	status = "okay";
-};
-
-&gpu {
-	status = "okay";
-
-	zap-shader {
-		memory-region = <&gpu_mem>;
-		firmware-name = "qcom/sdm845/a630_zap.mbn";
-	};
-};
-
-&gpi_dma0 {
-	status = "okay";
+	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem_nm.mbn";
 };
 
 &qupv3_id_0 {
@@ -437,11 +452,6 @@
 	vdda-pll-max-microamp = <18300>;
 };
 
-&mss_pil {
-	status = "okay";
-	firmware-name = "qcom/sdm845/mba.mbn", "qcom/sdm845/modem_nm.mbn";
-};
-
 &usb_1 {
 	status = "okay";
 };
@@ -486,6 +496,10 @@
 
 	vdda-phy-supply = <&vdda_usb2_ss_1p2>;
 	vdda-pll-supply = <&vdda_usb2_ss_core>;
+};
+
+&vreg_lvs1a_1p8 {
+	regulator-always-on;
 };
 
 &wifi {

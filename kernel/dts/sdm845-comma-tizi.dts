@@ -21,9 +21,6 @@
 };
 
 &i2c5 {
-	status = "okay";
-	clock-frequency = <100000>;
-
 	touchscreen@17 {
 		compatible = "samsung,s6sy761";
 		reg = <0x17>;
