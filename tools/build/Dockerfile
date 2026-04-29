@@ -83,7 +83,7 @@ RUN mkdir -p /root/.config
 
 # Enable runit services
 RUN for svc in \
-  ipa_fws brightnessd fs_setup gpio init-qcom lte \
+  ipa_fws brightnessd fs_setup init-qcom lte \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
