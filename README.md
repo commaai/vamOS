@@ -65,7 +65,7 @@ comma four:
 - [x] modem
 - [ ] sound
 - [x] SPI
-- [ ] GPS
+- [x] GPS
 - [ ] cameras (OS04C10)
   - [ ] kernel wiring
   - [ ] ISP
