@@ -1,7 +1,9 @@
 #!/bin/sh
 set -e
 
-SERIAL="$(/usr/comma/get-serial.sh)"
+. /usr/comma/serial_helpers.sh
+
+SERIAL="$(get_device_serial)"
 ADDR="$(/usr/comma/get-bt-address.sh)"
 
 if [ -z "$SERIAL" ]; then

@@ -2,6 +2,8 @@
 # Enables/disables USB NCM networking based on UsbNcmEnabled param.
 # Called by ncm-param-watcher on param changes.
 
+. /usr/comma/serial_helpers.sh
+
 GADGET=/config/usb_gadget/g1
 USB_IF="usb0"
 USB_ADDR="192.168.42.2/24"
@@ -29,7 +31,7 @@ ensure_gadget_base() {
   echo 250 > configs/c.1/MaxPower
 
   local serial model
-  serial="$(/usr/comma/get-serial.sh)"
+  serial="$(get_device_serial)"
   model="$(tr -d '\0' < /sys/firmware/devicetree/base/model 2>/dev/null || true)"
 
   echo "$serial" > strings/0x409/serialnumber

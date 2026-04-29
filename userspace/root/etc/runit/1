@@ -132,9 +132,8 @@ for part in \
 done
 
 echo "=> Setting hostname..."
-if [ -f /etc/hostname ]; then
-    hostname "$(cat /etc/hostname)"
-else
+if ! /usr/comma/set-hostname.sh; then
+    echo "WARN: failed to derive serial hostname, falling back to comma"
     hostname comma
 fi
 
