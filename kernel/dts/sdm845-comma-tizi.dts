@@ -8,6 +8,18 @@
 	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 
+	main5v: main5v {
+		status = "okay";
+		compatible = "regulator-fixed";
+		regulator-name = "main5v";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
+		gpio = <&tlmm 25 0>;
+		enable-active-high;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
 	tp3v3: tp3v3 {
 		status = "okay";
 		compatible = "regulator-fixed";
@@ -62,4 +74,96 @@
 &mdss_dsi0_out {
 	remote-endpoint = <&panel_in>;
 	data-lanes = <0 1 2 3>;
+};
+
+&tlmm {
+	tert_mi2s_mclk_sleep: tert-mi2s-mclk-sleep-state {
+		pins = "gpio74";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_mclk_active: tert-mi2s-mclk-active-state {
+		pins = "gpio74";
+		function = "tert_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	tert_mi2s_sleep: tert-mi2s-sleep-state {
+		pins = "gpio75", "gpio76";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_active: tert-mi2s-active-state {
+		pins = "gpio75", "gpio76";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+		output-high;
+	};
+
+	tert_mi2s_sd0_sleep: tert-mi2s-sd0-sleep-state {
+		pins = "gpio77";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_sd0_active: tert-mi2s-sd0-active-state {
+		pins = "gpio77";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	tert_mi2s_sd1_sleep: tert-mi2s-sd1-sleep-state {
+		pins = "gpio78";
+		function = "gpio";
+		drive-strength = <2>;
+		bias-pull-down;
+		input-enable;
+	};
+
+	tert_mi2s_sd1_active: tert-mi2s-sd1-active-state {
+		pins = "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+};
+
+&q6afedai {
+	qi2s@18 {
+		reg = <SECONDARY_MI2S_RX>;
+		qcom,sd-lines = <0>;
+	};
+
+	qi2s@21 {
+		reg = <TERTIARY_MI2S_TX>;
+		qcom,sd-lines = <0>;
+	};
+};
+
+&sound {
+	model = "comma tizi";
+
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&sec_mi2s_mclk_active &sec_mi2s_active &sec_mi2s_sd0_active &sec_mi2s_sd1_active
+	             &tert_mi2s_active &tert_mi2s_sd0_active &tert_mi2s_sd1_active>;
+	pinctrl-1 = <&sec_mi2s_mclk_sleep &sec_mi2s_sleep &sec_mi2s_sd0_sleep &sec_mi2s_sd1_sleep
+	             &tert_mi2s_sleep &tert_mi2s_sd0_sleep &tert_mi2s_sd1_sleep>;
+
+	capture-dai-link {
+		link-name = "Capture";
+		cpu {
+			sound-dai = <&q6afedai TERTIARY_MI2S_TX>;
+		};
+	};
 };
