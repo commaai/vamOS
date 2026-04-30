@@ -2,6 +2,7 @@
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include "sdm845.dtsi"
+#include "sdm845-comma-camera.dtsi"
 #include "pm8998.dtsi"
 #include "pmi8998.dtsi"
 
