@@ -1,0 +1,18 @@
+{
+  "name": "flashpack",
+  "type": "module",
+  "scripts": {
+    "dev": "bun run serve.ts",
+    "build": "bun run build.ts"
+  },
+  "dependencies": {
+    "@commaai/qdl": "github:commaai/qdl.js"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.0.0"
+  },
+  "trustedDependencies": [
+    "@commaai/qdl"
+  ]
+}
