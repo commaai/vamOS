@@ -76,6 +76,7 @@ xbps-install -y \
   net-tools \
   NetworkManager \
   nload \
+  nftables \
   opencl-headers \
   portaudio-devel \
   ppp \

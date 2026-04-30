@@ -91,7 +91,7 @@ RUN for svc in \
   qrtr-ns rmtfs tqftpserv pd-mapper \
   comma modemmanager bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
-  rsyslogd iptables polkitd \
+  rsyslogd nftables polkitd \
   agetty-ttyMSM0 agetty-ttyAMA0; do \
     ln -sf /etc/sv/$svc /etc/runit/runsvdir/default/; \
   done
@@ -114,9 +114,6 @@ RUN chmod +x /usr/local/sbin/poweroff && \
 
 # NetworkManager connection permissions
 RUN chmod 600 /usr/lib/NetworkManager/system-connections/*.nmconnection
-
-# Void's iptables service expects iptables.rules
-RUN ln -s /etc/iptables/rules.v4 /etc/iptables/iptables.rules
 
 # MOTD - profile.d runs update-motd.d scripts into /run/motd, pam_motd displays it
 RUN sed -i 's|motd=/etc/motd|motd=/run/motd|' /etc/pam.d/system-login
@@ -214,9 +211,6 @@ RUN echo '#!/bin/sh' > /etc/sv/sshd/run && \
     echo '  ssh-keygen -t ecdsa -f /data/etc/ssh/ssh_host_ecdsa_key -N ""' >> /etc/sv/sshd/run && \
     echo 'fi' >> /etc/sv/sshd/run && \
     echo 'exec /usr/bin/sshd -D' >> /etc/sv/sshd/run
-
-# DEBUG: Fix iptables to allow SSH (insert before wwan0 DROP rule)
-RUN sed -i '/-A INPUT -i wwan0 -j DROP/i -A INPUT -p tcp --dport 22 -j ACCEPT' /etc/iptables/rules.v4 || true
 
 RUN ldconfig
 
