@@ -1,16 +1,11 @@
 {
-  "name": "vamos-kernel-dev",
+  "name": "vamos-kernel-dev-linux",
   "build": {
-    "dockerfile": "Dockerfile",
-    "context": ".."
+    "dockerfile": "../Dockerfile",
+    "context": "../.."
   },
-  "initializeCommand": "bash ./tools/build/prepare_kernel_volume.sh",
+  "initializeCommand": "bash ./tools/build/prepare_builder_image.sh",
   "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
-  "mounts": [
-    "source=vamos-kernel-linux,target=${localWorkspaceFolder}/kernel/linux,type=volume",
-    "source=vamos-kernel-ccache,target=${localWorkspaceFolder}/.ccache,type=volume",
-    "source=vamos-kernel-clangd-cache,target=${localWorkspaceFolder}/.cache/clangd,type=volume"
-  ],
   "remoteUser": "${localEnv:USER}",
   "workspaceFolder": "${localWorkspaceFolder}",
   "customizations": {
