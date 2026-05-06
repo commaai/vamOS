@@ -24,97 +24,6 @@ HOST_OS="$(uname)"
 KERNEL_LINUX_VOLUME="vamos-kernel-linux"
 CCACHE_VOLUME="vamos-kernel-ccache"
 CONTAINER_ID=""
-
-prepare_kernel_volume() {
-  docker volume create "$KERNEL_LINUX_VOLUME" >/dev/null
-  docker run --rm \
-    --entrypoint sh \
-    -v "$KERNEL_LINUX_VOLUME:/linux" \
-    vamos-builder \
-    -lc "mkdir -p /linux && chown $(id -u):$(id -g) /linux && chmod 0775 /linux"
-}
-
-seed_kernel_workspace() {
-  local sync_container_id
-  local kernel_bundle="$TMP_DIR/kernel-linux.bundle"
-
-  echo "Syncing kernel/linux into Docker volume"
-  mkdir -p "$TMP_DIR"
-  rm -f "$kernel_bundle"
-  git -C "$KERNEL_DIR" bundle create "$kernel_bundle" HEAD >/dev/null
-
-  sync_container_id=$(docker run -d --entrypoint tail -v "$kernel_bundle:/kernel-linux.bundle:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
-
-  docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
-  # Transfer through a bundle so worktree gitdir pointers stay on the host side.
-  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone /kernel-linux.bundle . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
-  docker container rm -f "$sync_container_id" >/dev/null
-  rm -f "$kernel_bundle"
-}
-
-prepare_ccache_volume() {
-  if ! docker volume inspect "$CCACHE_VOLUME" >/dev/null 2>&1; then
-    docker volume create "$CCACHE_VOLUME" >/dev/null
-    docker run --rm \
-      --entrypoint sh \
-      -v "$CCACHE_VOLUME:/ccache" \
-      vamos-builder \
-      -lc "mkdir -p /ccache && chown $(id -u):$(id -g) /ccache && chmod 0775 /ccache"
-  fi
-}
-
-kernel_workspace_ready() {
-  docker volume inspect "$KERNEL_LINUX_VOLUME" >/dev/null 2>&1 || return 1
-  docker run --rm --entrypoint sh -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder \
-    -lc "test \"\$(git -c safe.directory=/linux -C /linux rev-parse HEAD 2>/dev/null)\" = \"$KERNEL_REV\"" \
-    >/dev/null
-}
-
-# Check submodule initted, need to run setup
-if [ ! -f "$KERNEL_DIR/Makefile" ]; then
-  "$DIR/vamos" setup
-fi
-
-KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
-
-# Compute on host; in-container git fails for worktrees (.git is outside $DIR)
-GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
-
-# Build docker container
-echo "Building vamos-builder docker image"
-export DOCKER_BUILDKIT=1
-docker build -f tools/build/Dockerfile.builder -t vamos-builder "$DIR" \
-  --build-arg UNAME="$(id -nu)" \
-  --build-arg UID="$(id -u)" \
-  --build-arg GID="$(id -g)"
-
-echo "Starting vamos-builder container"
-if [ "$HOST_OS" = "Darwin" ]; then
-  if ! kernel_workspace_ready; then
-    echo "Kernel workspace volume is missing, uninitialized, or out of date; reseeding"
-    prepare_kernel_volume
-    seed_kernel_workspace
-  fi
-  prepare_ccache_volume
-  CONTAINER_ID=$(docker run -d \
-    -u "$(id -u):$(id -g)" \
-    -v "$DIR":"$DIR" \
-    -v "$KERNEL_LINUX_VOLUME:$KERNEL_DIR" \
-    -v "$CCACHE_VOLUME:/ccache" \
-    -w "$DIR" \
-    vamos-builder)
-else
-  # For a git worktree, mount the shared .git so in-container git resolves
-  GIT_MOUNT_ARGS=()
-  if [ -f "$DIR/.git" ]; then
-    GIT_COMMON_DIR="$(git -C "$DIR" rev-parse --path-format=absolute --git-common-dir)"
-    GIT_MOUNT_ARGS=(-v "$GIT_COMMON_DIR":"$GIT_COMMON_DIR")
-  fi
-  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" "${GIT_MOUNT_ARGS[@]}" -w "$DIR" vamos-builder)
-fi
-
-trap cleanup EXIT
-
 apply_patches() {
   cd "$KERNEL_DIR"
 
@@ -165,6 +74,8 @@ build_kernel() {
   export KCFLAGS="-w"
 
   # GIT_REV is computed on the host and passed in via the container heredoc.
+  export LANG=C.UTF-8
+  export LC_ALL=C.UTF-8
   export LOCALVERSION="-vamos-$GIT_REV"
 
   # Build kernel
@@ -192,6 +103,7 @@ build_kernel() {
 
   echo "-- Building kernel with $(nproc) cores --"
   make -j$(nproc) "${make_args[@]}" Image.gz "${dtb_targets[@]}"
+  python3 scripts/clang-tools/gen_compile_commands.py -d out -o "$DIR/compile_commands.json"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
@@ -239,18 +151,6 @@ clean_kernel_tree() {
 }
 
 cleanup() {
-  echo "Cleaning up container and kernel tree..."
-
-  if [ "$HOST_OS" = "Darwin" ]; then
-    docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash >/dev/null 2>&1 <<EOF || true
-$(declare -f clean_kernel_tree)
-KERNEL_DIR='$KERNEL_DIR'
-clean_kernel_tree
-EOF
-  else
-    clean_kernel_tree
-  fi
-
   docker container rm -f "${CONTAINER_ID:-}" >/dev/null 2>&1 || true
   rm -rf "$TMP_DIR"
 }
@@ -265,6 +165,49 @@ install_dts() {
     cp "$dts" "$dst_dir/"
   done
 }
+
+# Check submodule initted, need to run setup
+if [ ! -f "$KERNEL_DIR/Makefile" ]; then
+  "$DIR/vamos" setup
+fi
+
+# Compute on host; in-container git fails for worktrees (.git is outside $DIR).
+GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
+
+if [ -f "/.dockerenv" ]; then
+  git -C / config --global --add safe.directory "$DIR"
+  git -C / config --global --add safe.directory "$KERNEL_DIR"
+
+  trap cleanup EXIT
+  build_kernel
+  exit 0
+fi
+
+if [ "$HOST_OS" = "Darwin" ]; then
+  echo "Preparing vamos-builder image and Docker volumes"
+  "$DIR/tools/build/prepare_kernel_volume.sh"
+  echo "Starting vamos-builder container"
+  CONTAINER_ID=$(docker run -d \
+    -u "$(id -u):$(id -g)" \
+    -v "$DIR":"$DIR" \
+    -v "$KERNEL_LINUX_VOLUME:$KERNEL_DIR" \
+    -v "$CCACHE_VOLUME:/ccache" \
+    -w "$DIR" \
+    vamos-builder)
+else
+  echo "Preparing vamos-builder image"
+  "$DIR/tools/build/prepare_builder_image.sh"
+  echo "Starting vamos-builder container"
+  # For a git worktree, mount the shared .git so in-container git resolves.
+  GIT_MOUNT_ARGS=()
+  if [ -f "$DIR/.git" ]; then
+    GIT_COMMON_DIR="$(git -C "$DIR" rev-parse --path-format=absolute --git-common-dir)"
+    GIT_MOUNT_ARGS=(-v "$GIT_COMMON_DIR":"$GIT_COMMON_DIR")
+  fi
+  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" "${GIT_MOUNT_ARGS[@]}" -w "$DIR" vamos-builder)
+fi
+
+trap cleanup EXIT
 
 # Run build inside container
 docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash <<EOF
