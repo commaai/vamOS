@@ -137,7 +137,12 @@ build_kernel() {
   else
     export CCACHE_DIR="$DIR/.ccache"
   fi
-  export PATH="/usr/lib/ccache/bin:$PATH"
+  local make_args=(
+    O=out
+    CC="ccache ${CROSS_COMPILE:-}gcc"
+    HOSTCC="ccache gcc"
+    HOSTCXX="ccache g++"
+  )
 
   # Reproducible builds
   export KBUILD_BUILD_USER="vamos"
@@ -151,7 +156,7 @@ build_kernel() {
   cd "$KERNEL_DIR"
 
   echo "-- Loading base config $BASE_DEFCONFIG --"
-  make O=out "$BASE_DEFCONFIG"
+  make "${make_args[@]}" "$BASE_DEFCONFIG"
 
   echo "-- Merging config fragment $(basename "$CONFIG_FRAGMENT") --"
   KCONFIG_CONFIG=out/.config \
@@ -159,7 +164,7 @@ build_kernel() {
     -m -y out/.config "$CONFIG_FRAGMENT"
   # Point EXTRA_FIRMWARE_DIR to our firmware directory
   echo "CONFIG_EXTRA_FIRMWARE_DIR=\"$DIR/kernel/firmware\"" >> out/.config
-  make olddefconfig O=out
+  make "${make_args[@]}" olddefconfig
 
   local dtb_targets=()
   local dts_name
@@ -171,7 +176,7 @@ build_kernel() {
   done
 
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) O=out Image.gz "${dtb_targets[@]}"
+  make -j$(nproc) "${make_args[@]}" Image.gz "${dtb_targets[@]}"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
