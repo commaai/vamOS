@@ -85,8 +85,17 @@ int cam_ipe_probe(struct platform_device *pdev)
 	of_property_read_u32(pdev->dev.of_node,
 		"cell-index", &hw_idx);
 
-	cam_cpas_get_hw_info(&query.camera_family,
+	/*
+	 * 6.18 port: cam_cpas_get_hw_info() leaves cam_caps untouched and returns
+	 * -ENODEV if CPAS hasn't probed yet (deferred probe). The original ignored
+	 * the rc and read garbage caps, so ipe1 (hw_idx 1) wrongly took the
+	 * "IPE1 absent" -EINVAL path and failed permanently. Defer until CPAS is up
+	 * so the real caps (which DO include IPE1 on sdm845) are read.
+	 */
+	rc = cam_cpas_get_hw_info(&query.camera_family,
 		&query.camera_version, &query.cpas_version, &cam_caps);
+	if (rc)
+		return -EPROBE_DEFER;
 	if ((!(cam_caps & CPAS_IPE1_BIT)) && (hw_idx)) {
 		CAM_ERR(CAM_ICP, "IPE1 hw idx = %d\n", hw_idx);
 		return -EINVAL;

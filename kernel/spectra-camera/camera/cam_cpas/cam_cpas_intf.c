@@ -333,8 +333,16 @@ int cam_cpas_register_client(
 	int rc;
 
 	if (!CAM_CPAS_INTF_INITIALIZED()) {
-		CAM_ERR(CAM_CPAS, "cpas intf not initialized");
-		return -ENODEV;
+		/*
+		 * 6.18 port: CPAS (cam-cpas) and its clients (csiphy/cci/isp/ipe/bps/
+		 * fd/jpeg/...) all probe via deferred probe in an unspecified order.
+		 * A client that registers before CPAS finished probing must retry, not
+		 * fail permanently. Return -EPROBE_DEFER so the driver core re-probes
+		 * the client once cam-cpas is up. On 4.9 the initcall order guaranteed
+		 * CPAS-first; on mainline this is the correct mechanism.
+		 */
+		CAM_DBG(CAM_CPAS, "cpas intf not initialized yet, defer client");
+		return -EPROBE_DEFER;
 	}
 
 	if (g_cpas_intf->hw_intf->hw_ops.process_cmd) {
