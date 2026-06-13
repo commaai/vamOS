@@ -617,14 +617,6 @@ int cam_register_subdev(struct cam_subdev *csd)
 	}
 
 	mutex_lock(&g_dev.dev_lock);
-	if ((g_dev.subdev_nodes_created) &&
-		(csd->sd_flags & V4L2_SUBDEV_FL_HAS_DEVNODE)) {
-		CAM_ERR(CAM_CRM,
-			"dynamic node is not allowed, name: %s, type :%d",
-			csd->name, csd->ent_function);
-		rc = -EINVAL;
-		goto reg_fail;
-	}
 
 	sd = &csd->sd;
 	v4l2_subdev_init(sd, csd->ops);
@@ -643,6 +635,25 @@ int cam_register_subdev(struct cam_subdev *csd)
 		goto reg_fail;
 	}
 	g_dev.count++;
+
+	/*
+	 * 6.18 port: the legacy code REFUSED registering a devnode-backed subdev
+	 * once cam_dev_mgr_create_subdev_nodes() had run ("dynamic node not
+	 * allowed"). That assumed every HW subdev probed before the late_initcall.
+	 * On mainline, deferred probe means cam-isp/jpeg/fd register AFTER node
+	 * creation, so they'd be refused and their probe would fail — and their
+	 * subdev /dev nodes would never appear. Instead, if nodes were already
+	 * created, create this new subdev's node now. v4l2_device_register_subdev_
+	 * nodes() is idempotent (skips subdevs that already have sd->devnode).
+	 */
+	if (g_dev.subdev_nodes_created &&
+		(csd->sd_flags & V4L2_SUBDEV_FL_HAS_DEVNODE)) {
+		rc = v4l2_device_register_subdev_nodes(g_dev.v4l2_dev);
+		if (rc)
+			CAM_ERR(CAM_CRM,
+				"late subdev node create failed for %s rc=%d",
+				csd->name, rc);
+	}
 
 reg_fail:
 	mutex_unlock(&g_dev.dev_lock);

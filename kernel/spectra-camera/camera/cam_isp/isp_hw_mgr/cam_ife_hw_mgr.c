@@ -4406,8 +4406,15 @@ int cam_ife_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf, int *iommu_hdl)
 		}
 	}
 	if (j == 0) {
-		CAM_ERR(CAM_ISP, "no valid IFE HW");
-		return -EINVAL;
+		/*
+		 * 6.18 port: on mainline the IFE/VFE HW drivers probe via deferred
+		 * probe and may not be up yet when cam-isp first probes. Return
+		 * -EPROBE_DEFER (not -EINVAL) so cam-isp retries once the VFE/CSID
+		 * HW is registered, instead of failing permanently (which left
+		 * cam-isp with no subdev node).
+		 */
+		CAM_DBG(CAM_ISP, "no valid IFE HW yet, defer");
+		return -EPROBE_DEFER;
 	}
 
 	/* fill csid hw intf information */

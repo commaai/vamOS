@@ -172,7 +172,13 @@ static int cam_isp_dev_probe(struct platform_device *pdev)
 
 	return 0;
 unregister:
-	rc = cam_subdev_remove(&g_isp_dev.sd);
+	/*
+	 * 6.18 port: preserve the original error (e.g. -EPROBE_DEFER from the IFE
+	 * HW manager when VFE/CSID aren't up yet). The legacy code overwrote rc
+	 * with cam_subdev_remove()'s return (0), so the platform core saw success
+	 * and never retried — leaving cam-isp bound but with no working subdev.
+	 */
+	cam_subdev_remove(&g_isp_dev.sd);
 err:
 	return rc;
 }
