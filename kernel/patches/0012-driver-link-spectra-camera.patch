@@ -1,0 +1,24 @@
+diff --git a/drivers/media/platform/Kconfig b/drivers/media/platform/Kconfig
+index 9287faafd..152de051b 100644
+--- a/drivers/media/platform/Kconfig
++++ b/drivers/media/platform/Kconfig
+@@ -73,6 +73,7 @@ source "drivers/media/platform/chips-media/Kconfig"
+ source "drivers/media/platform/imagination/Kconfig"
+ source "drivers/media/platform/intel/Kconfig"
+ source "drivers/media/platform/marvell/Kconfig"
++source "drivers/media/platform/msm/Kconfig"
+ source "drivers/media/platform/mediatek/Kconfig"
+ source "drivers/media/platform/microchip/Kconfig"
+ source "drivers/media/platform/nuvoton/Kconfig"
+diff --git a/drivers/media/platform/Makefile b/drivers/media/platform/Makefile
+index 6fd7db054..46c414db9 100644
+--- a/drivers/media/platform/Makefile
++++ b/drivers/media/platform/Makefile
+@@ -16,6 +16,7 @@ obj-y += chips-media/
+ obj-y += imagination/
+ obj-y += intel/
+ obj-y += marvell/
++obj-y += msm/
+ obj-y += mediatek/
+ obj-y += microchip/
+ obj-y += nuvoton/

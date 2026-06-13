@@ -20,6 +20,11 @@ DTS_FILES=(
   "$DIR/kernel/dts/sdm845-comma-tizi.dts"
 )
 
+# Out-of-tree Spectra camera driver source, linked into the kernel tree at build
+# time (see install_spectra). Kept as a normal versioned dir instead of a huge
+# add-every-file patch; the link patch 0012 only wires the parent Kconfig/Makefile.
+SPECTRA_DIR="$DIR/kernel/spectra-camera"
+
 HOST_OS="$(uname)"
 KERNEL_LINUX_VOLUME="vamos-kernel-linux"
 CCACHE_VOLUME="vamos-kernel-ccache"
@@ -120,6 +125,9 @@ apply_patches() {
 build_kernel() {
   # Apply patches to kernel tree
   apply_patches
+
+  # Link the out-of-tree Spectra camera source into the kernel tree
+  install_spectra
 
   # Install the device tree files
   install_dts
@@ -251,6 +259,25 @@ install_dts() {
   done
 }
 
+install_spectra() {
+  # Copy (not symlink, for kbuild/O=out + ccache robustness) the Spectra camera
+  # source into the locations the 0012 link patch points at. clean_kernel_tree
+  # removes these untracked files at the start of the next build.
+  local msm_dst="$KERNEL_DIR/drivers/media/platform/msm"
+  local uapi_dst="$KERNEL_DIR/include/uapi/media"
+
+  echo "-- Installing Spectra camera source --"
+
+  rm -rf "$msm_dst"
+  mkdir -p "$msm_dst"
+  cp -a "$SPECTRA_DIR/camera" "$msm_dst/"
+  cp -a "$SPECTRA_DIR/Kconfig" "$msm_dst/"
+  cp -a "$SPECTRA_DIR/Makefile" "$msm_dst/"
+
+  mkdir -p "$uapi_dst"
+  cp -a "$SPECTRA_DIR/uapi/media/." "$uapi_dst/"
+}
+
 # Run build inside container
 docker exec -i -u "$(id -u):$(id -g)" "$CONTAINER_ID" bash <<EOF
 set -e
@@ -259,6 +286,7 @@ HOST_OS='$HOST_OS'
 BASE_DEFCONFIG='$BASE_DEFCONFIG'
 CONFIG_FRAGMENT='$CONFIG_FRAGMENT'
 COMMON_DTSI='$COMMON_DTSI'
+SPECTRA_DIR='$SPECTRA_DIR'
 DIR='$DIR'
 TOOLS='$TOOLS'
 KERNEL_DIR='$KERNEL_DIR'
@@ -280,6 +308,7 @@ $(declare -f apply_patches)
 $(declare -f build_kernel)
 $(declare -f clean_kernel_tree)
 $(declare -f install_dts)
+$(declare -f install_spectra)
 
 build_kernel
 EOF
