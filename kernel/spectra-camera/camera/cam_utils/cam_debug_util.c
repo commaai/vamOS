@@ -16,14 +16,11 @@
 #include "cam_debug_util.h"
 
 /*
- * vamOS bring-up: default the debug mask to all 26 CAM_* module bits on so
- * CAM_DBG() probe-time diagnostics (deferred-probe, CCI chip-id reads, clk/
- * regulator/IRQ setup) are visible during camera bring-up without cmdline
- * plumbing. Runtime-adjustable via /sys/module/cam_debug_util/parameters/
- * debug_mdl. TODO(cameras): set back to 0 once cameras stream. Tracked in
- * docs/cameras/TASKS.md.
+ * Per-module CAM_DBG() mask (bitfield of the CAM_* module ids). Off by default;
+ * enable at runtime via /sys/module/cam_debug_util/parameters/debug_mdl, e.g.
+ * `echo 0x3FFFFFF > .../debug_mdl` for all modules.
  */
-static uint debug_mdl = 0x3FFFFFF;
+static uint debug_mdl;
 module_param(debug_mdl, uint, 0644);
 
 const char *cam_get_module_name(unsigned int module_id)

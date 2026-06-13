@@ -647,9 +647,9 @@ csiphy; cam-isp blocked on `cam_vfe_enable_soc_resources` -EBUSY (-16) — VFE
 soc/clock/GDSC enable (suspect multi-domain genpd, DESIGN §4 GDSC gap);
 jpeg/fd/lrme HW-manager init -19 (depend on child HW).**
 
-Debug aids currently in tree (REMOVE before landing — Phase 5): `debug_mdl`
-default `0x3FFFFFF` in `cam_debug_util.c`; `log_buf_len=8M` in `build_kernel.sh`
-cmdline.
+Debug aids (REMOVED 2026-06-13): `debug_mdl` default back to 0 in
+`cam_debug_util.c` (runtime-tunable via sysfs); `log_buf_len=8M` dropped from the
+`build_kernel.sh` cmdline. No `vamos-dbg` instrumentation prints remain.
 
 ## Phase 4 camerad integration log (2026-06-13)
 
