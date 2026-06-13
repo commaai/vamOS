@@ -18,6 +18,6 @@
 irqreturn_t cam_ife_csid_irq(int irq_num, void *data);
 
 int cam_ife_csid_probe(struct platform_device *pdev);
-int cam_ife_csid_remove(struct platform_device *pdev);
+void cam_ife_csid_remove(struct platform_device *pdev);
 
 #endif /*_CAM_IFE_CSID_DEV_H_ */

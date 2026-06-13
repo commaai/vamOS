@@ -154,7 +154,7 @@ free_memory:
 	return rc;
 }
 
-static int cam_fd_hw_dev_remove(struct platform_device *pdev)
+static void cam_fd_hw_dev_remove(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct cam_hw_intf *fd_hw_intf;
@@ -164,7 +164,7 @@ static int cam_fd_hw_dev_remove(struct platform_device *pdev)
 	fd_hw_intf = platform_get_drvdata(pdev);
 	if (!fd_hw_intf) {
 		CAM_ERR(CAM_FD, "Invalid fd_hw_intf from pdev");
-		return -EINVAL;
+		return;
 	}
 
 	fd_hw = fd_hw_intf->hw_priv;
@@ -193,8 +193,6 @@ deinit_platform_res:
 
 free_fd_hw_intf:
 	kfree(fd_hw_intf);
-
-	return rc;
 }
 
 static const struct of_device_id cam_fd_hw_dt_match[] = {

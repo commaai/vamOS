@@ -39,7 +39,11 @@ static struct cam_ipe_device_hw_info cam_ipe_hw_info[] = {
 		.reserved = 0,
 	},
 };
-EXPORT_SYMBOL(cam_ipe_hw_info);
+/*
+ * cam_ipe_hw_info is static (TU-local) and the driver is built-in; the
+ * downstream EXPORT_SYMBOL is spurious and 6.18 modpost rejects exporting a
+ * local symbol. Dropped.
+ */
 
 static char ipe_dev_name[8];
 

@@ -611,11 +611,11 @@ error_destroy_mem:
 	return rc;
 }
 
-static int cam_cpas_dev_remove(struct platform_device *dev)
+static void cam_cpas_dev_remove(struct platform_device *dev)
 {
 	if (!CAM_CPAS_INTF_INITIALIZED()) {
 		CAM_ERR(CAM_CPAS, "cpas intf not initialized");
-		return -ENODEV;
+		return;
 	}
 
 	mutex_lock(&g_cpas_intf->intf_lock);
@@ -626,8 +626,6 @@ static int cam_cpas_dev_remove(struct platform_device *dev)
 	mutex_destroy(&g_cpas_intf->intf_lock);
 	kfree(g_cpas_intf);
 	g_cpas_intf = NULL;
-
-	return 0;
 }
 
 static const struct of_device_id cam_cpas_dt_match[] = {

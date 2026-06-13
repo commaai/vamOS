@@ -99,7 +99,7 @@ static const struct v4l2_subdev_internal_ops cam_isp_subdev_internal_ops = {
 	.open = cam_isp_subdev_open,
 };
 
-static int cam_isp_dev_remove(struct platform_device *pdev)
+static void cam_isp_dev_remove(struct platform_device *pdev)
 {
 	int rc = 0;
 	int i;
@@ -117,7 +117,6 @@ static int cam_isp_dev_remove(struct platform_device *pdev)
 		CAM_ERR(CAM_ISP, "Unregister failed");
 
 	memset(&g_isp_dev, 0, sizeof(g_isp_dev));
-	return 0;
 }
 
 static int cam_isp_dev_probe(struct platform_device *pdev)

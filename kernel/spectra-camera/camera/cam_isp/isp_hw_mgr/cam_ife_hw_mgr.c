@@ -14,7 +14,6 @@
 #include <linux/string.h>
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
-#include <soc/qcom/scm.h>
 #include <uapi/media/cam_isp.h>
 #include "cam_smmu_api.h"
 #include "cam_req_mgr_workq.h"
@@ -55,7 +54,6 @@ static struct cam_ife_hw_mgr g_ife_hw_mgr;
 static int cam_ife_notify_safe_lut_scm(bool safe_trigger)
 {
 	uint32_t camera_hw_version, rc = 0;
-	struct scm_desc desc = {0};
 
 	rc = cam_cpas_get_cpas_hw_version(&camera_hw_version);
 	if (!rc) {
@@ -63,18 +61,19 @@ static int cam_ife_notify_safe_lut_scm(bool safe_trigger)
 		case CAM_CPAS_TITAN_170_V100:
 		case CAM_CPAS_TITAN_170_V110:
 		case CAM_CPAS_TITAN_175_V100:
-
-			desc.arginfo = SCM_ARGS(2, SCM_VAL, SCM_VAL);
-			desc.args[0] = SMMU_SE_IFE;
-			desc.args[1] = safe_trigger;
-
-			CAM_DBG(CAM_ISP, "Safe scm call %d", safe_trigger);
-			if (scm_call2(SCM_SIP_FNID(TZ_SVC_SMMU_PROGRAM,
-					TZ_SAFE_SYSCALL_ID), &desc)) {
-				CAM_ERR(CAM_ISP,
-					"scm call to Enable Safe failed");
-				rc = -EINVAL;
-			}
+			/*
+			 * Downstream issued a raw TZ syscall
+			 * (TZ_SVC_SMMU_PROGRAM/TZ_SAFE_SYSCALL_ID via scm_call2)
+			 * to toggle the IFE SMMU "safe" output mode. There is no
+			 * mainline qcom_scm_* equivalent for this camera-specific
+			 * safe-LUT toggle, and it is only relevant on the secure
+			 * camera path — which the mici non-secure data path never
+			 * exercises. Stubbed to a no-op (benign success) for
+			 * bring-up; revisit in Phase 3+ if a secure path needs it.
+			 */
+			CAM_DBG(CAM_ISP,
+				"IFE safe-LUT scm toggle (%d) skipped: no mainline qcom_scm equiv (non-secure path)",
+				safe_trigger);
 			break;
 		default:
 			break;
@@ -4345,13 +4344,11 @@ static int cam_ife_hw_mgr_debug_register(void)
 		goto err;
 	}
 
-	if (!debugfs_create_u32("enable_recovery",
+	/* debugfs_create_u32() returns void in 6.18 */
+	debugfs_create_u32("enable_recovery",
 		0644,
 		g_ife_hw_mgr.debug_cfg.dentry,
-		&g_ife_hw_mgr.debug_cfg.enable_recovery)) {
-		CAM_ERR(CAM_ISP, "failed to create enable_recovery");
-		goto err;
-	}
+		&g_ife_hw_mgr.debug_cfg.enable_recovery);
 
 	if (!debugfs_create_file("ife_camif_debug",
 		0644,

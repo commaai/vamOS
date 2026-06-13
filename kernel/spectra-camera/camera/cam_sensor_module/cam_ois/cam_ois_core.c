@@ -337,8 +337,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	i2c_reg_setting.delay = 0;
 	fw_size = PAGE_ALIGN(sizeof(struct cam_sensor_i2c_reg_array) *
 		total_bytes) >> PAGE_SHIFT;
-	page = cma_alloc(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		fw_size, 0);
+	page = alloc_pages(GFP_KERNEL, get_order(fw_size << PAGE_SHIFT));
 	if (!page) {
 		CAM_ERR(CAM_OIS, "Failed in allocating i2c_array");
 		release_firmware(fw);
@@ -363,8 +362,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 		CAM_ERR(CAM_OIS, "OIS FW download failed %d", rc);
 		goto release_firmware;
 	}
-	cma_release(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		page, fw_size);
+	__free_pages(page, get_order(fw_size << PAGE_SHIFT));
 	page = NULL;
 	fw_size = 0;
 	release_firmware(fw);
@@ -382,8 +380,7 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 	i2c_reg_setting.delay = 0;
 	fw_size = PAGE_ALIGN(sizeof(struct cam_sensor_i2c_reg_array) *
 		total_bytes) >> PAGE_SHIFT;
-	page = cma_alloc(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		fw_size, 0);
+	page = alloc_pages(GFP_KERNEL, get_order(fw_size << PAGE_SHIFT));
 	if (!page) {
 		CAM_ERR(CAM_OIS, "Failed in allocating i2c_array");
 		release_firmware(fw);
@@ -408,8 +405,8 @@ static int cam_ois_fw_download(struct cam_ois_ctrl_t *o_ctrl)
 		CAM_ERR(CAM_OIS, "OIS FW download failed %d", rc);
 
 release_firmware:
-	cma_release(dev_get_cma_area((o_ctrl->soc_info.dev)),
-		page, fw_size);
+	if (page)
+		__free_pages(page, get_order(fw_size << PAGE_SHIFT));
 	release_firmware(fw);
 
 	return rc;

@@ -155,7 +155,7 @@ unregister_subdev:
 	return rc;
 }
 
-static int cam_fd_dev_remove(struct platform_device *pdev)
+static void cam_fd_dev_remove(struct platform_device *pdev)
 {
 	int i, rc;
 
@@ -176,8 +176,6 @@ static int cam_fd_dev_remove(struct platform_device *pdev)
 
 	mutex_destroy(&g_fd_dev.lock);
 	g_fd_dev.probe_done = false;
-
-	return rc;
 }
 
 static const struct of_device_id cam_fd_dt_match[] = {

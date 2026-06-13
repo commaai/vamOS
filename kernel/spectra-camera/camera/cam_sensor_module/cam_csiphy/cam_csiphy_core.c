@@ -16,7 +16,6 @@
 #include "cam_csiphy_soc.h"
 #include "cam_common_util.h"
 #include "cam_packet_util.h"
-#include <soc/qcom/scm.h>
 #include <cam_mem_mgr.h>
 
 #define SCM_SVC_CAMERASS 0x18
@@ -30,19 +29,21 @@ module_param(csiphy_dump, int, 0644);
 static int cam_csiphy_notify_secure_mode(struct csiphy_device *csiphy_dev,
 	bool protect, int32_t offset)
 {
-	struct scm_desc desc = {0};
-
 	if (offset >= CSIPHY_MAX_INSTANCES)
 		return -EINVAL;
-	desc.arginfo = SCM_ARGS(2, SCM_VAL, SCM_VAL);
-	desc.args[0] = protect;
-	desc.args[1] = csiphy_dev->csiphy_cpas_cp_reg_mask[offset];
 
-	if (scm_call2(SCM_SIP_FNID(SCM_SVC_CAMERASS, SECURE_SYSCALL_ID_2),
-		&desc)) {
-		CAM_ERR(CAM_CSIPHY, "scm call to hypervisor failed");
-		return -EINVAL;
-	}
+	/*
+	 * Downstream issued a hypervisor SCM call (SCM_SVC_CAMERASS /
+	 * SECURE_SYSCALL_ID_2 via scm_call2) to protect/unprotect the CSIPHY
+	 * lanes for the secure camera path. There is no mainline qcom_scm_*
+	 * equivalent for this camera-specific hyp protect op, and it is only
+	 * used on the secure path — which the mici non-secure data path never
+	 * exercises. Stubbed to a no-op (benign success) for bring-up; revisit
+	 * in Phase 3+ if a secure CSIPHY path is needed.
+	 */
+	CAM_DBG(CAM_CSIPHY,
+		"CSIPHY secure-mode notify (protect=%d off=%d) skipped: no mainline qcom_scm equiv (non-secure path)",
+		protect, offset);
 
 	return 0;
 }

@@ -43,10 +43,17 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
 - [x] **1.3** First compile pass against 6.18 done — full error surface captured
       below ("Phase 1 build error surface"). Patch applies; compilation reaches the
       camera tree and breaks on the 4.9→6.18 API gap as expected.
-- [ ] **1.4** Stub/adapt blocking subsystems (A memory, B iommu, C bus, D sync)
-      just enough to **link**. Track each stub as a debt item below.
+- [x] **1.4** Stub/adapt blocking subsystems just enough to **link**. ☑ 2026-06-12
+      — `./vamos build kernel` now COMPILES + LINKS the whole Spectra tree
+      (`CONFIG_SPECTRA_CAMERA=y`) into `vmlinux` and produces
+      `build/boot.img` (16.8M). A (ion→dma-buf), B (iommu), C (msm-bus→icc),
+      E (scm→stub), and all mechanical sig-drift (2.G/2.G-residual + the trailing
+      `.remove`/i2c-probe/debugfs/CMA batch) are done. D (sync) needed no link-time
+      change. See "Phase 2.C/E + build-links surface" below. Remaining stubs in the
+      ledger are all OFF the mici non-secure data path (secure SCM, stage-2 ION,
+      QPNP flash, SPI/OIS CMA, AHB icc no-op pending DTS).
 - [ ] **1.5** Boots on device; `dmesg` shows the driver registering (even if HW
-      blocks fail to probe).
+      blocks fail to probe). *(pending on-device flash/boot — build artifact ready)*
 
 ## Phase 2 — Blocking subsystem rewrites  ☐
 
@@ -75,11 +82,31 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
       ARM `dma_iommu_mapping`; IO-region IOVA now driver-owned via a `gen_pool`
       (replaces downstream `msm_dma_map_sg_lazy`). Secure/stage-2 ION path shimmed
       at the 2.A/2.E seam (see ledger). See "Phase 2.B surface" below.
-- [ ] **2.C** Bus BW: `msm_bus_scale_*` → interconnect `icc_*`
-      (`cam_utils/cam_soc_util.c`, `cam_cpas/cam_cpas_hw.c`). ★★★★
+- [x] **2.C** Bus BW: `msm_bus_scale_*` → interconnect `icc_*`
+      (`cam_cpas/cam_cpas_hw.{c,h}`). ★★★★ ☑ 2026-06-12 — `cam_cpas_hw.c`
+      compiles clean. `struct msm_bus_scale_pdata *pdata` + `client_id`/`src`/`dst`
+      replaced by a single `struct icc_path *icc_path` per bus client;
+      register=`of_icc_get(dev, name)`, vote=`icc_set_bw(path, ab, ib)`,
+      unregister=`icc_put`. NULL-tolerant: if the DT does not (yet) wire
+      `interconnects`/`interconnect-names`, `of_icc_get` returns NULL/ERR_PTR and
+      votes degrade to a safe no-op (bw/perf, not probe-blocking). Phase 3 DTS adds
+      the paths. (`cam_utils/cam_soc_util.c` had no msm-bus use — only an unrelated
+      `enum msm_bus_perf_setting` in a sensor header, harmless.) See surface below.
 - [ ] **2.D** Sync: modernize downstream `cam_sync` against 6.18
       `dma_fence`/`completion` (`cam_sync/cam_sync.c`). ★★★★
-- [ ] **2.E** SCM/secure buffer: `soc/qcom/scm.h` → `qcom_scm_*`. ★★★
+      (No link-time change needed — cam_sync already compiles/links with the 2.G
+      `.remove`/debugfs fixes; real dma_fence modernization is a Phase 4 streaming
+      concern, not a build blocker.)
+- [x] **2.E** SCM/secure buffer: `soc/qcom/scm.h` → `qcom_scm_*`. ★★★ ☑ 2026-06-12
+      — both `scm_call2` call sites ported off `<soc/qcom/scm.h>`:
+      `cam_ife_hw_mgr.c` (IFE safe-LUT SMMU toggle) and `cam_csiphy_core.c` (CSIPHY
+      hyp secure-mode protect). Neither has a clean mainline `qcom_scm_*`
+      equivalent (camera-specific TZ/hyp ops) and both are SECURE-path only — the
+      mici non-secure data path never calls them — so both are documented no-op
+      stubs (benign success) per the bring-up plan. The cam_smmu stage-2 ION shim
+      (`cam_smmu_compat.h`) is retained (see ledger): it is the secure stage-2
+      path's sole remaining consumer, also off the mici data path, and a real
+      `qcom_scm_assign_mem` impl needs DTS-backed secure heaps (Phase 3+).
 - [ ] **2.F** V4L2/media: verify subdev + media-dev + cam_req_mgr char-dev
       registration; **preserve exact `/dev` + subdev names**. ★★★
 - [x] **2.G** Misc mechanical: core-types / moved-header / renamed-helper fixes.
@@ -145,7 +172,12 @@ Exit: camerad unmodified streams all 3 cameras; real snapshot JPEG.
 |------|------|-----------|-----------|--------|
 | `clk_set_flags()` no-op + `CLKFLAG_*` enum (downstream `linux/clk/qcom.h`; mainline CCF has no per-consumer flag setter — flags are idle RAM-retention power opt, safe to no-op) | `cam_utils/cam_compat_qcom.h` (replaces `#include <linux/clk/qcom.h>` in `cam_soc_util.h`) | 2026-06-12 (2.G) | Phase 3 HW bring-up (FD clk setup) | active |
 | `socinfo_get_id()` / `socinfo_get_version()` → return 0 (downstream `soc/qcom/socinfo.h` not in mainline; only used for SoC-revision quirk decisions) | `cam_utils/cam_compat_qcom.h` (replaces `#include <soc/qcom/socinfo.h>` in `cam_soc_util.c` + `cam_icp/hfi.c`) | 2026-06-12 (2.G) | Phase 3 (wire real soc-rev lookup via qcom_socinfo/nvmem) | active |
-| ION secure/stage-2 types + helpers: `ion_phys_addr_t`/`struct ion_client`/`struct ion_handle` aliases + `ion_import_dma_buf_fd()`/`ion_phys()`/`ion_free()` stubs (return `-ENODEV`/`NULL`). Keeps cam_smmu's PUBLIC `cam_smmu_map_stage2_iova()` signature byte-identical AND lets the secure path compile. Non-secure (mici) data path does NOT use these. **2.A update (2026-06-12):** cam_mem_mgr is now fully off ION and confirmed to never call these on the non-secure path (it passes `NULL` for the `struct ion_client *` arg of `cam_smmu_map_stage2_iova`, used only under `CAM_MEM_FLAG_PROTECTED_MODE`, which mici does not exercise). The shim is now referenced **only** by cam_smmu_api.c's stage-2 helpers — sole remaining owner is **2.E**. | `cam_smmu/cam_smmu_compat.h` (replaces `#include <linux/msm_ion.h>` in `cam_smmu_api.h`; the stage-2 funcs in `cam_smmu_api.c` resolve against it) | 2026-06-12 (2.B) | 2.E (`qcom_scm_assign_mem` secure assign) — real stage-2 impl | active |
+| ION secure/stage-2 types + helpers: `ion_phys_addr_t`/`struct ion_client`/`struct ion_handle` aliases + `ion_import_dma_buf_fd()`/`ion_phys()`/`ion_free()` stubs (return `-ENODEV`/`NULL`). Keeps cam_smmu's PUBLIC `cam_smmu_map_stage2_iova()` signature byte-identical AND lets the secure path compile. Non-secure (mici) data path does NOT use these. **2.A update (2026-06-12):** cam_mem_mgr is now fully off ION and confirmed to never call these on the non-secure path (it passes `NULL` for the `struct ion_client *` arg of `cam_smmu_map_stage2_iova`, used only under `CAM_MEM_FLAG_PROTECTED_MODE`, which mici does not exercise). The shim is now referenced **only** by cam_smmu_api.c's stage-2 helpers — sole remaining owner is **2.E**. **2.E update (2026-06-12):** RETAINED. The secure stage-2 path has no clean mainline `qcom_scm_*` mapping without DTS-backed secure dma-heaps, and it is off the mici non-secure data path (never exercised), so the shim stays as a documented stub (returns `-ENODEV`/`NULL`). A real `qcom_scm_assign_mem`-based stage-2 impl is deferred to Phase 3+ (needs secure-heap DTS). | `cam_smmu/cam_smmu_compat.h` (replaces `#include <linux/msm_ion.h>` in `cam_smmu_api.h`; the stage-2 funcs in `cam_smmu_api.c` resolve against it) | 2026-06-12 (2.B) | Phase 3+ (`qcom_scm_assign_mem` + secure dma-heap DTS) | active |
+| Secure SCM call sites → documented no-op stubs (benign success). Downstream `scm_call2`/`scm_desc` ops with no clean mainline `qcom_scm_*` equivalent: **(a)** IFE safe-LUT SMMU toggle (`TZ_SVC_SMMU_PROGRAM`/`TZ_SAFE_SYSCALL_ID`) in `cam_ife_notify_safe_lut_scm()`; **(b)** CSIPHY hyp secure-mode protect (`SCM_SVC_CAMERASS`/`SECURE_SYSCALL_ID_2`) in `cam_csiphy_notify_secure_mode()`. Both are SECURE-camera-path only; the mici non-secure data path never calls them. `<soc/qcom/scm.h>` include removed from both files. | `cam_isp/isp_hw_mgr/cam_ife_hw_mgr.c`, `cam_sensor_module/cam_csiphy/cam_csiphy_core.c` | 2026-06-12 (2.E) | Phase 3+ (only if a secure camera path is ever needed on mici — likely never) | active |
+| Camera-bus `icc_set_bw` votes degrade to a **safe no-op** when `of_icc_get` returns NULL/ERR_PTR (DT does not yet wire `interconnects`/`interconnect-names`). The msm-bus→interconnect port (2.C) is otherwise a real port. Bus bandwidth is a perf/power vote, not probe-blocking, so a missing-path no-op is safe for bring-up; AHB level votes also collapse to a single on/off bw (icc has no per-level usecase table). | `cam_cpas/cam_cpas_hw.{c,h}` (`cam_cpas_util_*_bus_client*`) | 2026-06-12 (2.C) | Phase 3 (add CPAS/AXI `interconnects` props to `sdm845-comma-common.dtsi`) | active |
+| QPNP camera-flash `qcom_flash_led_prepare()` → `-ENODEV` stub + `ENABLE/DISABLE_REGULATOR`/`QUERY_MAX_CURRENT` macros (downstream `linux/leds-qpnp-flash.h` + `CONFIG_LEDS_QPNP_FLASH` absent in mainline; downstream itself stubbed to `-ENODEV` when QPNP not built). mici has no camera flash LED — never exercised. | `cam_sensor_module/cam_flash/cam_flash_compat.h` (new; replaces `#include <linux/leds-qpnp-flash.h>` in `cam_flash_core.h`) | 2026-06-12 (mech) | Phase 3+ (only if a flash LED is wired — not on mici) | active |
+| SPI/OIS bounce-buffer CMA (`dev_get_cma_area`+`cma_alloc`/`cma_release`, all removed/changed in 6.18) → plain contiguous `alloc_pages()`/`__free_pages()`. Functional superset of the old per-device CMA area. SPI sensor + OIS FW-download paths are off the mici I2C/CCI data path. | `cam_sensor_module/cam_sensor_io/cam_sensor_spi.{c,h}`, `cam_sensor_module/cam_ois/cam_ois_core.{c,h}` | 2026-06-12 (mech) | Phase 4+ (only if an SPI sensor / OIS is used — not on mici) | active |
+| al6100 (Altek companion mini-ISP) subdir **excluded** from the build (`# obj-...al6100/` in `camera/Makefile`). Self-contained, unreferenced by any `cam_*` subdir, NOT on the mici Spectra (IFE/ICP) data path, and its `isp_camera_cmd.h` emits unbalanced `#pragma pack(1)` that leaks into `linux/fs.h` and trips the `struct filename` alignment `static_assert`. | `cam_sensor_module/.../camera/Makefile` | 2026-06-12 (mech) | never (not used on mici) | active |
 | PROTECTED_MODE (secure) allocation in cam_mem_mgr falls back to the **non-secure** page exporter (no `qcom_scm_assign_mem` stage-2 hand-off). Allocation/import paths are otherwise real. The mici data path is non-secure and never sets `CAM_MEM_FLAG_PROTECTED_MODE`, so this is never hit; if a secure buffer is requested it will map as ordinary memory and the stage-2 smmu path (still shimmed, above) returns `-ENODEV`. | `cam_req_mgr/cam_mem_mgr.c` (`cam_mem_util_buffer_alloc`, secure branch of `cam_mem_util_map_hw_va`) | 2026-06-12 (2.A) | 2.E (qcom_scm secure assignment + a CMA/secure dma-heap) | active |
 | `iommu_domain_set_attr()` non-fatal-fault / iova-guard tuning hints **dropped** (no generic mainline equivalent; `DOMAIN_ATTR_*` removed). They were power/debug tuning, not correctness. `non_fatal_fault`/`enable_iova_guard` struct fields now unused. | `cam_smmu/cam_smmu_api.c` (`cam_smmu_setup_cb`) | 2026-06-12 (2.B) | Phase 3 (re-add via mainline mechanism if a fault storm needs the non-fatal hint) | active |
 
@@ -383,7 +415,72 @@ Files changed in 2.G-residual (all under `kernel/spectra-camera/camera/`):
   `cam_sensor_module/cam_sensor_io/cam_sensor_spi.h` — dropped removed
   `<linux/dma-contiguous.h>` (unused; CMA folded into dma-map-ops).
 
+## Phase 2.C/E + build-links surface (the build now LINKS — 2026-06-12)
+
+Captured from `build/spectra-build-2ce.log`. This slice took the tree from the
+last leading edge (C + E + trailing mechanical) all the way to a **clean compile
++ link**: `./vamos build kernel` produces
+`build/boot.img` (16.8M) with `CONFIG_SPECTRA_CAMERA=y` built into `vmlinux`
+(`AR drivers/media/platform/msm/camera/built-in.a` → linked; `LD vmlinux`,
+`OBJCOPY arch/arm64/boot/Image`, `-- Done! boot.img --`). Order errors fell as:
+
+1. **C (interconnect)** — `cam_cpas_hw.{c,h}` ported msm-bus→icc (real port,
+   NULL-tolerant safe-degrade; see 2.C + ledger).
+2. **E (scm)** — `cam_ife_hw_mgr.c` + `cam_csiphy_core.c` scm_call2 → documented
+   secure-path no-op stubs; `<soc/qcom/scm.h>` dropped (see 2.E + ledger).
+3. **Trailing mechanical** (subagent + this slice): ~24 platform_driver `.remove`
+   int→void; i2c `.probe` drop-id + `.remove` void (cam_actuator/cam_sensor/
+   cam_eeprom/cam_flash/cam_ois + al6100); spi `.remove` void; `debugfs_create_u32`
+   /`debugfs_create_bool` void-return (`cam_ife_hw_mgr.c`, `cam_lrme_hw_mgr.c`,
+   `cam_icp_hw_mgr.c`); SPI/OIS CMA→`alloc_pages` (ledger); QPNP-flash compat
+   header (ledger).
+4. **Newly unmasked once the tree compiled through:**
+   - `linux/leds-qpnp-flash.h` missing (`cam_flash_core.h`) → `cam_flash_compat.h`
+     stub (ledger).
+   - `vfree`/`vzalloc` implicit (`cam_eeprom_core.c`, `cam_eeprom_soc.c`) → add
+     `<linux/vmalloc.h>`.
+   - al6100 `#pragma pack(1)` leaking into `linux/fs.h` `struct filename`
+     static_assert → al6100 subdir excluded from build (ledger).
+   - **modpost link error**: `EXPORT_SYMBOL` on `static` (TU-local) symbols
+     `cam_ipe_hw_info`/`cam_bps_hw_info`/`cam_jpeg_dma_hw_info` — 6.18 modpost
+     hard-errors on exporting a local symbol; driver is built-in so the exports
+     were spurious → dropped. This was the **final** blocker before the link.
+
+Files changed in 2.C/E + build-links (all under `kernel/spectra-camera/`):
+- `cam_cpas/cam_cpas_hw.h` — `struct cam_cpas_bus_client`: msm-bus pdata/client_id/
+  src/dst → single `struct icc_path *icc_path`; `+#include <linux/interconnect.h>`.
+- `cam_cpas/cam_cpas_hw.c` — register/vote/unregister bus-client funcs ported to
+  `of_icc_get`/`icc_set_bw`/`icc_put`; dropped pdata usecase toggling; fixed
+  CAM_DBG references to removed fields; `<linux/msm-bus.h>`→`<linux/interconnect.h>`.
+- `cam_isp/isp_hw_mgr/cam_ife_hw_mgr.c` — `cam_ife_notify_safe_lut_scm` scm_call2
+  → no-op stub; dropped `<soc/qcom/scm.h>`; `debugfs_create_u32` void fix.
+- `cam_sensor_module/cam_csiphy/cam_csiphy_core.c` — `cam_csiphy_notify_secure_mode`
+  scm_call2 → no-op stub; dropped `<soc/qcom/scm.h>`.
+- `cam_sensor_module/cam_sensor_io/cam_sensor_spi.{c,h}`,
+  `cam_sensor_module/cam_ois/cam_ois_core.{c,h}` — CMA→`alloc_pages`.
+- `cam_sensor_module/cam_flash/cam_flash_compat.h` (new) +
+  `cam_sensor_module/cam_flash/cam_flash_core.h` — QPNP-flash stub.
+- `cam_sensor_module/cam_eeprom/cam_eeprom_{core,soc}.c` — `+<linux/vmalloc.h>`.
+- `cam_lrme/lrme_hw_mgr/cam_lrme_hw_mgr.c`,
+  `cam_icp/icp_hw/icp_hw_mgr/cam_icp_hw_mgr.c` — void-return debugfs fixes.
+- `cam_icp/icp_hw/ipe_hw/ipe_dev.c`, `cam_icp/icp_hw/bps_hw/bps_dev.c`,
+  `cam_jpeg/jpeg_hw/jpeg_dma_hw/jpeg_dma_dev.c` — dropped spurious EXPORT_SYMBOL.
+- `camera/Makefile` — al6100 subdir commented out.
+- ~24 `.remove` int→void + i2c/spi probe/remove sig fixes across cam_lrme,
+  cam_jpeg, cam_isp (cam_ife_csid_dev/cam_vfe_dev), cam_cpas_intf, cam_icp_subdev,
+  cam_cdm, cam_fd, cam_sensor_module (cci/csiphy/actuator/sensor/eeprom/flash/ois),
+  al6100 (intf_i2c/intf_spi).
+
 ## Decisions / notes log
+- 2026-06-12 — **Phase 2.C/E + Phase 1.4: the Spectra tree COMPILES AND LINKS.**
+  `./vamos build kernel` → `build/boot.img` 16.8M, `CONFIG_SPECTRA_CAMERA=y`
+  built into vmlinux. 2.C (msm-bus→interconnect, real NULL-tolerant port) and 2.E
+  (scm→documented secure-path no-op stubs) done; all trailing mechanical sig-drift
+  cleared; al6100 excluded; spurious static EXPORT_SYMBOLs dropped (final modpost
+  blocker). Remaining stubs are all OFF the mici non-secure data path (secure SCM,
+  stage-2 ION, QPNP flash, SPI/OIS CMA, AHB icc no-op pending DTS) — see ledger.
+  Next: Phase 1.5 (flash + boot on device) and Phase 3 (DTS incl. CPAS/AXI
+  `interconnects` props to retire the icc no-op). Log: `build/spectra-build-2ce.log`.
 - 2026-06-12 — Phase 2.G-residual: gpio (legacy-integer bridge) + mechanical
   quick-wins done (see "Phase 2.G-residual surface"). 10 files changed. GPIO
   bucket gone from leading edge; no new stubs. Leading edge now pure C (msm-bus)

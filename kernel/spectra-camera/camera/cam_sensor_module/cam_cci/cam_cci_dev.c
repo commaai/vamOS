@@ -373,7 +373,7 @@ cci_no_resource:
 	return rc;
 }
 
-static int cam_cci_device_remove(struct platform_device *pdev)
+static void cam_cci_device_remove(struct platform_device *pdev)
 {
 	struct v4l2_subdev *subdev = platform_get_drvdata(pdev);
 	struct cci_device *cci_dev =
@@ -382,7 +382,6 @@ static int cam_cci_device_remove(struct platform_device *pdev)
 	cam_cpas_unregister_client(cci_dev->cpas_handle);
 	cam_cci_soc_remove(pdev, cci_dev);
 	devm_kfree(&pdev->dev, cci_dev);
-	return 0;
 }
 
 static const struct of_device_id cam_cci_dt_match[] = {

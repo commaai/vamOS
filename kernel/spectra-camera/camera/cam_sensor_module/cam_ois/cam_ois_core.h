@@ -12,11 +12,11 @@
 #ifndef _CAM_OIS_CORE_H_
 #define _CAM_OIS_CORE_H_
 
-#include <linux/cma.h>
+#include <linux/mm.h>
 /*
- * 6.18 removed linux/dma-contiguous.h (CMA helpers folded into
- * linux/dma-map-ops.h). No dma_contiguous_* symbols are used here, so the
- * include is simply dropped.
+ * 6.18 removed linux/dma-contiguous.h and dev_get_cma_area(); the OIS FW
+ * download path (off the mici data path) now uses plain contiguous
+ * alloc_pages() (linux/mm.h) instead of per-device CMA.
  */
 #include "cam_ois_dev.h"
 

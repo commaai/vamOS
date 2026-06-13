@@ -13,7 +13,7 @@
 #include <linux/device.h>
 #include <linux/platform_device.h>
 #include <linux/of.h>
-#include <linux/msm-bus.h>
+#include <linux/interconnect.h>
 #include <linux/pm_opp.h>
 #include <linux/slab.h>
 #include <linux/module.h>
@@ -59,9 +59,21 @@ int cam_cpas_util_reg_update(struct cam_hw_info *cpas_hw,
 	return 0;
 }
 
+/*
+ * Nominal AHB/config-bus bandwidth (in Bps) requested for any non-suspend
+ * level vote. The legacy msm-bus path carried a per-level usecase table in the
+ * DT pdata; the mainline interconnect framework votes raw AB/IB bandwidth
+ * instead, so the discrete AHB power levels collapse to a single "on" vote
+ * (non-zero) vs "suspend" (zero). This is a config/AHB path, not a data path,
+ * so an exact-Bps match is not required for correctness.
+ */
+#define CAM_CPAS_AHB_VOTE_BW	(1000000UL)
+
 static int cam_cpas_util_vote_bus_client_level(
 	struct cam_cpas_bus_client *bus_client, unsigned int level)
 {
+	u64 ab;
+
 	if (!bus_client->valid || (bus_client->dyn_vote == true)) {
 		CAM_ERR(CAM_CPAS, "Invalid params %d %d", bus_client->valid,
 			bus_client->dyn_vote);
@@ -77,9 +89,16 @@ static int cam_cpas_util_vote_bus_client_level(
 	if (level == bus_client->curr_vote_level)
 		return 0;
 
-	CAM_DBG(CAM_CPAS, "Bus client=[%d][%s] index[%d]",
-		bus_client->client_id, bus_client->name, level);
-	msm_bus_scale_client_update_request(bus_client->client_id, level);
+	CAM_DBG(CAM_CPAS, "Bus client=[%s] index[%d]",
+		bus_client->name, level);
+
+	/*
+	 * icc_path may be NULL if the DT does not (yet) wire interconnect
+	 * paths for this client; icc_set_bw() is NULL-tolerant and the vote
+	 * degrades to a safe no-op (Phase 3 adds the DTS interconnect props).
+	 */
+	ab = level ? CAM_CPAS_AHB_VOTE_BW : 0;
+	icc_set_bw(bus_client->icc_path, Bps_to_icc(ab), Bps_to_icc(ab));
 	bus_client->curr_vote_level = level;
 
 	return 0;
@@ -89,9 +108,6 @@ static int cam_cpas_util_vote_bus_client_bw(
 	struct cam_cpas_bus_client *bus_client, uint64_t ab, uint64_t ib,
 	bool camnoc_bw)
 {
-	struct msm_bus_paths *path;
-	struct msm_bus_scale_pdata *pdata;
-	int idx = 0;
 	uint64_t min_camnoc_ib_bw = CAM_CPAS_AXI_MIN_CAMNOC_IB_BW;
 
 	if (cam_min_camnoc_ib_bw > 0)
@@ -105,28 +121,12 @@ static int cam_cpas_util_vote_bus_client_bw(
 		return -EINVAL;
 	}
 
-	if ((bus_client->num_usecases != 2) ||
-		(bus_client->num_paths != 1) ||
-		(bus_client->dyn_vote != true)) {
-		CAM_ERR(CAM_CPAS, "dynamic update not allowed %d %d %d",
-			bus_client->num_usecases, bus_client->num_paths,
-			bus_client->dyn_vote);
+	if (!bus_client->dyn_vote) {
+		CAM_ERR(CAM_CPAS, "dynamic update not allowed");
 		return -EINVAL;
 	}
 
 	mutex_lock(&bus_client->lock);
-
-	if (bus_client->curr_vote_level > 1) {
-		CAM_ERR(CAM_CPAS, "curr_vote_level %d cannot be greater than 1",
-			bus_client->curr_vote_level);
-		mutex_unlock(&bus_client->lock);
-		return -EINVAL;
-	}
-
-	idx = bus_client->curr_vote_level;
-	idx = 1 - idx;
-	bus_client->curr_vote_level = idx;
-	mutex_unlock(&bus_client->lock);
 
 	if (camnoc_bw == true) {
 		if ((ab > 0) && (ab < CAM_CPAS_AXI_MIN_CAMNOC_AB_BW))
@@ -142,14 +142,18 @@ static int cam_cpas_util_vote_bus_client_bw(
 			ib = CAM_CPAS_AXI_MIN_MNOC_IB_BW;
 	}
 
-	pdata = bus_client->pdata;
-	path = &(pdata->usecase[idx]);
-	path->vectors[0].ab = ab;
-	path->vectors[0].ib = ib;
+	CAM_DBG(CAM_CPAS, "Bus client=[%s] :ab[%llu] ib[%llu]",
+		bus_client->name, ab, ib);
 
-	CAM_DBG(CAM_CPAS, "Bus client=[%d][%s] :ab[%llu] ib[%llu], index[%d]",
-		bus_client->client_id, bus_client->name, ab, ib, idx);
-	msm_bus_scale_client_update_request(bus_client->client_id, idx);
+	/*
+	 * Mainline interconnect votes AB (avg) / IB (peak) directly. The legacy
+	 * msm-bus double-buffered usecase toggle is no longer needed — icc votes
+	 * are atomic. icc_path may be NULL until Phase 3 wires the DT
+	 * interconnect paths; icc_set_bw() is NULL-tolerant (safe no-op vote).
+	 */
+	icc_set_bw(bus_client->icc_path, Bps_to_icc(ab), Bps_to_icc(ib));
+
+	mutex_unlock(&bus_client->lock);
 
 	return 0;
 }
@@ -158,64 +162,49 @@ static int cam_cpas_util_register_bus_client(
 	struct cam_hw_soc_info *soc_info, struct device_node *dev_node,
 	struct cam_cpas_bus_client *bus_client)
 {
-	struct msm_bus_scale_pdata *pdata = NULL;
-	uint32_t client_id;
-	int rc;
+	struct icc_path *path;
+	const char *name = NULL;
 
-	pdata = msm_bus_pdata_from_node(soc_info->pdev,
-		dev_node);
-	if (!pdata) {
-		CAM_ERR(CAM_CPAS, "failed get_pdata");
-		return -EINVAL;
-	}
+	/*
+	 * Mainline interconnect port. The legacy msm-bus pdata model
+	 * (num_usecases/num_paths/src/dst vectors out of the DT) is replaced by
+	 * a single icc_path requested by interconnect-name from the bus client's
+	 * DT node. Phase 3 wires the "interconnects"/"interconnect-names" DT
+	 * properties; until then of_icc_get() returns NULL (no matching path) or
+	 * an ERR_PTR, and bw votes degrade to a safe no-op (this is a
+	 * bandwidth/perf path, not probe-blocking).
+	 */
+	of_property_read_string(dev_node, "qcom,axi-port-name", &name);
+	if (!name)
+		name = dev_node->name;
 
-	if ((pdata->num_usecases == 0) ||
-		(pdata->usecase[0].num_paths == 0)) {
-		CAM_ERR(CAM_CPAS, "usecase=%d", pdata->num_usecases);
-		rc = -EINVAL;
-		goto error;
-	}
-
-	client_id = msm_bus_scale_register_client(pdata);
-	if (!client_id) {
-		CAM_ERR(CAM_CPAS, "failed in register ahb bus client");
-		rc = -EINVAL;
-		goto error;
+	path = of_icc_get(&soc_info->pdev->dev, name);
+	if (IS_ERR(path)) {
+		CAM_DBG(CAM_CPAS,
+			"icc path [%s] not wired in DT (rc=%ld); bw votes no-op until Phase 3",
+			name, PTR_ERR(path));
+		path = NULL;
 	}
 
 	bus_client->dyn_vote = of_property_read_bool(dev_node,
 		"qcom,msm-bus-vector-dyn-vote");
 
-	if (bus_client->dyn_vote && (pdata->num_usecases != 2)) {
-		CAM_ERR(CAM_CPAS, "Excess or less vectors %d",
-			pdata->num_usecases);
-		rc = -EINVAL;
-		goto fail_unregister_client;
-	}
-
-	msm_bus_scale_client_update_request(client_id, 0);
-
-	bus_client->src = pdata->usecase[0].vectors[0].src;
-	bus_client->dst = pdata->usecase[0].vectors[0].dst;
-	bus_client->pdata = pdata;
-	bus_client->client_id = client_id;
-	bus_client->num_usecases = pdata->num_usecases;
-	bus_client->num_paths = pdata->usecase[0].num_paths;
+	bus_client->icc_path = path;
+	/*
+	 * num_usecases/num_paths are retained only for the level-vote bound
+	 * check; mirror the legacy non-dyn (2-level)/dyn (1-path) shape.
+	 */
+	bus_client->num_usecases = 2;
+	bus_client->num_paths = 1;
 	bus_client->curr_vote_level = 0;
 	bus_client->valid = true;
-	bus_client->name = pdata->name;
+	bus_client->name = name;
 	mutex_init(&bus_client->lock);
 
-	CAM_DBG(CAM_CPAS, "Bus Client=[%d][%s] : src=%d, dst=%d",
-		bus_client->client_id, bus_client->name,
-		bus_client->src, bus_client->dst);
+	CAM_DBG(CAM_CPAS, "Bus Client=[%s] dyn_vote=%d icc_path=%pK",
+		bus_client->name, bus_client->dyn_vote, bus_client->icc_path);
 
 	return 0;
-fail_unregister_client:
-	msm_bus_scale_unregister_client(bus_client->client_id);
-error:
-	return rc;
-
 }
 
 static int cam_cpas_util_unregister_bus_client(
@@ -229,7 +218,10 @@ static int cam_cpas_util_unregister_bus_client(
 	else
 		cam_cpas_util_vote_bus_client_level(bus_client, 0);
 
-	msm_bus_scale_unregister_client(bus_client->client_id);
+	if (bus_client->icc_path) {
+		icc_put(bus_client->icc_path);
+		bus_client->icc_path = NULL;
+	}
 	bus_client->valid = false;
 
 	mutex_destroy(&bus_client->lock);
@@ -656,9 +648,8 @@ static int cam_cpas_util_apply_client_axi_vote(
 	axi_port->consolidated_axi_vote.uncompressed_bw = camnoc_bw;
 
 	CAM_DBG(CAM_CPAS,
-		"axi[(%d, %d),(%d, %d)] : camnoc_bw[%llu], mnoc_bw[%llu]",
-		axi_port->mnoc_bus.src, axi_port->mnoc_bus.dst,
-		axi_port->camnoc_bus.src, axi_port->camnoc_bus.dst,
+		"axi[%s, %s] : camnoc_bw[%llu], mnoc_bw[%llu]",
+		axi_port->mnoc_bus.name, axi_port->camnoc_bus.name,
 		camnoc_bw, mnoc_bw);
 
 	rc = cam_cpas_util_vote_bus_client_bw(&axi_port->mnoc_bus,
@@ -818,8 +809,8 @@ static int cam_cpas_util_apply_client_ahb_vote(struct cam_hw_info *cpas_hw,
 	mutex_lock(&ahb_bus_client->lock);
 	cpas_client->ahb_level = required_level;
 
-	CAM_DBG(CAM_CPAS, "Client=[%d][%s] required level[%d], curr_level[%d]",
-		ahb_bus_client->client_id, ahb_bus_client->name,
+	CAM_DBG(CAM_CPAS, "Client=[%s] required level[%d], curr_level[%d]",
+		ahb_bus_client->name,
 		required_level, ahb_bus_client->curr_vote_level);
 
 	if (required_level == ahb_bus_client->curr_vote_level)

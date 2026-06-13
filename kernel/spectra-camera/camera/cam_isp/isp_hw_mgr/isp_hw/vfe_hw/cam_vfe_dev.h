@@ -37,6 +37,6 @@ int cam_vfe_probe(struct platform_device *pdev);
  * @Return:                  0: Success
  *                           Non-zero: Failure
  */
-int cam_vfe_remove(struct platform_device *pdev);
+void cam_vfe_remove(struct platform_device *pdev);
 
 #endif /* _CAM_VFE_DEV_H_ */

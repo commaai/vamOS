@@ -64,7 +64,7 @@ static int cam_jpeg_enc_unregister_cpas(
 	return rc;
 }
 
-static int cam_jpeg_enc_remove(struct platform_device *pdev)
+static void cam_jpeg_enc_remove(struct platform_device *pdev)
 {
 	struct cam_hw_info *jpeg_enc_dev = NULL;
 	struct cam_hw_intf *jpeg_enc_dev_intf = NULL;
@@ -74,7 +74,7 @@ static int cam_jpeg_enc_remove(struct platform_device *pdev)
 	jpeg_enc_dev_intf = platform_get_drvdata(pdev);
 	if (!jpeg_enc_dev_intf) {
 		CAM_ERR(CAM_JPEG, "error No data in pdev");
-		return -EINVAL;
+		return;
 	}
 
 	jpeg_enc_dev = jpeg_enc_dev_intf->hw_priv;
@@ -108,7 +108,6 @@ deinit_soc:
 
 free_jpeg_hw_intf:
 	kfree(jpeg_enc_dev_intf);
-	return rc;
 }
 
 static int cam_jpeg_enc_probe(struct platform_device *pdev)

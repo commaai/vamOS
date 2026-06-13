@@ -155,7 +155,7 @@ err:
 	return rc;
 }
 
-int cam_ife_csid_remove(struct platform_device *pdev)
+void cam_ife_csid_remove(struct platform_device *pdev)
 {
 	struct cam_ife_csid_hw         *csid_dev = NULL;
 	struct cam_hw_intf             *csid_hw_intf;
@@ -176,7 +176,6 @@ int cam_ife_csid_remove(struct platform_device *pdev)
 	kfree(csid_dev);
 	kfree(csid_hw_info);
 	kfree(csid_hw_intf);
-	return 0;
 }
 
 int cam_ife_csid_hw_init(struct cam_hw_intf **ife_csid_hw,

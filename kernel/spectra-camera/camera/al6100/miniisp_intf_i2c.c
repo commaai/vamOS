@@ -285,9 +285,9 @@ struct misp_intf_fn_t intf_i2c_fn = {
 	.send_bulk = mini_isp_intf_i2c_send_bulk,
 };
 
-static int mini_isp_intf_i2c_probe(struct i2c_client *client,
-				const struct i2c_device_id *id)
+static int mini_isp_intf_i2c_probe(struct i2c_client *client)
 {
+	const struct i2c_device_id *id = i2c_client_get_device_id(client);
 	int status = 0;
 	struct misp_data *drv_data = NULL;
 
@@ -342,18 +342,16 @@ done:
 	return status;
 
 }
-static int mini_isp_intf_i2c_remove(struct i2c_client *client)
+static void mini_isp_intf_i2c_remove(struct i2c_client *client)
 {
 	struct misp_data *misp_intf_i2c = i2c_get_clientdata(client);
 
 	if (!misp_intf_i2c) {
 		misp_err("%s: i2c data is NULL\n", __func__);
-		return 0;
+		return;
 	}
 
 	kfree(misp_intf_i2c);
-
-	return 0;
 }
 static const struct of_device_id mini_isp_dt_i2c_slave_match[] = {
 		{  .compatible  =  "altek_i2c_slave",},

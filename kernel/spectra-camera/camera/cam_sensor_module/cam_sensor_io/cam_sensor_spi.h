@@ -14,11 +14,11 @@
 #define _CAM_SENSOR_SPI_H_
 
 #include <linux/spi/spi.h>
-#include <linux/cma.h>
+#include <linux/mm.h>
 /*
- * 6.18 removed linux/dma-contiguous.h (CMA helpers folded into
- * linux/dma-map-ops.h). No dma_contiguous_* symbols are used here, so the
- * include is simply dropped.
+ * 6.18 removed linux/dma-contiguous.h and dev_get_cma_area(); the SPI sensor
+ * bounce-buffer path (off the mici I2C/CCI data path) now uses plain
+ * contiguous alloc_pages() (linux/mm.h) instead of per-device CMA.
  */
 #include <media/cam_sensor.h>
 #include "cam_sensor_i2c.h"

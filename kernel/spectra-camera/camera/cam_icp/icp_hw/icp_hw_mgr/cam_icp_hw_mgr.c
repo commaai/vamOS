@@ -1315,24 +1315,16 @@ static int cam_icp_hw_mgr_create_debugfs_entry(void)
 	if (!icp_hw_mgr.dentry)
 		return -ENOMEM;
 
-	if (!debugfs_create_bool("icp_pc",
+	debugfs_create_bool("icp_pc",
 		0644,
 		icp_hw_mgr.dentry,
-		&icp_hw_mgr.icp_pc_flag)) {
-		CAM_ERR(CAM_ICP, "failed to create icp_pc entry");
-		rc = -ENOMEM;
-		goto err;
-	}
+		&icp_hw_mgr.icp_pc_flag);
 	icp_hw_mgr.icp_pc_flag = false;
 
-	if (!debugfs_create_bool("ipe_bps_pc",
+	debugfs_create_bool("ipe_bps_pc",
 		0644,
 		icp_hw_mgr.dentry,
-		&icp_hw_mgr.ipe_bps_pc_flag)) {
-		CAM_ERR(CAM_ICP, "failed to create ipe_bps_pc entry");
-		rc = -ENOMEM;
-		goto err;
-	}
+		&icp_hw_mgr.ipe_bps_pc_flag);
 	icp_hw_mgr.ipe_bps_pc_flag = false;
 
 	if (!debugfs_create_file("icp_debug_clk",
@@ -1344,13 +1336,10 @@ static int cam_icp_hw_mgr_create_debugfs_entry(void)
 		goto err;
 	}
 
-	if (!debugfs_create_bool("a5_jtag_debug",
+	debugfs_create_bool("a5_jtag_debug",
 		0644,
 		icp_hw_mgr.dentry,
-		&icp_hw_mgr.a5_jtag_debug)) {
-		rc = -ENOMEM;
-		goto err;
-	}
+		&icp_hw_mgr.a5_jtag_debug);
 
 	if (!debugfs_create_file("a5_debug_type",
 		0644,

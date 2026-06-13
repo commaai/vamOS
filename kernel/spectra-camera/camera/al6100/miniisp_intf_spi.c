@@ -555,11 +555,10 @@ probe_done:
 	return status;
 }
 
-static int mini_isp_intf_spi_remove(struct spi_device *spi)
+static void mini_isp_intf_spi_remove(struct spi_device *spi)
 {
 	//free_irq(misp_intf_spi_data->irq, misp_intf_spi_data);
 	kfree(misp_intf_spi_data);
-	return 0;
 }
 
 /*Compatible node must match dts*/

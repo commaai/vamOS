@@ -131,9 +131,16 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 	if (tx) {
 		ctx = tx;
 	} else {
+		/*
+		 * Mainline 6.18 dropped dev_get_cma_area() and changed the
+		 * cma_alloc()/cma_release() signatures. The SPI sensor path is
+		 * off the mici I2C/CCI data path; use a plain contiguous page
+		 * allocation for the DMA bounce buffer (functional superset of
+		 * the old per-device CMA area).
+		 */
 		txr = PAGE_ALIGN(len) >> PAGE_SHIFT;
-		page_tx = cma_alloc(dev_get_cma_area(dev),
-			txr, 0);
+		page_tx = alloc_pages(GFP_KERNEL | GFP_DMA,
+			get_order(txr << PAGE_SHIFT));
 		if (!page_tx)
 			return -ENOMEM;
 
@@ -145,12 +152,12 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 			crx = rx;
 		} else {
 			rxr = PAGE_ALIGN(len) >> PAGE_SHIFT;
-			page_rx = cma_alloc(dev_get_cma_area(dev),
-				rxr, 0);
+			page_rx = alloc_pages(GFP_KERNEL | GFP_DMA,
+				get_order(rxr << PAGE_SHIFT));
 			if (!page_rx) {
 				if (!tx)
-					cma_release(dev_get_cma_area(dev),
-						page_tx, txr);
+					__free_pages(page_tx,
+						get_order(txr << PAGE_SHIFT));
 
 				return -ENOMEM;
 			}
@@ -174,10 +181,10 @@ static int32_t cam_spi_tx_helper(struct camera_io_master *client,
 		memcpy(data, crx + hlen, num_byte);
 
 out:
-	if (!tx)
-		cma_release(dev_get_cma_area(dev), page_tx, txr);
-	if (!rx)
-		cma_release(dev_get_cma_area(dev), page_rx, rxr);
+	if (!tx && page_tx)
+		__free_pages(page_tx, get_order(txr << PAGE_SHIFT));
+	if (!rx && page_rx)
+		__free_pages(page_rx, get_order(rxr << PAGE_SHIFT));
 	return rc;
 }
 

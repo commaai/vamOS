@@ -31,7 +31,11 @@ static struct cam_bps_device_hw_info cam_bps_hw_info = {
 	.pwr_status = 0x58,
 	.reserved = 0,
 };
-EXPORT_SYMBOL(cam_bps_hw_info);
+/*
+ * cam_bps_hw_info is static (TU-local) and the driver is built-in; the
+ * downstream EXPORT_SYMBOL is spurious and 6.18 modpost rejects exporting a
+ * local symbol. Dropped.
+ */
 
 static char bps_dev_name[8];
 

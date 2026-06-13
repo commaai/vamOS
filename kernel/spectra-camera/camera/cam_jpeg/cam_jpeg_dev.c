@@ -100,7 +100,7 @@ static const struct v4l2_subdev_internal_ops cam_jpeg_subdev_internal_ops = {
 	.open = cam_jpeg_subdev_open,
 };
 
-static int cam_jpeg_dev_remove(struct platform_device *pdev)
+static void cam_jpeg_dev_remove(struct platform_device *pdev)
 {
 	int rc;
 	int i;
@@ -115,8 +115,6 @@ static int cam_jpeg_dev_remove(struct platform_device *pdev)
 	rc = cam_subdev_remove(&g_jpeg_dev.sd);
 	if (rc)
 		CAM_ERR(CAM_JPEG, "Unregister failed %d", rc);
-
-	return rc;
 }
 
 static int cam_jpeg_dev_probe(struct platform_device *pdev)

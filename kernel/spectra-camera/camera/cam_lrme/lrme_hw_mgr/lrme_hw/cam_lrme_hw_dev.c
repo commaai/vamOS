@@ -243,7 +243,7 @@ free_memory:
 	return rc;
 }
 
-static int cam_lrme_hw_dev_remove(struct platform_device *pdev)
+static void cam_lrme_hw_dev_remove(struct platform_device *pdev)
 {
 	int rc = 0;
 	struct cam_hw_info *lrme_hw;
@@ -279,8 +279,6 @@ deinit_platform_res:
 
 	mutex_destroy(&lrme_hw->hw_mutex);
 	kfree(lrme_hw);
-
-	return rc;
 }
 
 static const struct of_device_id cam_lrme_hw_dt_match[] = {

@@ -13,6 +13,8 @@
 #ifndef _CAM_CPAS_HW_H_
 #define _CAM_CPAS_HW_H_
 
+#include <linux/interconnect.h>
+
 #include "cam_cpas_api.h"
 #include "cam_cpas_hw_intf.h"
 #include "cam_common_util.h"
@@ -113,10 +115,9 @@ struct cam_cpas_client {
 /**
  * struct cam_cpas_bus_client : Bus client information
  *
- * @src: Bus master/src id
- * @dst: Bus slave/dst id
- * @pdata: Bus pdata information
- * @client_id: Bus client id
+ * @icc_path: interconnect path for this bus client (mainline icc framework;
+ *            may be NULL if the DT does not yet wire interconnect paths — bw
+ *            votes then degrade to a safe no-op, see cam_cpas_hw.c)
  * @num_usecases: Number of use cases for this client
  * @num_paths: Number of paths for this client
  * @curr_vote_level: current voted index
@@ -127,10 +128,7 @@ struct cam_cpas_client {
  *
  */
 struct cam_cpas_bus_client {
-	int src;
-	int dst;
-	struct msm_bus_scale_pdata *pdata;
-	uint32_t client_id;
+	struct icc_path *icc_path;
 	int num_usecases;
 	int num_paths;
 	unsigned int curr_vote_level;

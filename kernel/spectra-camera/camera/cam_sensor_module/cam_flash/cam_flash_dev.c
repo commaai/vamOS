@@ -296,35 +296,31 @@ static long cam_flash_subdev_do_ioctl(struct v4l2_subdev *sd,
 }
 #endif
 
-static int cam_flash_platform_remove(struct platform_device *pdev)
+static void cam_flash_platform_remove(struct platform_device *pdev)
 {
 	struct cam_flash_ctrl *fctrl;
 
 	fctrl = platform_get_drvdata(pdev);
 	if (!fctrl) {
 		CAM_ERR(CAM_FLASH, "Flash device is NULL");
-		return 0;
+		return;
 	}
 
 	devm_kfree(&pdev->dev, fctrl);
-
-	return 0;
 }
 
-static int32_t cam_flash_i2c_driver_remove(struct i2c_client *client)
+static void cam_flash_i2c_driver_remove(struct i2c_client *client)
 {
-	int32_t rc = 0;
 	struct cam_flash_ctrl *fctrl = i2c_get_clientdata(client);
 	/* Handle I2C Devices */
 	if (!fctrl) {
 		CAM_ERR(CAM_FLASH, "Flash device is NULL");
-		return -EINVAL;
+		return;
 	}
 	/*Free Allocated Mem */
 	kfree(fctrl->i2c_data.per_frame);
 	fctrl->i2c_data.per_frame = NULL;
 	kfree(fctrl);
-	return rc;
 }
 
 static int cam_flash_subdev_close(struct v4l2_subdev *sd,
@@ -493,15 +489,13 @@ free_resource:
 	return rc;
 }
 
-static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client,
-	const struct i2c_device_id *id)
+static int32_t cam_flash_i2c_driver_probe(struct i2c_client *client)
 {
 	int32_t rc = 0, i = 0;
 	struct cam_flash_ctrl *fctrl;
 
-	if (client == NULL || id == NULL) {
-		CAM_ERR(CAM_FLASH, "Invalid Args client: %pK id: %pK",
-			client, id);
+	if (client == NULL) {
+		CAM_ERR(CAM_FLASH, "Invalid Args client: %pK", client);
 		return -EINVAL;
 	}
 
