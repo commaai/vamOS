@@ -25,7 +25,11 @@
 #include "cam_subdev.h"
 #include "cam_mem_mgr.h"
 #include "cam_debug_util.h"
-#include <linux/slub_def.h>
+/*
+ * 6.18 port (2.A): linux/slub_def.h was an internal SLUB header (removed from
+ * the public include path); it was pulled in for ksize() which is unused here.
+ * Dropped — linux/slab.h (included above) provides the standard allocator API.
+ */
 #include <linux/pm_qos.h>
 
 #define CAM_REQ_MGR_EVENT_MAX 30
@@ -697,8 +701,13 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 			CAM_ERR(CAM_CRM,
 				"Failed to create kmem_cache for crm_timer");
 		else
-			CAM_DBG(CAM_CRM, "Name : %s",
-				g_cam_req_mgr_timer_cachep->name);
+			/*
+			 * 6.18 port (2.A): struct kmem_cache is opaque in
+			 * mainline (the private ->name member lived in the
+			 * downstream linux/slub_def.h, now removed). Drop the
+			 * debug deref; the cache name is the literal above.
+			 */
+			CAM_DBG(CAM_CRM, "Name : crm_timer");
 	}
 
 	return rc;

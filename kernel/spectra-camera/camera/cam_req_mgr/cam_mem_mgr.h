@@ -15,6 +15,7 @@
 
 #include <linux/mutex.h>
 #include <linux/dma-buf.h>
+#include <linux/iosys-map.h>
 #include <media/cam_req_mgr.h>
 #include "cam_mem_mgr_api.h"
 
@@ -35,8 +36,12 @@ enum cam_smmu_mapping_client {
 /**
  * struct cam_mem_buf_queue
  *
- * @i_hdl:       ion handle for the buffer
- * @dma_buf:     pointer to the allocated dma_buf in the table
+ * @dma_buf:     pointer to the dma_buf backing this slot (allocated by the
+ *               kernel exporter, or imported from a userspace fd). 6.18 port:
+ *               replaces the downstream ION handle (struct ion_handle *i_hdl) —
+ *               mainline dropped ION for dma-buf heaps, so the dma_buf is now
+ *               the single canonical reference for both kernel and imported
+ *               buffers. (2.A)
  * @q_lock:      mutex lock for buffer
  * @hdls:        list of mapped handles
  * @num_hdl:     number of handles
@@ -47,11 +52,12 @@ enum cam_smmu_mapping_client {
  * @flags:       attributes of buffer
  * @vaddr:       IOVA of buffer
  * @kmdvaddr:    Kernel virtual address
+ * @kmap:        iosys_map for the kernel vmap (6.18 dma_buf_vmap takes an
+ *               iosys_map; kept here so vunmap can be issued on release)
  * @active:      state of the buffer
  * @is_imported: Flag indicating if buffer is imported from an FD in user space
  */
 struct cam_mem_buf_queue {
-	struct ion_handle *i_hdl;
 	struct dma_buf *dma_buf;
 	struct mutex q_lock;
 	int32_t hdls[CAM_MEM_MMU_MAX_HANDLE];
@@ -63,6 +69,7 @@ struct cam_mem_buf_queue {
 	uint32_t flags;
 	uint64_t vaddr;
 	uint64_t kmdvaddr;
+	struct iosys_map kmap;
 	bool active;
 	bool is_imported;
 };
@@ -73,14 +80,12 @@ struct cam_mem_buf_queue {
  * @m_lock: mutex lock for table
  * @bitmap: bitmap of the mem mgr utility
  * @bits: max bits of the utility
- * @client: ion client pointer
  * @bufq: array of buffers
  */
 struct cam_mem_table {
 	struct mutex m_lock;
 	void *bitmap;
 	size_t bits;
-	struct ion_client *client;
 	struct cam_mem_buf_queue bufq[CAM_MEM_BUFQ_MAX];
 };
 

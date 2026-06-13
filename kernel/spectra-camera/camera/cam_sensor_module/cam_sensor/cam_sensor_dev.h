@@ -19,7 +19,7 @@
 #include <linux/of.h>
 #include <linux/module.h>
 #include <linux/irqreturn.h>
-#include <linux/ion.h>
+/* 6.18 port (2.A): linux/ion.h removed (ION dropped for dma-buf); unused here. */
 #include <linux/iommu.h>
 #include <linux/timer.h>
 #include <linux/kernel.h>

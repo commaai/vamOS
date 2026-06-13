@@ -14,7 +14,7 @@
 #include <linux/io.h>
 #include <linux/of.h>
 #include <linux/module.h>
-#include <linux/ion.h>
+/* 6.18 port (2.A): linux/ion.h removed (ION dropped for dma-buf); unused here. */
 #include <linux/kernel.h>
 
 #include "cam_node.h"
