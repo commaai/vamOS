@@ -276,6 +276,17 @@ static int cam_mem_buf_mmap(struct dma_buf *dmabuf, struct vm_area_struct *vma)
 	struct sg_page_iter piter;
 	int ret;
 
+	/*
+	 * Match the userspace mapping attribute to the buffer's cache attribute
+	 * (same rationale as cam_mem_buf_do_vmap): the camera SMMU is
+	 * non-coherent, so uncached (no CAM_MEM_FLAG_CACHE) buffers must be
+	 * mapped write-combine in userspace too, or camerad's CPU writes race
+	 * the HW through the cache. Cached buffers keep the default prot and
+	 * rely on explicit cam_mem_mgr_cache_op() maintenance.
+	 */
+	if (!(buffer->flags & CAM_MEM_FLAG_CACHE))
+		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
+
 	for_each_sgtable_page(table, &piter, vma->vm_pgoff) {
 		struct page *page = sg_page_iter_page(&piter);
 
@@ -392,7 +403,16 @@ static struct dma_buf *cam_mem_util_buffer_alloc(size_t len, unsigned int flags)
 
 	exp_info.exp_name = "cam_mem_mgr";
 	exp_info.ops = &cam_mem_mgr_buf_ops;
-	exp_info.size = buffer->len;
+	/*
+	 * Export the PAGE_ALIGNed size, not the raw len. The backing memory is
+	 * already PAGE_ALIGN(len) (see size_remaining above), and the dma-buf
+	 * core mmap bounds check is
+	 *   vma->vm_pgoff + vma_pages(vma) > dmabuf->size >> PAGE_SHIFT
+	 * vma_pages() rounds the userspace mmap length UP to whole pages, so an
+	 * unaligned dmabuf->size truncates the RHS down and a full-length
+	 * MAP_SHARED mmap (camerad alloc_w_mmu_hdl) fails -EINVAL -> MAP_FAILED.
+	 */
+	exp_info.size = PAGE_ALIGN(buffer->len);
 	exp_info.flags = O_RDWR;
 	exp_info.priv = buffer;
 
