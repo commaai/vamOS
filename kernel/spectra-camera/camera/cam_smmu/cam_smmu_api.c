@@ -1953,10 +1953,26 @@ static int cam_smmu_map_kernel_buffer_and_add_to_list(int idx,
 	int rc = -1;
 	struct cam_dma_buff_info *mapping_info = NULL;
 
+	/*
+	 * Take a reference for the mapping. The shared teardown
+	 * cam_smmu_unmap_buf_and_remove_from_list() unconditionally
+	 * dma_buf_put()s mapping_info->buf, so the mapping must own a ref or it
+	 * underflows the caller's dma_buf (-> __file_ref_put_badval at
+	 * dma_buf_put on cam_icp_free_hfi_mem). The user path balances this via
+	 * dma_buf_get(ion_fd) in cam_smmu_map_buffer_and_add_to_list(); the
+	 * kernel path is handed an already-resolved dma_buf, so get it here.
+	 */
+	get_dma_buf(buf);
+
 	rc = cam_smmu_map_buffer_validate(buf, idx, dma_dir, paddr_ptr, len_ptr,
 		region_id, &mapping_info);
 
 	if (rc) {
+		/*
+		 * cam_smmu_map_buffer_validate()'s error path (err_put) already
+		 * dma_buf_put()s the buf it was handed, consuming the ref taken
+		 * above — do NOT put again here.
+		 */
 		CAM_ERR(CAM_SMMU, "buffer validation failure");
 		return rc;
 	}

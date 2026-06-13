@@ -1117,6 +1117,18 @@ static void cam_mem_mgr_unmap_active_buf(int idx)
 {
 	enum cam_smmu_region_id region = CAM_SMMU_REGION_SHARED;
 
+	/*
+	 * Balance the lazy kernel vmap taken by cam_mem_get_cpu_buf() for
+	 * KMD_ACCESS buffers. The leaked-buffer cleanup path drops the dma_buf
+	 * ref directly (it does not route through cam_mem_util_unmap()), so the
+	 * vunmap must happen here or the exporter's vmapping_counter is still
+	 * non-zero when the buffer's last ref is dropped -> dma_buf_release()
+	 * BUG_ON(dmabuf->vmapping_counter). Mirrors cam_mem_util_unmap().
+	 */
+	if (tbl.bufq[idx].dma_buf && tbl.bufq[idx].kmdvaddr)
+		cam_mem_util_unmap_cpu_va(tbl.bufq[idx].dma_buf,
+			&tbl.bufq[idx].kmap);
+
 	if (tbl.bufq[idx].flags & CAM_MEM_FLAG_HW_SHARED_ACCESS)
 		region = CAM_SMMU_REGION_SHARED;
 	else if (tbl.bufq[idx].flags & CAM_MEM_FLAG_HW_READ_WRITE)
@@ -1203,10 +1215,19 @@ static int cam_mem_util_unmap(int32_t idx,
 	}
 
 
-	if (tbl.bufq[idx].flags & CAM_MEM_FLAG_KMD_ACCESS)
-		if (tbl.bufq[idx].dma_buf && tbl.bufq[idx].kmdvaddr)
-			cam_mem_util_unmap_cpu_va(tbl.bufq[idx].dma_buf,
-				&tbl.bufq[idx].kmap);
+	/*
+	 * Balance any kernel vmap. NOT gated on CAM_MEM_FLAG_KMD_ACCESS:
+	 * cam_mem_mgr_request_mem() vmaps the buffer UNCONDITIONALLY (its
+	 * callers, e.g. the ICP HFI qtbl/cmd_q/msg_q allocs, request
+	 * HW_SHARED_ACCESS without KMD_ACCESS), while cam_mem_get_cpu_buf()
+	 * vmaps lazily for KMD_ACCESS. Either way kmdvaddr is set, so key the
+	 * vunmap on kmdvaddr, not the flag — otherwise the exporter's
+	 * vmapping_counter is still non-zero at dma_buf_release() ->
+	 * BUG_ON(dmabuf->vmapping_counter) (hit on cam_icp_free_hfi_mem).
+	 */
+	if (tbl.bufq[idx].dma_buf && tbl.bufq[idx].kmdvaddr)
+		cam_mem_util_unmap_cpu_va(tbl.bufq[idx].dma_buf,
+			&tbl.bufq[idx].kmap);
 
 	/* SHARED flag gets precedence, all other flags after it */
 	if (tbl.bufq[idx].flags & CAM_MEM_FLAG_HW_SHARED_ACCESS) {
