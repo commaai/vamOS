@@ -189,13 +189,22 @@ static int32_t cam_csiphy_platform_probe(struct platform_device *pdev)
 	rc = cam_cpas_register_client(&cpas_parms);
 	if (rc) {
 		CAM_ERR(CAM_CSIPHY, "CPAS registration failed rc: %d", rc);
-		goto csiphy_no_resource;
+		goto csiphy_unregister_subdev;
 	}
 	CAM_DBG(CAM_CSIPHY, "CPAS registration successful handle=%d",
 		cpas_parms.client_handle);
 	new_csiphy_dev->cpas_handle = cpas_parms.client_handle;
 
 	return rc;
+csiphy_unregister_subdev:
+	/*
+	 * 6.18 port: cam_register_subdev() already linked sd into
+	 * v4l2_dev->subdevs. If we fail (e.g. CPAS not ready -> -EPROBE_DEFER)
+	 * and free the device without unregistering, the freed sd stays on the
+	 * list and cam_dev_mgr_create_subdev_nodes() later walks into freed
+	 * memory -> panic. Remove it from the list before freeing.
+	 */
+	cam_unregister_subdev(&(new_csiphy_dev->v4l2_dev_str));
 csiphy_no_resource:
 	mutex_destroy(&new_csiphy_dev->mutex);
 	kfree(new_csiphy_dev->ctrl_reg);

@@ -528,6 +528,14 @@ static int cam_video_device_setup(void)
 	g_dev.video->ioctl_ops = &g_cam_ioctl_ops;
 	g_dev.video->minor = -1;
 	g_dev.video->vfl_type = VFL_TYPE_VIDEO;
+	/*
+	 * 6.18 port: __video_register_device() now WARNs and fails with -EINVAL
+	 * when device_caps is 0 (the field became mandatory after 4.9). Set the
+	 * caps for this cam-req-mgr v4l2 node so registration succeeds; without
+	 * this cam_req_mgr_probe() faults here, g_dev.state never becomes true,
+	 * and every camera subdev defers forever on the camera root device.
+	 */
+	g_dev.video->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	rc = video_register_device(g_dev.video, VFL_TYPE_VIDEO, -1);
 	if (rc)
 		goto v4l2_fail;
@@ -590,8 +598,17 @@ int cam_register_subdev(struct cam_subdev *csd)
 	int rc;
 
 	if (g_dev.state != true) {
-		CAM_ERR(CAM_CRM, "camera root device not ready yet");
-		return -ENODEV;
+		/*
+		 * 6.18 port: the camera root device (g_dev) is brought up in
+		 * cam_req_mgr_late_init() at late_initcall time, but the HW subdev
+		 * drivers (csiphy/cpas/cci/isp/...) probe earlier at device_initcall
+		 * time. Return -EPROBE_DEFER (not -ENODEV) so the driver core retries
+		 * their probe after the root device is ready, instead of failing them
+		 * permanently. On 4.9 the initcall timing happened to line up; on
+		 * mainline deferred probe is the correct mechanism.
+		 */
+		CAM_DBG(CAM_CRM, "camera root device not ready yet, defer");
+		return -EPROBE_DEFER;
 	}
 
 	if (!csd || !csd->name) {

@@ -248,7 +248,7 @@ static int cam_cci_irq_routine(struct v4l2_subdev *sd, u32 status,
 	struct cam_hw_soc_info *soc_info =
 		&cci_dev->soc_info;
 
-	ret = cam_cci_irq(soc_info->irq_line->start, cci_dev);
+	ret = cam_cci_irq(soc_info->irq_line, cci_dev);
 	*handled = TRUE;
 	return 0;
 }
@@ -361,13 +361,21 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 	rc = cam_cpas_register_client(&cpas_parms);
 	if (rc) {
 		CAM_ERR(CAM_CCI, "CPAS registration failed");
-		goto cci_no_resource;
+		goto cci_unregister_subdev;
 	}
 	CAM_DBG(CAM_CCI, "CPAS registration successful handle=%d",
 		cpas_parms.client_handle);
 	new_cci_dev->cpas_handle = cpas_parms.client_handle;
 
 	return rc;
+cci_unregister_subdev:
+	/*
+	 * 6.18 port: the subdev is already linked into v4l2_dev->subdevs by
+	 * cam_register_subdev(). Freeing new_cci_dev without unregistering leaves
+	 * a dangling list entry that cam_dev_mgr_create_subdev_nodes() later
+	 * dereferences -> use-after-free panic. Unregister before freeing.
+	 */
+	cam_unregister_subdev(&(new_cci_dev->v4l2_dev_str));
 cci_no_resource:
 	kfree(new_cci_dev);
 	return rc;
