@@ -23,7 +23,15 @@ int cam_common_util_get_string_index(const char **strings,
 	int i;
 
 	for (i = 0; i < num_strings; i++) {
-		if (strnstr(strings[i], matching_string, strlen(strings[i]))) {
+		/*
+		 * 6.18 port: the original used
+		 *   strnstr(strings[i], matching_string, strlen(strings[i]))
+		 * to substring-match, but that fails on mainline (e.g. "cam_camnoc"
+		 * in "cam_camnoc" returns no match), breaking CPAS CAMNOC regbase
+		 * lookup. reg-names / clock-names etc. are exact tokens, so use an
+		 * exact comparison, which is both correct and robust.
+		 */
+		if (!strcmp(strings[i], matching_string)) {
 			CAM_DBG(CAM_UTIL, "matched %s : %d\n",
 				matching_string, i);
 			*index = i;

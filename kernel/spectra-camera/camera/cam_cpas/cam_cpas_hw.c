@@ -80,11 +80,15 @@ static int cam_cpas_util_vote_bus_client_level(
 		return -EINVAL;
 	}
 
-	if (level >= bus_client->num_usecases) {
-		CAM_ERR(CAM_CPAS, "Invalid vote level=%d, usecases=%d", level,
-			bus_client->num_usecases);
-		return -EINVAL;
-	}
+	/*
+	 * 6.18 port: the legacy msm-bus level-vote model selected one of
+	 * num_usecases pre-defined bandwidth vectors by index, so it bounds-
+	 * checked level < num_usecases. The interconnect port has no per-level
+	 * usecase table — any non-zero level just means "AHB on" (a safe no-op
+	 * icc vote until DT interconnect paths are wired). The old num_usecases
+	 * gate is gone; otherwise CAM_SVS_VOTE (level 3) fails -EINVAL here and
+	 * CPAS hw probe aborts.
+	 */
 
 	if (level == bus_client->curr_vote_level)
 		return 0;
