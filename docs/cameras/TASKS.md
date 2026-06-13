@@ -133,10 +133,16 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
 
 Exit: every `cam-*` block probes; node/subdev names match legacy capture.
 
-- [ ] **3.1** Port camera DTS into this repo's
+- [x] **3.1** Port camera DTS into this repo's
       `kernel/dts/sdm845-comma-{common.dtsi,mici.dts}`: CPAS/CDM, CCI, 4×CSIPHY,
       CSID/VFE, ICP/A5, JPEG, FD, 4× cam-sensor, regulator + mclk pinctrl mapping
-      (DESIGN.md §4).
+      (DESIGN.md §4). ☑ 2026-06-12 — full Spectra camera node block + 4 sensors +
+      camera pinctrl states + GDSC/LDO regulator stand-ins added to
+      `sdm845-comma-common.dtsi`; board mclk drive-strength override in
+      `sdm845-comma-mici.dts`; upstream `&camss`/`&cci` disabled (reg-overlap).
+      `./vamos build kernel` builds the mici .dtb clean (only benign
+      `shared-gpios` dtc false-positives) → `build/boot.img` 16.8M. See
+      "Phase 3.1 notes" below. (On-device probe = Phase 3.2/3.3, parent's flash.)
 - [ ] **3.2** `cam-cpas` + `cam_smmu` probe clean on device.
 - [ ] **3.3** `cam-cci-driver` + 4× `cam-csiphy-driver` + 4× `cam-sensor-driver`
       probe; sensor chip-id read over CCI succeeds (expect 0x5304 family).
@@ -174,7 +180,7 @@ Exit: camerad unmodified streams all 3 cameras; real snapshot JPEG.
 | `socinfo_get_id()` / `socinfo_get_version()` → return 0 (downstream `soc/qcom/socinfo.h` not in mainline; only used for SoC-revision quirk decisions) | `cam_utils/cam_compat_qcom.h` (replaces `#include <soc/qcom/socinfo.h>` in `cam_soc_util.c` + `cam_icp/hfi.c`) | 2026-06-12 (2.G) | Phase 3 (wire real soc-rev lookup via qcom_socinfo/nvmem) | active |
 | ION secure/stage-2 types + helpers: `ion_phys_addr_t`/`struct ion_client`/`struct ion_handle` aliases + `ion_import_dma_buf_fd()`/`ion_phys()`/`ion_free()` stubs (return `-ENODEV`/`NULL`). Keeps cam_smmu's PUBLIC `cam_smmu_map_stage2_iova()` signature byte-identical AND lets the secure path compile. Non-secure (mici) data path does NOT use these. **2.A update (2026-06-12):** cam_mem_mgr is now fully off ION and confirmed to never call these on the non-secure path (it passes `NULL` for the `struct ion_client *` arg of `cam_smmu_map_stage2_iova`, used only under `CAM_MEM_FLAG_PROTECTED_MODE`, which mici does not exercise). The shim is now referenced **only** by cam_smmu_api.c's stage-2 helpers — sole remaining owner is **2.E**. **2.E update (2026-06-12):** RETAINED. The secure stage-2 path has no clean mainline `qcom_scm_*` mapping without DTS-backed secure dma-heaps, and it is off the mici non-secure data path (never exercised), so the shim stays as a documented stub (returns `-ENODEV`/`NULL`). A real `qcom_scm_assign_mem`-based stage-2 impl is deferred to Phase 3+ (needs secure-heap DTS). | `cam_smmu/cam_smmu_compat.h` (replaces `#include <linux/msm_ion.h>` in `cam_smmu_api.h`; the stage-2 funcs in `cam_smmu_api.c` resolve against it) | 2026-06-12 (2.B) | Phase 3+ (`qcom_scm_assign_mem` + secure dma-heap DTS) | active |
 | Secure SCM call sites → documented no-op stubs (benign success). Downstream `scm_call2`/`scm_desc` ops with no clean mainline `qcom_scm_*` equivalent: **(a)** IFE safe-LUT SMMU toggle (`TZ_SVC_SMMU_PROGRAM`/`TZ_SAFE_SYSCALL_ID`) in `cam_ife_notify_safe_lut_scm()`; **(b)** CSIPHY hyp secure-mode protect (`SCM_SVC_CAMERASS`/`SECURE_SYSCALL_ID_2`) in `cam_csiphy_notify_secure_mode()`. Both are SECURE-camera-path only; the mici non-secure data path never calls them. `<soc/qcom/scm.h>` include removed from both files. | `cam_isp/isp_hw_mgr/cam_ife_hw_mgr.c`, `cam_sensor_module/cam_csiphy/cam_csiphy_core.c` | 2026-06-12 (2.E) | Phase 3+ (only if a secure camera path is ever needed on mici — likely never) | active |
-| Camera-bus `icc_set_bw` votes degrade to a **safe no-op** when `of_icc_get` returns NULL/ERR_PTR (DT does not yet wire `interconnects`/`interconnect-names`). The msm-bus→interconnect port (2.C) is otherwise a real port. Bus bandwidth is a perf/power vote, not probe-blocking, so a missing-path no-op is safe for bring-up; AHB level votes also collapse to a single on/off bw (icc has no per-level usecase table). | `cam_cpas/cam_cpas_hw.{c,h}` (`cam_cpas_util_*_bus_client*`) | 2026-06-12 (2.C) | Phase 3 (add CPAS/AXI `interconnects` props to `sdm845-comma-common.dtsi`) | active |
+| Camera-bus `icc_set_bw` votes degrade to a **safe no-op** when `of_icc_get` returns NULL/ERR_PTR (DT does not wire `interconnects`/`interconnect-names`). The msm-bus→interconnect port (2.C) is otherwise a real port. Bus bandwidth is a perf/power vote, not probe-blocking, so a missing-path no-op is safe for bring-up; AHB level votes also collapse to a single on/off bw (icc has no per-level usecase table). **3.1 update (2026-06-12): NOT retired — interconnects deliberately DEFERRED.** `cam_cpas_hw.c` requests the icc path with `of_icc_get(&pdev->dev, name)` where `name` comes from each axi-port child's `qcom,axi-port-name` (falling back to the inner `qcom,axi-port-mnoc`/`-camnoc` node *name*, which is the same string for all three ports), so a clean 1:1 map to distinct mainline icc paths (MASTER_CAMNOC_HF0/HF1/SF→EBI via `&mmss_noc`/`&mem_noc`) is not expressible via `interconnect-names` without driver changes (out of scope for DTS-only Phase 3.1). The legacy `qcom,axi-port-list` structure IS kept verbatim in the cam-cpas node (cam_cpas_hw.c hard-requires it for probe). Bandwidth voting stays a safe no-op; mainline camss proves the camera memory path works on this SoC without explicit camera interconnects. Retire in a later phase if streaming shows bandwidth starvation (would need a small driver tweak to read distinct `interconnect-names`). | `cam_cpas/cam_cpas_hw.{c,h}` (`cam_cpas_util_*_bus_client*`) | 2026-06-12 (2.C) | deferred (streaming-phase, needs driver tweak — see 3.1 notes) | active |
 | QPNP camera-flash `qcom_flash_led_prepare()` → `-ENODEV` stub + `ENABLE/DISABLE_REGULATOR`/`QUERY_MAX_CURRENT` macros (downstream `linux/leds-qpnp-flash.h` + `CONFIG_LEDS_QPNP_FLASH` absent in mainline; downstream itself stubbed to `-ENODEV` when QPNP not built). mici has no camera flash LED — never exercised. | `cam_sensor_module/cam_flash/cam_flash_compat.h` (new; replaces `#include <linux/leds-qpnp-flash.h>` in `cam_flash_core.h`) | 2026-06-12 (mech) | Phase 3+ (only if a flash LED is wired — not on mici) | active |
 | SPI/OIS bounce-buffer CMA (`dev_get_cma_area`+`cma_alloc`/`cma_release`, all removed/changed in 6.18) → plain contiguous `alloc_pages()`/`__free_pages()`. Functional superset of the old per-device CMA area. SPI sensor + OIS FW-download paths are off the mici I2C/CCI data path. | `cam_sensor_module/cam_sensor_io/cam_sensor_spi.{c,h}`, `cam_sensor_module/cam_ois/cam_ois_core.{c,h}` | 2026-06-12 (mech) | Phase 4+ (only if an SPI sensor / OIS is used — not on mici) | active |
 | al6100 (Altek companion mini-ISP) subdir **excluded** from the build (`# obj-...al6100/` in `camera/Makefile`). Self-contained, unreferenced by any `cam_*` subdir, NOT on the mici Spectra (IFE/ICP) data path, and its `isp_camera_cmd.h` emits unbalanced `#pragma pack(1)` that leaks into `linux/fs.h` and trips the `struct filename` alignment `static_assert`. | `cam_sensor_module/.../camera/Makefile` | 2026-06-12 (mech) | never (not used on mici) | active |
@@ -471,7 +477,148 @@ Files changed in 2.C/E + build-links (all under `kernel/spectra-camera/`):
   cam_cdm, cam_fd, cam_sensor_module (cci/csiphy/actuator/sensor/eeprom/flash/ois),
   al6100 (intf_i2c/intf_spi).
 
+## Phase 3.1 notes (camera DTS port — 2026-06-12)
+
+Captured from `build/spectra-build-dts.log`. The full Spectra camera device-tree
+landed in this repo's DTS; `./vamos build kernel` builds the mici .dtb with no dtc
+errors and produces `build/boot.img` (16.8M). Confirmed via `strings` on the
+compiled `sdm845-comma-mici.dtb`: `qcom,cam-cpas@ac40000`, 8× `msm-cam-smmu-cb`,
+`qcom,cci@ac4a000`, 4× `csiphy@ac65/66/67/68000`, `csid0/csid1` (`csid170`),
+`csid-lite170`, `vfe170`×2 + `vfe-lite170`, `cam-a5@ac00000` + ipe/bps, jpeg-enc,
+`fd@ac5a000`, `cam-res-mgr`, and all 4 `qcom,cam-sensor@0..3` present; upstream
+`camss@acb3000` + `cci@ac4a000` remain in the dtb as `status="disabled"`.
+
+**DTS chunks added (all in `kernel/dts/`):**
+- `common.dtsi` root `/`: 6 GDSC fixed-regulator stand-ins (`titan_top_gdsc`,
+  `ife_0_gdsc`, `ife_1_gdsc`, `ipe_0_gdsc`, `ipe_1_gdsc`, `bps_gdsc`,
+  always-on/boot-on) + 4 per-sensor LDOs (`camera_rear_ldo`/`camera_ldo` on
+  pm8998 gpio 12/9, `camera_vana_ldo`/`camera_vdig_ldo`). *Reason:* Spectra
+  `cam_soc_util.c` acquires power via `regulator_get()` (not genpd); the legacy
+  gdsc/ldo regulator labels must exist as regulators.
+- `common.dtsi` `&camss { status="disabled"; }` + `&cci { status="disabled"; }`.
+  *Reason:* mainline qcom-camss + cci claim the SAME reg regions as the Spectra
+  cam-isp/CSID/CSIPHY/VFE/CCI nodes (proof inline in the DTS comment): csid0
+  0xacb3000, csid1 0xacba000, csid2/lite 0xacc8000, csiphy0-3 0xac65-68000, vfe0
+  0xacaf000, vfe1 0xacb6000, vfe_lite 0xacc4000, cci 0xac4a000 — all duplicated.
+  Mainline has no separate ispif/cdm/cpas/icp/jpeg/fd nodes (they live only inside
+  camss@acb3000), so disabling camss clears every overlap; no other reg-overlap
+  node (no `ispif`) exists.
+- `common.dtsi` `&tlmm`: 20 camera pinctrl states (cci0/1 active+suspend,
+  cam_sensor_mclk0-3 active+suspend, sensor reset/vana rear/front/iris
+  active+suspend, cam_res_mgr active+suspend) in the **mainline flat -state
+  binding** (legacy used nested mux{}/config{}). `cam_mclk`/`cci_i2c`/`gpio` pin
+  functions all exist in pinctrl-sdm845.c for these pins.
+- `common.dtsi` `&soc`: the full Spectra HW node block (cam-req-mgr, 4×csiphy,
+  cci, cam_smmu w/ 7 cbs, cam-cpas, cam-cdm-intf, cpas-cdm0, cam-isp, csid0/1 +
+  vfe0/1 + csid-lite/vfe-lite, cam-icp + a5/ipe0/ipe1/bps, cam-jpeg + enc/dma,
+  cam-fd) — ported from legacy `sdm845-camera.dtsi`.
+- `common.dtsi` `&cam_cci`: cam-res-mgr + 4× `qcom,cam-sensor@0..3`
+  (phy/cci-master (0,0)(1,0)(2,1)(3,1); roll 180/180/180/270 — matches legacy
+  exactly) — ported from legacy `sdm845-camera-sensor-mtp.dtsi`.
+- `mici.dts`: board mclk0/1/2 active drive-strength → 2 mA (legacy comma_mici.dts
+  override; mclk3 already 2 mA in common).
+
+**Transforms applied (legacy 4.9 → mainline 6.18 DTS):**
+- `&clock_gcc` → `&gcc` (mainline GCC label).
+- `&clock_camcc` kept — the mainline camcc label IS `clock_camcc`
+  (`clock_controller@ad00000`, `qcom,sdm845-camcc`, `#clock-cells=1`, named
+  CAM_CC_* via `dt-bindings/clock/qcom,camcc-sdm845.h`). The legacy
+  `clocks=<&clock_camcc CAM_CC_*>` phandle lists are **drop-in**.
+- `interrupts = <0 N 0>` → `<GIC_SPI N IRQ_TYPE_EDGE_RISING>` (matches the
+  mainline camss encoding for the identical SPIs, e.g. csid0 SPI 464).
+- All `reg`/multi-cell addrs widened to the soc@0 4-cell form `<0 0xADDR 0 0xLEN>`
+  (mainline soc is `#address-cells=2 #size-cells=2`; legacy soc was 1/1).
+- `mipi-csi-vdd-supply = <&pm8998_l1>` → `<&vreg_l1a_0p875>`.
+- `memory-region = <&pil_camera_mem>` → `<&camera_mem>` (mainline 5MB `no-map`
+  region @0x8bf00000 — exact size match for the ICP firmware region).
+- jpeg-dma node name `@0xac52000` → `@ac52000` (dtc: unit-addr no `0x`).
+- CPAS `vdd-corners`/`vdd-corner-ahb-mapping` **dropped** (the
+  `RPMH_REGULATOR_LEVEL_*` corner macros are downstream-only, absent in mainline
+  `qcom,rpmh-regulator.h`; the property is optional in `cam_cpas_soc.c`, parsed
+  only when count>0 — a no-op AHB perf hint on the fixed-regulator gdsc).
+- `qcom,msm-bus,*` per-port AXI vectors dropped (2.C uses icc now); the
+  `qcom,axi-port-list` *structure* (3 ports × mnoc/camnoc children) is kept
+  verbatim — cam_cpas_hw.c requires it for probe.
+
+**camcc clock decision — CCF mapping (option b), NO syscon.** Evidence from
+`cam_utils/cam_soc_util.c`: the driver acquires every clock via
+`clk_get(dev, clock-name)` (cam_soc_util_request_platform_resource), sets rates
+via `clk_set_rate()`/`clk_round_rate()` (cam_soc_util_set_clk_rate), and enables
+via `clk_prepare_enable()` — pure standard Linux clk framework. **Zero** syscon /
+regmap / camcc-register ioremap anywhere (the only ioremap is the device's own
+reg-names blocks). The `clock-rates`/`clock-cntl-level` DT props are driver-side
+OPP/perf tables, not register maps. So the mainline CCF `qcom,sdm845-camcc`
+exposing named CAM_CC_* clocks via `<&clock_camcc CAM_CC_*>` is drop-in — the
+legacy clocks lines port unchanged. No syscon view of camcc @ad00000 is needed.
+
+**Regulator mapping table:**
+
+| Legacy supply (role) | Legacy phandle | vamOS mapping |
+|---|---|---|
+| cam_vio (all sensors) | `&pm8998_lvs1` | `&vreg_lvs1a_1p8` |
+| cam_vana (sensors 0-2) | `&pmi8998_bob` | `&vreg_bob` |
+| cam_vana (sensor 3) | `&camera_vana_ldo` | new fixed `camera_vana_ldo` (2.85V) |
+| cam_vdig (sensors 0-2) | `&camera_rear_ldo` | new fixed `camera_rear_ldo` (pm8998 gpio12, 1.05V) |
+| cam_vdig (sensor 3) | `&camera_ldo` | new fixed `camera_ldo` (pm8998 gpio9, 1.05V) |
+| cam_clk / gdscr / camss(-vdd) | `&titan_top_gdsc` | new fixed `titan_top_gdsc` (always-on) |
+| ife0 | `&ife_0_gdsc` | new fixed `ife_0_gdsc` (always-on) |
+| ife1 | `&ife_1_gdsc` | new fixed `ife_1_gdsc` (always-on) |
+| ipe0-vdd | `&ipe_0_gdsc` | new fixed `ipe_0_gdsc` (always-on) |
+| ipe1-vdd | `&ipe_1_gdsc` | new fixed `ipe_1_gdsc` (always-on) |
+| bps-vdd | `&bps_gdsc` | new fixed `bps_gdsc` (always-on) |
+| mipi-csi-vdd (csiphy) | `&pm8998_l1` | `&vreg_l1a_0p875` |
+
+**GDSC handling (the riskiest seam) — fixed-regulator stand-ins + one genpd
+attach.** In mainline the camera GDSC registers (0xad06004..0xad0b134) are owned
+by `&clock_camcc`, which exposes them as genpd power-domains
+(`#power-domain-cells=1`, TITAN_TOP_GDSC/IFE_0_GDSC/…). The Spectra driver has no
+genpd/pm_runtime path — it `regulator_get()`s the gdsc names. So each gdsc name is
+backed by an **always-on fixed regulator** to satisfy `regulator_get()`. To make
+the Titan top rail genuinely power on (not just satisfy the API), the cam-cpas
+node ALSO gets `power-domains = <&clock_camcc TITAN_TOP_GDSC>` — the driver-core
+single-domain auto-attach (`dev_pm_domain_attach`) powers it at probe.
+**Known gap to watch on-device:** genpd auto-attach handles only ONE domain per
+device, so the multi-domain nodes (csid/vfe need titan+ife, ipe/bps need their own
+gdsc) get only their fixed-regulator stand-in, not a genpd attach — they rely on
+TITAN_TOP being on + the camcc clock branches the driver enables bringing the
+sub-domains up through CCF. If a sub-block (IFE/IPE/BPS) reads back zeros / times
+out at probe, the fix is to add `power-domains = <&clock_camcc IFE_0_GDSC>` etc.
+to that node (single-domain) or teach the driver to runtime-get multiple domains.
+This is the one item that can only be fully validated on-device.
+
+**interconnects: DEFERRED (not added).** See the updated icc ledger row — the
+driver's `of_icc_get` lookup name (per-axi-port, falling back to a shared inner
+node name) doesn't map 1:1 to distinct mainline icc paths without a driver tweak;
+the `qcom,axi-port-list` structure is kept (probe needs it) and bw votes stay a
+safe no-op. The 2.C icc no-op is therefore NOT retired by 3.1.
+
+**What to watch in dmesg on first flash (expected probe order, bottom-up):**
+1. `cam_smmu` / `cam-cpas` (`qcom,msm-cam-smmu`, `qcom,cam-cpas`) — the foundation;
+   cpas reads `qcom,cpas-hw-ver = 0x170100` (Titan v170). Watch for the TITAN_TOP
+   genpd attach + camnoc reg reads (no `-ENXIO`).
+2. `cam-cci-driver` (`qcom,cci@ac4a000`) — CCI controller + the two i2c masters.
+3. 4× `cam-csiphy-driver` (`csiphy@ac65/66/67/68000`).
+4. 4× `cam-sensor-driver` (`qcom,cam-sensor@0..3`) — then the sensor **chip-id read
+   over CCI** (expect `0x5304` family). This is the key bring-up signal.
+5. `cam-isp` (csid0/1 + vfe0/1 + lite), `cam-icp`/a5 (firmware
+   `CAMERA_ICP.elf` from `camera_mem`), jpeg, fd register their subdevs.
+Red flags: `regulator ... get failed` (a gdsc/ldo name typo), `-EPROBE_DEFER`
+storms (clock/genpd ordering — camcc must probe before camera), reg read-back
+zeros on IFE/IPE/BPS (the multi-domain genpd gap above), or CCI i2c NAK on the
+sensor chip-id read (sensor power rail / mclk / reset GPIO).
+
 ## Decisions / notes log
+- 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
+  Spectra camera node block + 4 sensors + 20 pinctrl states + 6 gdsc + 4 ldo
+  regulator stand-ins in `sdm845-comma-common.dtsi`; board mclk drive-strength in
+  `sdm845-comma-mici.dts`; upstream `&camss`/`&cci` disabled (reg-overlap proof
+  inline). camcc = CCF mapping (no syscon — driver uses clk_get/clk_set_rate).
+  GDSCs = always-on fixed-regulator stand-ins + TITAN_TOP genpd attach on cam-cpas
+  (multi-domain gap noted for on-device). interconnects deferred (icc no-op kept).
+  `./vamos build kernel` → `build/boot.img` 16.8M, no dtc errors (only benign
+  `shared-gpios` phandle-heuristic false-positives — cam_res_mgr reads it as a u32
+  array). Verified node presence by `strings` on the compiled dtb. Next: Phase
+  1.5/3.2 (flash + on-device probe via mici skill). Log: `build/spectra-build-dts.log`.
 - 2026-06-12 — **Phase 2.C/E + Phase 1.4: the Spectra tree COMPILES AND LINKS.**
   `./vamos build kernel` → `build/boot.img` 16.8M, `CONFIG_SPECTRA_CAMERA=y`
   built into vmlinux. 2.C (msm-bus→interconnect, real NULL-tolerant port) and 2.E

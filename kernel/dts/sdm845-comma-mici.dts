@@ -59,3 +59,19 @@
 &uart3 {
 	status = "okay";
 };
+
+/*
+ * Board: reduce CAM MCLK drive strengths (legacy comma_mici.dts lowered
+ * mclk0/1/2 active to 2 mA). mclk3 is already 2 mA in the common pinctrl.
+ */
+&cam_sensor_mclk0_active {
+	drive-strength = <2>;
+};
+
+&cam_sensor_mclk1_active {
+	drive-strength = <2>;
+};
+
+&cam_sensor_mclk2_active {
+	drive-strength = <2>;
+};
