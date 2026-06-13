@@ -651,6 +651,34 @@ Debug aids currently in tree (REMOVE before landing — Phase 5): `debug_mdl`
 default `0x3FFFFFF` in `cam_debug_util.c`; `log_buf_len=8M` in `build_kernel.sh`
 cmdline.
 
+## Phase 4 camerad integration log (2026-06-13)
+
+Ran the **unmodified** legacy-rootfs `camerad` against the mainline kernel
+(legacy AGNOS system.img + openpilot still on /data; only boot.img is mainline).
+Iterated past each `SpectraMaster::init()` assertion:
+
+- **video0 (`assert video0_fd>=0`)** — camerad opens by-path
+  `platform-soc:qcom_cam-req-mgr-video-index0`; mainline names the bus node
+  `soc@0`. Fixed with `device_rename(&pdev->dev, "soc:qcom,cam-req-mgr")` in
+  cam_req_mgr probe (openpilot untouched).
+- **cam_sync (`assert cam_sync_fd>=0`)** — cam_sync_probe faulted at
+  video_register_device (device_caps unset). Set device_caps.
+- **cam-isp** — now a subdev (deferred-probe + rc-preservation fixes, Phase 3
+  log). 12th subdev.
+- **cam-icp (`assert icp_fd>=0`)** — cam-icp HW mgr left a5_dev_intf NULL because
+  a5/ipe/bps weren't probed yet; deferred cam-icp until CPAS + all children ready.
+  camerad now gets PAST icp.
+
+State: camerad initializes the **entire Spectra stack** (no init asserts) and
+reaches **sensor acquisition**; ICP/BPS CPAS streamon seen. **Current blocker:**
+`cam_sensor_subdev_ioctl: Invalid ioctl cmd: -2140645888` — camerad's control
+ioctl to the sensor subdev isn't accepted (suspect 32/64-bit ioctl/compat or a
+cam_control opcode mismatch); an RCU stall appears ~24s, likely camerad spinning
+on it. Next: sensor (and csiphy) subdev ioctl handling → sensor chip-id 0x5304
+read → frames.
+
+15 subdevs target; currently 12 (+cam-jpeg/fd/lrme still pending, secondary).
+
 ## Decisions / notes log
 - 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
   Spectra camera node block + 4 sensors + 20 pinctrl states + 6 gdsc + 4 ldo
