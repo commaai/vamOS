@@ -35,6 +35,22 @@ void crm_timer_callback(unsigned long data)
 	crm_timer_reset(timer);
 }
 
+/*
+ * 6.18 timer_setup() callbacks take a "struct timer_list *". The downstream
+ * driver (and all crm_timer_init() callers) instead use a stored
+ * "timer_cb(unsigned long data)" where data is the cam_req_mgr_timer pointer.
+ * Keep that ABI by trampolining: recover the cam_req_mgr_timer from the
+ * embedded sys_timer and dispatch the stored callback with (unsigned long)timer.
+ */
+static void crm_timer_trampoline(struct timer_list *t)
+{
+	struct cam_req_mgr_timer *crm_timer =
+		timer_container_of(crm_timer, t, sys_timer);
+
+	if (crm_timer && crm_timer->timer_cb)
+		crm_timer->timer_cb((unsigned long)crm_timer);
+}
+
 void crm_timer_modify(struct cam_req_mgr_timer *crm_timer,
 	int32_t expires)
 {
@@ -76,8 +92,7 @@ int crm_timer_init(struct cam_req_mgr_timer **timer,
 
 		crm_timer->expires = expires;
 		crm_timer->parent = parent;
-		setup_timer(&crm_timer->sys_timer,
-			crm_timer->timer_cb, (unsigned long)crm_timer);
+		timer_setup(&crm_timer->sys_timer, crm_timer_trampoline, 0);
 		crm_timer_reset(crm_timer);
 		*timer = crm_timer;
 	} else {
@@ -91,7 +106,7 @@ void crm_timer_exit(struct cam_req_mgr_timer **crm_timer)
 {
 	CAM_DBG(CAM_CRM, "destroy timer %pK @ %pK", *crm_timer, crm_timer);
 	if (*crm_timer) {
-		del_timer_sync(&(*crm_timer)->sys_timer);
+		timer_delete_sync(&(*crm_timer)->sys_timer);
 		if (g_cam_req_mgr_timer_cachep)
 			kmem_cache_free(g_cam_req_mgr_timer_cachep, *crm_timer);
 		*crm_timer = NULL;

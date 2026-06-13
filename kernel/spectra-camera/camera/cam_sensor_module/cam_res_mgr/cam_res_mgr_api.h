@@ -15,6 +15,9 @@
 
 #include <linux/leds.h>
 
+/* Defined in cam_soc_util.h (replaces the removed <linux/gpio.h> struct gpio) */
+struct cam_gpio;
+
 /**
  * @brief: Register the led trigger
  *
@@ -119,7 +122,7 @@ int cam_res_mgr_gpio_request(struct device *dev, unsigned int gpio,
  * @return Status of operation. Negative in case of error. Zero otherwise.
  */
 void cam_res_mgr_gpio_free_arry(struct device *dev,
-	const struct gpio *array, size_t num);
+	const struct cam_gpio *array, size_t num);
 
 /**
  * @brief: Set GPIO power level

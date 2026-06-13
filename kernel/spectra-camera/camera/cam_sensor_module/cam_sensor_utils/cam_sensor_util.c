@@ -11,6 +11,13 @@
  */
 
 #include <linux/kernel.h>
+/*
+ * 6.18: pull pinctrl + gpio consumer APIs explicitly — <linux/gpio.h> no
+ * longer drags in the pinctrl consumer header, and this file uses both the
+ * single-integer GPIO API and devm_pinctrl_get/pinctrl_lookup_state/etc.
+ */
+#include <linux/gpio.h>
+#include <linux/pinctrl/consumer.h>
 #include "cam_sensor_util.h"
 #include <cam_mem_mgr.h>
 #include "cam_res_mgr_api.h"
@@ -770,7 +777,7 @@ int cam_sensor_util_request_gpio_table(
 	uint8_t size = 0;
 	struct cam_soc_gpio_data *gpio_conf =
 			soc_info->gpio_data;
-	struct gpio *gpio_tbl = NULL;
+	struct cam_gpio *gpio_tbl = NULL;
 
 	if (!gpio_conf) {
 		CAM_INFO(CAM_SENSOR, "No GPIO data");

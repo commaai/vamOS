@@ -82,7 +82,7 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
 - [ ] **2.E** SCM/secure buffer: `soc/qcom/scm.h` → `qcom_scm_*`. ★★★
 - [ ] **2.F** V4L2/media: verify subdev + media-dev + cam_req_mgr char-dev
       registration; **preserve exact `/dev` + subdev names**. ★★★
-- [◐] **2.G** Misc mechanical: core-types / moved-header / renamed-helper fixes.
+- [x] **2.G** Misc mechanical: core-types / moved-header / renamed-helper fixes.
       ☑ first slice (2026-06-12, "Phase 2.G surface" below): `struct timeval`→
       `timespec64` (incomplete-type in cam_hw_mgr_intf.h, the high-leverage one) +
       `get_monotonic_boottime[64]`→`ktime_get_boottime_ts64`; `strlcpy`→`strscpy`
@@ -90,10 +90,17 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
       &refcount.refcount)`→`kref_read`; `linux/clk/qcom.h`+`soc/qcom/socinfo.h`→
       local compat shim (`cam_compat_qcom.h`, see ledger); `VFL_TYPE_GRABBER`→
       `VFL_TYPE_VIDEO`, `debugfs_create_bool` void-return, `.remove` void-sig
-      (cam_sync + cam_req_mgr only). ☐ remaining: legacy integer-GPIO/`of_gpio`
-      (`struct gpio`/`of_gpio_count`/`of_get_gpio`/`gpio_free_array`) →
-      gpiod-descriptor migration in `cam_soc_util.c` (semantic, on-device
-      validated — handed to 2.F/3); pinctrl include already fixed. ★★
+      (cam_sync + cam_req_mgr only).
+      ☑ **2.G-residual** (2026-06-12, "Phase 2.G-residual surface" below): legacy
+      integer-GPIO/`of_gpio` migration in `cam_soc_util.c` +
+      `cam_res_mgr.c` + `cam_sensor_util.c` (legacy-integer bridge, NOT gpiod —
+      sensor power-sequencer drives GPIOs by number; see surface note); the
+      mechanical quick-wins `timer_setup`/`timer_delete_sync` (cam_req_mgr_timer),
+      `cpu_latency_qos_*` (cam_req_mgr_dev), `kfree_sensitive` (hfi.c),
+      `dma-contiguous.h` drop (2 sensor io headers), `cam_dt_match` typo +
+      pinctrl includes. cam_soc_util/res_mgr/sensor_util compile clean; leading
+      edge now pure C (msm-bus) + E (scm) + the remaining `.remove`/i2c-probe
+      void-sig drift + a CMA-API drift in cam_sensor_spi.c. ★★
 
 ## Phase 3 — Hardware bring-up (DTS + probe, bottom-up)  ☐
 
@@ -301,7 +308,87 @@ Files changed in 2.A:
   `cam_sensor_module/cam_csiphy/cam_csiphy_dev.h`,
   `cam_sensor_module/cam_csiphy/cam_csiphy_soc.h`.
 
+## Phase 2.G-residual surface (after gpio + mechanical quick-wins — 2026-06-12)
+
+Captured from `build/spectra-build-2gr.log`. The 2.G-residual slice cleared **all**
+the GPIO (`struct gpio`/`of_gpio_count`/`of_get_gpio`/`gpio_free_array`), pinctrl,
+timer, pm_qos, kzfree, dma-contiguous, and `cam_dt_match` errors — `cam_soc_util.c`,
+`cam_res_mgr.c`, `cam_sensor_util.c`, `cam_req_mgr_timer.c`, `cam_req_mgr_dev.c`,
+`hfi.c` and the 2 sensor-io headers no longer have any errors of their own. The
+gpio bucket (the dominant ~45-error mass in the 2.A surface) is **gone from the
+leading edge**. 26 `error:`/`fatal` lines remain, all in C/E/F:
+
+- **E (scm/secure)** — `fatal: soc/qcom/scm.h` (`cam_isp/.../cam_ife_hw_mgr.c`,
+  `cam_csiphy/cam_csiphy_core.c`). → `qcom_scm_*`; also owns the ION stage-2 shim.
+- **C (bus/interconnect)** — `fatal: linux/msm-bus.h` (`cam_cpas/cam_cpas_hw.c`).
+  → interconnect `icc_*`.
+- **F/G (.remove + i2c-probe void-sig drift)** — ~16 `incompatible pointer type`:
+  `int (*)(struct platform_device *)` `.remove` in cam_cdm_intf, cam_cpas_intf,
+  cam_isp_dev, cam_ife_csid170, cam_ife_csid_lite170, cam_vfe170, cam_vfe_lite170,
+  cam_cci_dev, cam_actuator_dev, cam_csiphy_dev, cam_sensor_dev; PLUS the I2C
+  driver `.probe`/`.remove` sig change (6.18 dropped the `i2c_device_id *` arg from
+  `.probe` and made `.remove` void) in cam_actuator_dev + cam_sensor_dev. Trivial
+  mechanical — same fix 2.G/2.B applied to cam_sync/cam_req_mgr/cam_smmu/cam_res_mgr,
+  now the remaining drivers.
+- **C-residual (CMA API drift, newly unmasked in `cam_sensor_io/cam_sensor_spi.c`)**
+  — dropping `dma-contiguous.h` unmasked real use of `dev_get_cma_area()` (removed)
+  + `cma_alloc()`/`cma_release()` whose signatures changed (`cma_alloc` now takes 4
+  args incl. gfp; both take `struct cma *` not the old area). This is the **SPI
+  sensor** bounce-buffer path; mici sensors are I2C/CCI so it is **not on the data
+  path** — can be stubbed/ported lazily. (Note: the `debugfs_create_bool` void-return
+  in cam_icp_hw_mgr.c — same fix 2.G did for cam_sync — will resurface once C/E clear
+  the subdir-build past cam_isp; it's a latent mechanical item, not yet reached.)
+
+GPIO approach (decision): used the **legacy single-integer GPIO bridge**, not the
+gpiod-descriptor API. Rationale: the Spectra sensor power-sequencer
+(`cam_sensor_util.c` `cam_sensor_core_power_*`) references GPIOs **by number**,
+indexing into DT-parsed integer tables (`cam_gpio_common_tbl[idx].gpio`) and driving
+reset/standby/avdd lines via `cam_res_mgr_gpio_set_value(gpio_number, value)` and
+`gpio_request_one(gpio_number, ...)`. 6.18 keeps the full single-integer API
+(`gpio_request[_one]`/`gpio_free`/`gpio_set_value[_cansleep]`/`gpio_direction_*`) and
+`of_get_named_gpio()`; only `struct gpio`, `gpio_request_array`/`gpio_free_array`,
+`of_gpio_count`/`of_get_gpio` were removed. So: (1) `struct gpio` → a local
+`struct cam_gpio` with the identical `{gpio, flags, label}` fields (in cam_soc_util.h),
+keeping the table layout and every `.gpio/.flags/.label` accessor byte-identical;
+(2) `of_gpio_count` → `of_count_phandle_with_args(np,"gpios","#gpio-cells")` and
+`of_get_gpio(np,i)` → `of_get_named_gpio(np,"gpios",i)` (exactly what the removed
+wrappers expanded to — same numbers, same order); (3) `gpio_free_array(tbl,n)` →
+per-entry `gpio_free()` loop (mirrors the existing per-entry `gpio_request_one`
+request side). The request/free lifecycle and power on/off ordering are unchanged —
+no semantic change to the power-sequencer, which is exactly what Phase 3 sensor probe
+needs. Switching to gpiod descriptors would have required rewriting the by-number
+sequencer tables and the shared-gpio refcount logic in cam_res_mgr (which keys its
+shared-gpio list on the integer number from `shared-gpios = <...>`), a much larger
+and riskier change for zero benefit here.
+
+Files changed in 2.G-residual (all under `kernel/spectra-camera/camera/`):
+- `cam_utils/cam_soc_util.h` — new `struct cam_gpio` (replaces removed `struct gpio`);
+  `cam_soc_gpio_data` tables retyped to it.
+- `cam_utils/cam_soc_util.c` — `of_gpio_count`→`of_count_phandle_with_args`,
+  `of_get_gpio`→`of_get_named_gpio`, `sizeof(struct gpio)`→`sizeof(struct cam_gpio)`,
+  `gpio_free_array`→per-entry `gpio_free` loop.
+- `cam_sensor_module/cam_res_mgr/cam_res_mgr_api.h` — `cam_res_mgr_gpio_free_arry`
+  param `const struct gpio *`→`const struct cam_gpio *` + forward-decl.
+- `cam_sensor_module/cam_res_mgr/cam_res_mgr.c` — matching def retype; `.remove`→void;
+  explicit `<linux/pinctrl/consumer.h>`.
+- `cam_sensor_module/cam_sensor_utils/cam_sensor_util.c` — `struct gpio *gpio_tbl`→
+  `struct cam_gpio *`; explicit `<linux/gpio.h>` + `<linux/pinctrl/consumer.h>`.
+- `cam_req_mgr/cam_req_mgr_timer.c` — `setup_timer`→`timer_setup` via a trampoline
+  (`crm_timer_trampoline` + `timer_container_of`) preserving the stored
+  `timer_cb(unsigned long)` ABI for all callers; `del_timer_sync`→`timer_delete_sync`.
+- `cam_req_mgr/cam_req_mgr_dev.c` — `pm_qos_*_request`+`PM_QOS_CPU_DMA_LATENCY`→
+  `cpu_latency_qos_*`; `MODULE_DEVICE_TABLE(of, cam_dt_match)` typo→`cam_req_mgr_dt_match`.
+- `cam_icp/hfi.c` — `kzfree`→`kfree_sensitive`.
+- `cam_sensor_module/cam_ois/cam_ois_core.h`,
+  `cam_sensor_module/cam_sensor_io/cam_sensor_spi.h` — dropped removed
+  `<linux/dma-contiguous.h>` (unused; CMA folded into dma-map-ops).
+
 ## Decisions / notes log
+- 2026-06-12 — Phase 2.G-residual: gpio (legacy-integer bridge) + mechanical
+  quick-wins done (see "Phase 2.G-residual surface"). 10 files changed. GPIO
+  bucket gone from leading edge; no new stubs. Leading edge now pure C (msm-bus)
+  + E (scm) + remaining `.remove`/i2c-probe void-sig drift + a CMA-API drift in
+  the SPI sensor path. Log: `build/spectra-build-2gr.log`.
 - 2026-06-12 — Phase 2.A: memory bucket (ion → dma-buf) done (see "Phase 2.A
   surface"). 15 files changed under `kernel/spectra-camera/`. Key finding: the
   in-kernel **dma-heap consumer API is absent in this 6.18 baseline**, so the

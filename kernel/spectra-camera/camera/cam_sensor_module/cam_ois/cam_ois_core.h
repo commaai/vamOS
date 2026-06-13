@@ -13,7 +13,11 @@
 #define _CAM_OIS_CORE_H_
 
 #include <linux/cma.h>
-#include <linux/dma-contiguous.h>
+/*
+ * 6.18 removed linux/dma-contiguous.h (CMA helpers folded into
+ * linux/dma-map-ops.h). No dma_contiguous_* symbols are used here, so the
+ * include is simply dropped.
+ */
 #include "cam_ois_dev.h"
 
 #define OIS_NAME_LEN 32

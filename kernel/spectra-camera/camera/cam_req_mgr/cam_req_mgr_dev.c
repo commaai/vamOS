@@ -107,19 +107,24 @@ static void cam_v4l2_device_cleanup(void)
 
 static void cam_pm_qos_add_request(void)
 {
-	pm_qos_add_request(&cam_pm_qos_request, PM_QOS_CPU_DMA_LATENCY,
-		PM_QOS_DEFAULT_VALUE);
+	/*
+	 * 6.18: the global PM-QoS class API (pm_qos_*_request +
+	 * PM_QOS_CPU_DMA_LATENCY) was replaced by the dedicated CPU-latency
+	 * QoS API. cpu_latency_qos_add_request() implies the CPU-DMA-latency
+	 * target, so the class argument is gone.
+	 */
+	cpu_latency_qos_add_request(&cam_pm_qos_request, PM_QOS_DEFAULT_VALUE);
 }
 
 static void cam_pm_qos_remove_request(void)
 {
 	CAM_INFO(CAM_SENSOR, "%s: remove request", __func__);
-	pm_qos_remove_request(&cam_pm_qos_request);
+	cpu_latency_qos_remove_request(&cam_pm_qos_request);
 }
 
 static void cam_pm_qos_update_request(int val) {
 	CAM_INFO(CAM_SENSOR, "%s: update request %d", __func__, val);
-	pm_qos_update_request(&cam_pm_qos_request, val);
+	cpu_latency_qos_update_request(&cam_pm_qos_request, val);
 }
 
 static int cam_req_mgr_open(struct file *filep)
@@ -729,7 +734,7 @@ static const struct of_device_id cam_req_mgr_dt_match[] = {
 	{.compatible = "qcom,cam-req-mgr"},
 	{}
 };
-MODULE_DEVICE_TABLE(of, cam_dt_match);
+MODULE_DEVICE_TABLE(of, cam_req_mgr_dt_match);
 
 static struct platform_driver cam_req_mgr_driver = {
 	.probe = cam_req_mgr_probe,

@@ -874,7 +874,7 @@ static int cam_soc_util_get_dt_gpio_req_tbl(struct device_node *of_node,
 	if (!val_array)
 		return -ENOMEM;
 
-	gconf->cam_gpio_req_tbl = kcalloc(count, sizeof(struct gpio),
+	gconf->cam_gpio_req_tbl = kcalloc(count, sizeof(struct cam_gpio),
 		GFP_KERNEL);
 	if (!gconf->cam_gpio_req_tbl) {
 		rc = -ENOMEM;
@@ -958,7 +958,13 @@ static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 		return -EINVAL;
 	}
 
-	gpio_array_size = of_gpio_count(of_node);
+	/*
+	 * 6.18 removed of_gpio_count()/of_get_gpio(). They were thin wrappers
+	 * over the named-property helpers on the standard "gpios" property, so
+	 * use those directly to keep the exact same numbers/order.
+	 */
+	gpio_array_size = of_count_phandle_with_args(of_node, "gpios",
+		"#gpio-cells");
 
 	if (gpio_array_size <= 0)
 		return 0;
@@ -970,7 +976,7 @@ static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 		goto free_gpio_conf;
 
 	for (i = 0; i < gpio_array_size; i++) {
-		gpio_array[i] = of_get_gpio(of_node, i);
+		gpio_array[i] = of_get_named_gpio(of_node, "gpios", i);
 		CAM_DBG(CAM_UTIL, "gpio_array[%d] = %d", i, gpio_array[i]);
 	}
 
@@ -986,7 +992,7 @@ static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 	}
 
 	gconf->cam_gpio_common_tbl = kcalloc(gpio_array_size,
-				sizeof(struct gpio), GFP_KERNEL);
+				sizeof(struct cam_gpio), GFP_KERNEL);
 	if (!gconf->cam_gpio_common_tbl) {
 		rc = -ENOMEM;
 		goto free_gpio_array;
@@ -1017,7 +1023,7 @@ static int cam_soc_util_request_gpio_table(
 	uint8_t size = 0;
 	struct cam_soc_gpio_data *gpio_conf =
 			soc_info->gpio_data;
-	struct gpio *gpio_tbl = NULL;
+	struct cam_gpio *gpio_tbl = NULL;
 
 
 	if (!gpio_conf) {
@@ -1055,7 +1061,13 @@ static int cam_soc_util_request_gpio_table(
 			}
 		}
 	} else {
-		gpio_free_array(gpio_tbl, size);
+		/*
+		 * 6.18 removed gpio_free_array() (it took the now-gone
+		 * "struct gpio" array). Free each line individually via the
+		 * single-integer API; same lifecycle, same ordering.
+		 */
+		for (i = 0; i < size; i++)
+			gpio_free(gpio_tbl[i].gpio);
 	}
 
 	return rc;

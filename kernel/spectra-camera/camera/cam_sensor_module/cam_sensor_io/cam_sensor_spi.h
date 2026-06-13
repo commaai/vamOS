@@ -15,7 +15,11 @@
 
 #include <linux/spi/spi.h>
 #include <linux/cma.h>
-#include <linux/dma-contiguous.h>
+/*
+ * 6.18 removed linux/dma-contiguous.h (CMA helpers folded into
+ * linux/dma-map-ops.h). No dma_contiguous_* symbols are used here, so the
+ * include is simply dropped.
+ */
 #include <media/cam_sensor.h>
 #include "cam_sensor_i2c.h"
 

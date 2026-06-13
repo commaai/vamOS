@@ -891,7 +891,8 @@ void cam_hfi_deinit(void __iomem *icp_base)
 	g_hfi->cmd_q_state = false;
 	g_hfi->msg_q_state = false;
 
-	kzfree(g_hfi);
+	/* 6.18 renamed kzfree() to kfree_sensitive() (security-zeroing free). */
+	kfree_sensitive(g_hfi);
 	g_hfi = NULL;
 
 err:
