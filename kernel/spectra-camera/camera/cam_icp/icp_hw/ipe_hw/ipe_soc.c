@@ -29,6 +29,15 @@ int cam_ipe_transfer_gdsc_control(struct cam_hw_soc_info *soc_info)
 	for (i = 0; i < soc_info->num_rgltr; i++) {
 		rc = regulator_set_mode(soc_info->rgltr[i],
 			REGULATOR_MODE_FAST);
+		/*
+		 * vamOS: ipe{0,1}-vdd "gdsc" is a fixed-regulator stand-in for the
+		 * camcc GDSC genpd (DESIGN §4) with no .set_mode op — regulator_set_mode
+		 * returns -EINVAL/-ENOSYS. Mode is an RPMh perf hint; the genpd attach
+		 * does the real power-gating. Treat "mode unsupported" as benign so IPE
+		 * bring-up isn't aborted.
+		 */
+		if (rc == -EINVAL || rc == -ENOSYS || rc == -EOPNOTSUPP)
+			rc = 0;
 		if (rc) {
 			CAM_ERR(CAM_ICP, "Regulator set mode %s failed",
 				soc_info->rgltr_name[i]);
@@ -54,6 +63,11 @@ int cam_ipe_get_gdsc_control(struct cam_hw_soc_info *soc_info)
 	for (i = 0; i < soc_info->num_rgltr; i++) {
 		rc = regulator_set_mode(soc_info->rgltr[i],
 					REGULATOR_MODE_NORMAL);
+		/* vamOS: fixed-regulator gdsc stand-in has no set_mode — benign
+		 * (see cam_ipe_transfer_gdsc_control). genpd handles real power.
+		 */
+		if (rc == -EINVAL || rc == -ENOSYS || rc == -EOPNOTSUPP)
+			rc = 0;
 		if (rc) {
 			CAM_ERR(CAM_ICP, "Regulator set mode %s failed",
 				soc_info->rgltr_name[i]);

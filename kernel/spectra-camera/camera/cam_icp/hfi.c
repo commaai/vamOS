@@ -539,8 +539,19 @@ void cam_hfi_disable_cpu(void __iomem *icp_base)
 
 	cam_io_w_mb((uint32_t)ICP_INIT_REQUEST_RESET,
 		icp_base + HFI_REG_HOST_ICP_INIT_REQUEST);
+	/*
+	 * Use the passed-in icp_base, NOT g_hfi->csr_base. cam_hfi_disable_cpu()
+	 * is also called on the cam_icp_mgr_hw_open() error-unwind path
+	 * (hfi_init_failed:) which runs BEFORE cam_hfi_init() allocates g_hfi — so
+	 * g_hfi is NULL there and "g_hfi->csr_base" was a NULL-deref that oopsed the
+	 * kernel (cam_hfi_disable_cpu+0xac) whenever ICP FW bring-up failed, taking
+	 * the whole device down instead of failing cleanly. g_hfi->csr_base is
+	 * always assigned icp_base anyway (cam_hfi_init/cam_hfi_resume), so this is
+	 * functionally identical on the success path and crash-safe on the failure
+	 * path.
+	 */
 	cam_io_w_mb((uint32_t)INTR_DISABLE,
-		g_hfi->csr_base + HFI_REG_A5_CSR_A2HOSTINTEN);
+		icp_base + HFI_REG_A5_CSR_A2HOSTINTEN);
 }
 
 void cam_hfi_enable_cpu(void __iomem *icp_base)

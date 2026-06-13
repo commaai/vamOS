@@ -93,6 +93,17 @@ int cam_bps_transfer_gdsc_control(struct cam_hw_soc_info *soc_info)
 	for (i = 0; i < soc_info->num_rgltr; i++) {
 		rc = regulator_set_mode(soc_info->rgltr[i],
 			REGULATOR_MODE_FAST);
+		/*
+		 * vamOS: the bps-vdd "gdsc" is a fixed-regulator stand-in for the
+		 * camcc GDSC genpd (DESIGN §4). fixed-regulator has no .set_mode op,
+		 * so regulator_set_mode() returns -EINVAL/-ENOSYS. Mode (FAST vs
+		 * NORMAL) is only an RPMh power/perf hint on the rail — actual
+		 * power-gating is done by the genpd power-domain attach, not by mode.
+		 * Treat "mode unsupported" as benign so BPS bring-up isn't aborted
+		 * (the legacy GDSC regulator supported set_mode; the stand-in can't).
+		 */
+		if (rc == -EINVAL || rc == -ENOSYS || rc == -EOPNOTSUPP)
+			rc = 0;
 		if (rc) {
 			CAM_ERR(CAM_ICP, "Regulator set mode %s failed",
 				soc_info->rgltr_name[i]);
@@ -118,6 +129,11 @@ int cam_bps_get_gdsc_control(struct cam_hw_soc_info *soc_info)
 	for (i = 0; i < soc_info->num_rgltr; i++) {
 		rc = regulator_set_mode(soc_info->rgltr[i],
 			REGULATOR_MODE_NORMAL);
+		/* vamOS: fixed-regulator gdsc stand-in has no set_mode — benign
+		 * (see cam_bps_transfer_gdsc_control). genpd handles real power.
+		 */
+		if (rc == -EINVAL || rc == -ENOSYS || rc == -EOPNOTSUPP)
+			rc = 0;
 		if (rc) {
 			CAM_ERR(CAM_ICP, "Regulator set mode %s failed",
 				soc_info->rgltr_name[i]);
