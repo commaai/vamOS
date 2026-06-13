@@ -679,6 +679,142 @@ read → frames.
 
 15 subdevs target; currently 12 (+cam-jpeg/fd/lrme still pending, secondary).
 
+## Phase 4 camerad integration log — session 2 (2026-06-13)
+
+**Correction to session-1 "blocker":** the `cam_sensor_subdev_ioctl: Invalid ioctl
+cmd: -2140645888` is **NOT camerad** and **not** the blocker. `-2140645888` =
+`0x80685600` = `VIDIOC_QUERYCAP` (`_IOR('V',0,struct v4l2_capability[104])`), issued
+by **udev's `v4l_id`** coldplug-probing every `/dev/v4l-subdev*`. camerad uses the
+correct `VIDIOC_CAM_CONTROL` (`0xc06856c0`). Harmless noise; the subdevs just don't
+implement QUERYCAP. The real camerad path stops much later, in ICP.
+
+camerad's actual init wall: `SpectraMaster::init()` does
+`icp_fd = open("cam-icp"); assert(icp_fd>=0)` — **opening cam-icp triggers
+`cam_icp_subdev_open` → ICP A5 firmware download**. So ICP FW bring-up is on the
+**critical path for ALL cameras**, even the 2 IFE-processed ones (road/wide) — camerad
+opens+QUERYCAPs cam-icp unconditionally at init before any per-camera config.
+
+**Four fixes landed this session (all on the camerad critical path):**
+1. **BPS/IPE GDSC `-EBUSY`** — `cam_bps/ipe enable_soc_resources` failed
+   `*_ahb_clk enable rc(-16)` because the multi-domain genpd gap (DESIGN §4) left
+   BPS/IPE_0/IPE_1 GDSCs OFF (only a fixed-regulator stand-in, no genpd attach).
+   Added `power-domains = <&clock_camcc BPS_GDSC/IPE_0_GDSC/IPE_1_GDSC>` to the
+   `cam_bps`/`cam_ipe0`/`cam_ipe1` DTS nodes (single-domain auto-attach). Cleared.
+2. **cam-req-mgr by-path symlink** (the real `video0_fd>=0` fix, replacing the
+   session-1 `device_rename` which was racy). The DT cam-req-mgr device was nested
+   under `soc@0`, so udev's `path_id` emitted an EMPTY `ID_PATH` → no by-path link →
+   camerad open fails. Fix in `cam_req_mgr_probe`:
+   `device_move(&pdev->dev, &platform_bus, DPM_ORDER_NONE)` to flatten to
+   `/devices/platform/`, then `device_rename(..., "soc:qcom_cam-req-mgr")` —
+   **UNDERSCORE not comma** (udev SYMLINK uses `$env{ID_PATH}` verbatim; comma would
+   yield the wrong link string). Verified `platform-soc:qcom_cam-req-mgr-video-index0`
+   is created deterministically; `udevadm test-builtin path_id` confirms the ID_PATH.
+   (cam_sync's link always worked because it's a static early `platform_device`.)
+   NOTE: `pkill -9 camerad` leaves `g_dev.cam_lock`/`open_cnt` held → next video0
+   open hangs uninterruptibly; **reboot between dirty runs** (not a real bug).
+3. **HFI `cam_hfi_disable_cpu` NULL-deref crash** — on the ICP FW-init error-unwind
+   (`hfi_init_failed:`), `cam_hfi_disable_cpu` ran before `cam_hfi_init` allocated
+   `g_hfi`, so `g_hfi->csr_base` was a NULL deref that **oopsed the kernel and took
+   the whole device down** on every ICP failure. `g_hfi->csr_base` is always
+   `icp_base` anyway → use the passed-in `icp_base`. Now the device SURVIVES ICP
+   failures (essential for any further debug).
+4. **BPS/IPE `regulator_set_mode` on fixed-regulator** — `cam_bps/ipe_get/transfer_
+   gdsc_control` call `regulator_set_mode(rgltr, NORMAL/FAST)` on the `bps-vdd`/
+   `ipe*-vdd` gdsc stand-ins; fixed-regulator has no `.set_mode` → `-EINVAL` →
+   `Regulator set mode failed` → BPS/IPE reset aborted (`BPS CDM/top rst failed
+   status 0x0`). Made the 4 set_mode sites treat `-EINVAL/-ENOSYS/-EOPNOTSUPP` as
+   benign (mode is an RPMh perf hint; genpd does the real power-gating). BPS/IPE now
+   power + reset cleanly.
+
+**Current blocker (next):** **`watch dog interrupt from A5`** → `hfi not set up yet`
+→ `FW download failed`. `CAMERA_ICP.elf` (1.1M) loads with NO `request_firmware`
+error, and BPS/IPE are now up — but the A5 ICP processor boots the FW and
+**watchdogs without completing the HFI handshake** (suspect FW memory-region IOVA /
+HFI shared-queue SMMU mapping wrong on mainline, or A5 reset/clock). SECONDARY: a
+`secheap` double-release (`Trying to release secheap twice` → `dma_buf_release`
+`BUG()` oops in the 2.A page-exporter `.release` on camerad-exit fput) — only hit on
+the FW-download-failed cleanup path; fixing A5 FW boot likely avoids it. Both are
+tracked. On-device debug recipe (low printk + persistent `/data` synced logs +
+flood-filter) saved to memory `vamos-camerad-ondevice-debug`.
+
+State: device survives ICP failure; camerad reliably reaches ICP FW download and
+fails the A5 handshake. ICP A5 bring-up is the remaining gate to frames/snapshot.
+
+## Phase 4 camerad integration log — session 3 (2026-06-13): ICP A5 FW BOOTS
+
+**The ICP A5 firmware now boots fully and cleanly** (`status=1` ICP_INIT_RESP_SUCCESS,
+`FW download done successfully`, no watchdog). The session-2 `watch dog interrupt
+from A5` blocker is RESOLVED. Three root causes, all in the 2.A/2.B memory seam,
+found by reading the full pre-watchdog trace (log_buf_len=16M on the cmdline +
+debug_mdl=0x3FFFFFF at runtime + the persistent-/data flood-filtered recipe). All
+committed.
+
+1. **ICP FW carveout had no coherent backing** (`FW memory alloc failed`). Legacy
+   4.9 used `compatible="removed-dma-pool"` on pil_camera_mem; mainline 6.18
+   dropped that driver, so `dma_alloc_coherent(fw_dev)` fell back to the default
+   pool and the A5 booted wrong pages. Fix: override upstream `camera_mem`
+   (sdm845.dtsi `camera-mem@8bf00000`) to `compatible="shared-dma-pool"` (no-map)
+   so kernel/dma/coherent.c binds it as a per-device **write-combine** coherent
+   pool with **PA-identity** handles — the removed-dma-pool equivalent. cam_smmu
+   fw-dev probe now calls `of_reserved_mem_device_init()` explicitly (mainline
+   auto-attaches only `restricted-dma-pool`, not `shared-dma-pool`). **Resized
+   5 MiB → 4 MiB**: the per-device coherent allocator (__dma_alloc_from_coherent
+   → bitmap_find_free_region) rounds to 2^get_order(size) PAGES, so a 5 MiB
+   (1280-page) request needed order-11 = 2048 pages = 8 MiB and FAILED against a
+   5 MiB pool; 4 MiB is exactly order-10 (1024 pages) and exceeds the 1.1 MiB
+   CAMERA_ICP.elf. Firmware IOVA region (`iova-mem-region-firmware`) shrunk to
+   0x400000 to match. Verified: `DMA alloc returned fw=...,hdl=0x8bf00000`,
+   `iova:0, len:4194304`.
+
+2. **HFI queues mapped only 64 KiB of each 1 MiB buffer** (the watchdog cause).
+   cam_smmu mapped qtbl/cmd_q/msg_q/dbg_q (+secheap) with `iommu_map_sg(...,
+   table->nents, ...)`. But `cam_mem_buf_map()` (the 2.A exporter `.map_dma_buf`)
+   runs `dma_map_sgtable()`, which **coalesces** the list and overwrites
+   `table->nents` with the DMA-segment count (often 1), while `iommu_map_sg()`
+   walks `sg_phys()/sg->length` over the **physical** entries. So only the first
+   chunk got mapped; the A5 walked unmapped HFI pages → watchdog. Fix: map by
+   **`table->orig_nents`** in all three sites (SHARED, IO, secheap) + add the
+   missing `size < *len_ptr` check on the SHARED path. Verified: `iommu_map_sg
+   returned 1048576` for every queue.
+
+3. **HFI queues were cached but the SMMU is non-coherent** (the decisive A5 fix).
+   With 1+2 fixed, the A5 booted and read valid HW[10000000]/FW[1000100] versions
+   but `HOST_INIT_RESPONSE` stayed **3** (never SUCCESS=1) and it watchdogged on
+   the first FW_INIT. Root cause: the camera SMMU context banks are **non-coherent**
+   (`arm-smmu: non-coherent table walk`), so the A5 reading the qtbl through its
+   context bank does NOT snoop the CPU D-cache; the page exporter always vmap'd
+   `PAGE_KERNEL` (**cached**), so the host's qtbl-header writes sat in cache and
+   the A5 read stale descriptors. Legacy allocated these uncached (ION, no
+   CAM_MEM_FLAG_CACHE). Fix: in `cam_mem_buf_do_vmap()`, map buffers WITHOUT
+   `CAM_MEM_FLAG_CACHE` as **`pgprot_writecombine(PAGE_KERNEL)`** (store `flags`
+   in `struct cam_mem_buffer`). **Verified: status=1, FW download done
+   successfully, no watchdog.**
+
+Also fixed: **secheap dma_buf double-put** — `cam_smmu_release_sec_heap()`
+`dma_buf_put()`'d a buf it only borrowed (reserve attaches/maps without
+`dma_buf_get`; the owning ref is the mem-mgr slot, freed by the same teardown).
+Dropped the put. Cleared `release secheap twice` / `failed to unreserve sec heap`.
+
+**Current blocker (next): dma_buf `vmapping_counter` BUG on teardown.** After
+`FW download done successfully`, ICP does its normal post-download power-collapse
+(`cam_icp_mgr_icp_power_collapse`, the clk_disable storm) and camerad exits; on
+the process fput the kernel BUGs at **`dma_buf_release+0x94` = `BUG_ON(dmabuf->
+vmapping_counter)`** (`__fput`→`__dentry_kill`→`dma_buf_release`). A kernel
+`dma_buf_vmap` (KMD_ACCESS buffers, `cam_mem_util_map_cpu_va`) is not balanced by
+a `dma_buf_vunmap` before the buffer's last ref is dropped. The device SURVIVES
+the oops ([#1], one CPU). This is a **teardown refcount-balance bug, NOT a
+bring-up gate** — the cameras initialise before it. Next: trace which buffer
+leaks its vmap (likely an fd-exported KMD_ACCESS buffer whose slot-release vunmap
+path is missed), balance the vmap/vunmap, then confirm camerad stays up →
+sensor acquire (chip-id 0x5304 over CCI) → IFE/RDI frames → snapshot.py JPEG.
+Secondary, probably benign: an IPE shared-RCG `clk-rcg2.c:136 update_config`
+WARN in `cam_ipe_enable_soc_resources` (non-fatal WARN, IPE CPAS streamon still
+succeeds).
+
+State: **ICP A5 firmware boots successfully — the central blocker for ALL cameras
+is cleared.** Remaining to frames: the teardown dma_buf vmap BUG, then sensor/IFE
+bring-up.
+
 ## Decisions / notes log
 - 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
   Spectra camera node block + 4 sensors + 20 pinctrl states + 6 gdsc + 4 ldo
