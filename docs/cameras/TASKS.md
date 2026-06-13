@@ -143,11 +143,18 @@ Exit: every `cam-*` block probes; node/subdev names match legacy capture.
       `./vamos build kernel` builds the mici .dtb clean (only benign
       `shared-gpios` dtc false-positives) → `build/boot.img` 16.8M. See
       "Phase 3.1 notes" below. (On-device probe = Phase 3.2/3.3, parent's flash.)
-- [ ] **3.2** `cam-cpas` + `cam_smmu` probe clean on device.
-- [ ] **3.3** `cam-cci-driver` + 4× `cam-csiphy-driver` + 4× `cam-sensor-driver`
+- [x] **3.2** `cam-cpas` + `cam_smmu` probe clean on device. ☑ 2026-06-13 — see
+      "Phase 3 on-device bring-up log" below. cam-cpas binds after the AHB-level-
+      vote + string-index fixes.
+- [◐] **3.3** `cam-cci-driver` + 4× `cam-csiphy-driver` + 4× `cam-sensor-driver`
       probe; sensor chip-id read over CCI succeeds (expect 0x5304 family).
-- [ ] **3.4** `cam-isp` (CSID/IFE) + `cam-req-mgr` + `cam_sync` register; by-path
-      video nodes appear with correct names.
+      ◐ 2026-06-13 — cam-cci-driver + 4× cam-sensor-driver + 3× cam-csiphy-driver
+      now register (subdevs present). Pending: 4th csiphy, and sensor chip-id read
+      (happens at acquire/camerad-open, not probe).
+- [◐] **3.4** `cam-isp` (CSID/IFE) + `cam-req-mgr` + `cam_sync` register; by-path
+      video nodes appear with correct names. ◐ 2026-06-13 — cam-req-mgr video node
+      `platform-soc@0:qcom_cam-req-mgr-video-index0` present; cam-isp still blocked
+      on VFE soc-enable -EBUSY (multi-domain GDSC / clock).
 - [ ] **3.5** Verify `/dev/v4l/by-path/` + `/dev/v4l-subdev*` names == legacy
       capture exactly.
 
@@ -606,6 +613,43 @@ Red flags: `regulator ... get failed` (a gdsc/ldo name typo), `-EPROBE_DEFER`
 storms (clock/genpd ordering — camcc must probe before camera), reg read-back
 zeros on IFE/IPE/BPS (the multi-domain genpd gap above), or CCI i2c NAK on the
 sensor chip-id read (sensor power rail / mclk / reset GPIO).
+
+## Phase 3 on-device bring-up log (2026-06-13)
+
+Flashed boot.img to mici (QDL) and iterated on dmesg. Ordered fixes that took the
+subdev count 0 → 10 of the legacy 15 (all committed):
+
+1. **IRQ** — `platform_get_resource_byname(IORESOURCE_IRQ)` → `platform_get_irq_byname`
+   (6.18 drops IORESOURCE_IRQ for DT); `irq_line` `struct resource*` → `int`.
+   Cleared every "no irq resource" probe abort.
+2. **Deferred probe** — `cam_register_subdev` returns `-EPROBE_DEFER` (not -ENODEV)
+   when the camera root device isn't up, so HW subdevs retry.
+3. **device_caps** — `cam_video_device_setup` set `vdev->device_caps`
+   (mandatory since ~5.0). Was the keystone: without it `cam_req_mgr_probe`
+   faulted at `video_register_device`, `g_dev.state` never went true, everything
+   deferred forever. Found via `faddr2line` on the probe oops.
+4. **camcc** — `CONFIG_SDM_CAMCC_845=m` → `=y` (no module loading in bring-up;
+   camcc must be built-in or all camera clocks/sensors block on
+   "ad00000.clock-controller not ready").
+5. **subdev UAF** — csiphy + cci freed their `cam_subdev` on the CPAS-not-ready
+   error path WITHOUT `cam_unregister_subdev`, leaving a freed node on
+   `v4l2_dev->subdevs` → panic in `__v4l2_device_register_subdev_nodes`.
+   Unregister before free.
+6. **string-index** — `cam_common_util_get_string_index` `strnstr` substring match
+   failed on exact tokens → CPAS CAMNOC regbase lookup -EINVAL. → `strcmp`.
+7. **AHB level vote** — `cam_cpas_util_vote_bus_client_level` kept the legacy
+   `level < num_usecases` gate; the icc port has no usecase table, so
+   CAM_SVS_VOTE failed -EINVAL and aborted CPAS probe. Dropped the gate.
+
+State after #7: cam-req-mgr video node + 10 subdevs (cam-icp, cam-cpas,
+cam-cci-driver, 3× cam-csiphy-driver, 4× cam-sensor-driver). **Remaining: 4th
+csiphy; cam-isp blocked on `cam_vfe_enable_soc_resources` -EBUSY (-16) — VFE
+soc/clock/GDSC enable (suspect multi-domain genpd, DESIGN §4 GDSC gap);
+jpeg/fd/lrme HW-manager init -19 (depend on child HW).**
+
+Debug aids currently in tree (REMOVE before landing — Phase 5): `debug_mdl`
+default `0x3FFFFFF` in `cam_debug_util.c`; `log_buf_len=8M` in `build_kernel.sh`
+cmdline.
 
 ## Decisions / notes log
 - 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
