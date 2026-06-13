@@ -149,8 +149,10 @@ Exit: every `cam-*` block probes; node/subdev names match legacy capture.
 - [◐] **3.3** `cam-cci-driver` + 4× `cam-csiphy-driver` + 4× `cam-sensor-driver`
       probe; sensor chip-id read over CCI succeeds (expect 0x5304 family).
       ◐ 2026-06-13 — cam-cci-driver + 4× cam-sensor-driver + 3× cam-csiphy-driver
-      now register (subdevs present). Pending: 4th csiphy, and sensor chip-id read
-      (happens at acquire/camerad-open, not probe).
+      now register (subdevs present). camerad (session 4) now reaches per-sensor
+      bringup but each sensor fails `VIDIOC_CAM_CONTROL op_code 266 -> -ENODEV`
+      (`sensor N FAILED bringup`) — sensor power-up / chip-id read over CCI is the
+      live blocker. Pending: 4th csiphy; sensor power sequence + CCI i2c chip-id.
 - [◐] **3.4** `cam-isp` (CSID/IFE) + `cam-req-mgr` + `cam_sync` register; by-path
       video nodes appear with correct names. ◐ 2026-06-13 — cam-req-mgr video node
       `platform-soc@0:qcom_cam-req-mgr-video-index0` present; cam-isp still blocked
@@ -814,6 +816,56 @@ succeeds).
 State: **ICP A5 firmware boots successfully — the central blocker for ALL cameras
 is cleared.** Remaining to frames: the teardown dma_buf vmap BUG, then sensor/IFE
 bring-up.
+
+## Phase 4 camerad integration log — session 4 (2026-06-13): teardown crashes cleared, camerad reaches SENSOR BRINGUP
+
+Three memory-seam bugs fixed; camerad now runs cleanly past ICP teardown AND
+buffer allocation, all the way to **per-sensor bringup**. The device no longer
+oopses at any point in camerad init. All committed (2 commits).
+
+1. **dma_buf `vmapping_counter` BUG (session-3 blocker) — FIXED.**
+   `cam_mem_mgr_request_mem()` vmaps the HFI buffers (qtbl/cmd_q/msg_q/dbg_q/sfr)
+   **unconditionally**, but `cam_mem_util_unmap()`/`cam_mem_mgr_unmap_active_buf()`
+   only vunmapped when `CAM_MEM_FLAG_KMD_ACCESS` was set — and those buffers carry
+   `HW_SHARED_ACCESS`, not KMD_ACCESS. The leaked vmap left
+   `dmabuf->vmapping_counter != 0` at the last put → `BUG_ON` in
+   `dma_buf_release()`. Fix: key the vunmap on `kmdvaddr` (set by both the
+   request_mem and the lazy KMD paths), not the flag.
+2. **kernel-IOVA dma_buf refcount underflow — FIXED (unmasked by #1).** Once #1
+   let teardown proceed, the kernel BUG moved to `__file_ref_put_badval` at
+   `dma_buf_put` in `cam_mem_util_unmap` ← `cam_icp_free_hfi_mem`. Root cause in the
+   2.B IOMMU port: `cam_smmu_map_kernel_buffer_and_add_to_list()` (kernel path)
+   took **no** dma_buf ref, but the shared teardown
+   `cam_smmu_unmap_buf_and_remove_from_list()` unconditionally `dma_buf_put`s it →
+   file-refcount underflow. (The **user** path balances this with
+   `dma_buf_get(ion_fd)`.) Diagnosed by logging `file_count()`/`vmapping_counter`
+   at the slot put: the HFI buffers showed `fcount=0` going into the put. Fix:
+   `get_dma_buf(buf)` in the kernel map path (validate's err_put balances the
+   failure case). Commit `d804018`.
+3. **dma_buf mmap MAP_FAILED — FIXED.** camerad's `alloc_w_mmu_hdl()`
+   (`spectra.cc:111`) `mmap(MAP_SHARED)`s the alloc-and-map fd and asserted on
+   `MAP_FAILED`. The page-backed exporter set `exp_info.size = raw len`; the
+   dma-buf core mmap bounds check is
+   `vma->vm_pgoff + vma_pages(vma) > dmabuf->size >> PAGE_SHIFT`, and `vma_pages()`
+   rounds the mmap length UP — so an unaligned exported size truncated the RHS and
+   a full-length mmap was rejected `-EINVAL`. Fix: export `PAGE_ALIGN(len)` (backing
+   memory is already page-aligned). Also mapped uncached buffers **write-combine**
+   in `cam_mem_buf_mmap()` (non-coherent SMMU, matches the vmap path).
+
+**Current blocker (next): sensor power-up / chip-id read fails.** camerad reaches
+per-sensor bringup and each sensor fails:
+`VIDIOC_CAM_CONTROL error: op_code 266 - errno 19` (`-ENODEV`) →
+`** sensor 0/1/2 FAILED bringup, disabling`. op_code 266 = `0x10A` is the sensor
+power-up / probe control; `-ENODEV` points at the CSIPHY/CCI/sensor-power path
+(reset/standby GPIO, mclk, LDO rails, or the chip-id read over CCI not landing).
+This is Phase 3.3's pending item (sensor chip-id 0x5304 over CCI). Device survives
+cleanly — no kernel oops anywhere in camerad init now. Next: capture kernel-side
+dmesg for the op_code-266 path (which subdev returns -ENODEV), check sensor power
+sequence + CCI i2c on device.
+
+State: **camerad initialises the entire Spectra stack with ZERO kernel oopses and
+reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
+chip-id read.
 
 ## Decisions / notes log
 - 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
