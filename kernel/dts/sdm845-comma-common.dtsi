@@ -1,6 +1,7 @@
 /dts-v1/;
 
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
 #include "sdm845.dtsi"
 #include "pm8998.dtsi"
 #include "pmi8998.dtsi"
@@ -135,14 +136,28 @@
 	 * identical here so the cam-sensor nodes' cam_vdig/cam_vana supplies
 	 * resolve to the same rails as the working legacy DTS.
 	 */
+	/*
+	 * cam_vdig (1.05 V) stand-ins, GPIO-enabled via pm8998 gpio12 (sensors
+	 * 0-2) / gpio9 (sensor 3). Follows the mainline db845c cam0_dvdd_1v2
+	 * pattern exactly: regulator-fixed + enable-active-high gpiod + a
+	 * pinctrl-0 that muxes the pm8998 pin to a push-pull, high-strength
+	 * output (the SPMI GPIO output buffer is open-drain/weak by default, so
+	 * without drive-push-pull a gpiod output-high reads back low / high-Z and
+	 * never sources the LDO enable — that was the CCI chip-id NACK). The
+	 * device core applies pinctrl-0 (PINCTRL_STATE_DEFAULT) before probe, so
+	 * the function/drive config lands before fixed.c requests the gpiod.
+	 */
 	camera_rear_ldo: camera-rear-ldo {
 		compatible = "regulator-fixed";
 		regulator-name = "camera_rear_ldo";
 		regulator-min-microvolt = <1050000>;
 		regulator-max-microvolt = <1050000>;
-		regulator-enable-ramp-delay = <135>;
+		gpio = <&pm8998_gpios 12 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		gpio = <&pm8998_gpios 12 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&camera_rear_dvdd_en_default>;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	camera_ldo: camera-ldo {
@@ -150,9 +165,12 @@
 		regulator-name = "camera_ldo";
 		regulator-min-microvolt = <1050000>;
 		regulator-max-microvolt = <1050000>;
-		regulator-enable-ramp-delay = <233>;
+		gpio = <&pm8998_gpios 9 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
-		gpio = <&pm8998_gpios 9 0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&camera_dvdd_en_default>;
+		regulator-always-on;
+		regulator-boot-on;
 	};
 
 	camera_vana_ldo: camera-vana-ldo {
@@ -693,6 +711,48 @@
  * these pins (pinctrl-sdm845.c PINGROUP table). The Spectra cam_soc_util
  * acquires them via devm_pinctrl_get + pinctrl_lookup_state by name.
  */
+/*
+ * pm8998 GPIO pinconf for the camera DVDD-enable lines (gpio12 = cam_vdig
+ * sensors 0-2, gpio9 = sensor 3). drive-push-pull + high strength is the key:
+ * the SPMI GPIO output buffer is weak/open-drain by default, so a gpiod
+ * output-high would read back low and never source the LDO enable. function
+ * "normal" selects GPIO mode. The value is owned by the regulator's gpiod
+ * (enable-active-high), so no output-low/high here. Mirrors db845c
+ * cam0_dvdd_1v2_en_default and the legacy camera_*_dvdd_en_default states.
+ */
+&pm8998_gpios {
+	/*
+	 * Apply the camera DVDD-enable pinconf on the spmi-gpio CONTROLLER's own
+	 * default pinctrl (the platform device probes, so the core applies it).
+	 * The regulator-fixed's pinctrl-0 does NOT apply on this kernel (no
+	 * pinctrl handle bound), and a gpio-hog can only set the value, not the
+	 * pinconf — and the SPMI output buffer defaults to open-drain, so
+	 * output-high without drive-push-pull floats and reads back low. So set
+	 * the full pinconf here: function=normal + push-pull + high strength +
+	 * output-high (PIN_CONFIG_LEVEL → output_enabled + out_value=1, mode =
+	 * DIGITAL_OUTPUT in pmic_gpio_config_set). This drives cam_vdig on
+	 * unconditionally whenever the board is powered (legacy keeps it on
+	 * across camera use); the regulators below are plain always-on stand-ins.
+	 */
+	camera_rear_dvdd_en_default: camera-rear-dvdd-en-state {
+		pins = "gpio12";
+		function = "normal";
+		bias-disable;
+		drive-push-pull;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
+		output-high;
+	};
+
+	camera_dvdd_en_default: camera-dvdd-en-state {
+		pins = "gpio9";
+		function = "normal";
+		bias-disable;
+		drive-push-pull;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
+		output-high;
+	};
+};
+
 &tlmm {
 	cci0_active: cci0-active-state {
 		pins = "gpio17", "gpio18";

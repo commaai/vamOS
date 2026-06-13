@@ -896,6 +896,89 @@ on-device confirmation. (On-device sampling note: prefer the mici-skill `bash
 --timeout N` inline form with a SHORT script; long sysfs loops over serial garble
 the frame.)
 
+### Session 5 (2026-06-13): ROOT CAUSE = cam_vdig pm8998 GPIO enable pin not driving
+
+Cross-referenced against the **legacy 4.9 kernel** (flashed `boot-legacy.img`,
+ran the same `camerad`): legacy reads `sensor_id:0x5304` at slave 0x6c/0x20,
+`CAM_ACQUIRE_DEV Success`, all 3 cameras sync, and `snapshot.py` writes real
+JPEGs — the definitive working baseline. The single difference found:
+
+**cam_vdig (1.05 V) never physically powers on mainline.** `camera_rear_ldo`/
+`camera_ldo` are GPIO-gated fixed regulators on **pm8998 gpio12 / gpio9**. On
+mainline the pmic enable pin stays **`out low func0 2mA pull down`** even when the
+regulator's software `state` reads `enabled` — i.e. the SPMI-GPIO output buffer is
+never actually driven high, so the digital rail stays off and the sensor i2c block
+NACKs (`read_words=0`). Legacy drives it (cam_vdig enabled while streaming).
+
+**The stubborn part:** getting the pm8998 gpio pinconf (`function=normal`,
+`drive-push-pull`, `STRENGTH_HIGH`) APPLIED. Tried, none worked so far:
+- regulator-fixed `gpio = <&pm8998_gpios 12>` + `pinctrl-0 = <&...dvdd_en>` (the
+  exact mainline **db845c `cam0_dvdd_1v2`** pattern) — pin stays func0/2mA/low;
+  **the regulator gets NO pinctrl handle** (`/sys/kernel/debug/pinctrl/*/pinctrl-handles`
+  empty for it), so reg-fixed-voltage isn't applying its pinctrl-0 here.
+- `regulator-always-on` + the pinctrl — state flips `enabled` but pin still
+  func0/low.
+- **gpio-hog** `output-high` on `&pm8998_gpios` — sets direction `out` but value
+  stays **low** and func0/2mA (a hog sets the gpiolib value, NOT the pinconf
+  push-pull/function, and the SPMI output buffer is weak/open-drain by default so
+  the value reads back low).
+- manual sysfs `export` of the global gpio (pmic chip `gpiochip512` base=512 →
+  gpio12=523, gpio9=520) failed to create the node (line already claimed).
+
+Confirmed NOT the cause (all ruled in during an active probe): CCI clock on, the
+probing sensor's mclk on, cam_vana (`bob`) + cam_vio (`lvs1`) on, CCI transaction
+completes (no timeout). It is specifically the cam_vdig GPIO-enable drive.
+
+**Mechanism understood (mainline `pinctrl-spmi-gpio.c`):** `pmic_gpio_config_set`
+sets pin mode = `DIGITAL_OUTPUT` only if `output_enabled` is true, which is set
+ONLY by `PIN_CONFIG_OUTPUT_ENABLE`/`PIN_CONFIG_LEVEL` (DT `output-high`/`output-low`).
+`direction_output(val)` → `config_set(PIN_CONFIG_LEVEL,val)` does the same. So
+driving the pin needs `output-high` AND push-pull (`PMIC_GPIO_OUT_BUF_CMOS`); the
+default buffer is read from HW at probe (`pmic_gpio_populate`) and the pin reads
+`func0 2mA pull-down` = the reset/INPUT default.
+
+**The real blocker: the pinconf NEVER gets applied.** Verified via debugfs:
+- regulator-fixed `pinctrl-0` → `pinctrl-handles` has NO entry for the regulator
+  (reg-fixed-voltage's pinctrl not bound on this kernel).
+- controller-node `&pm8998_gpios { pinctrl-0 = <&...> }` → the props ARE in the
+  live dtb (`/proc/device-tree/.../gpio@c000/pinctrl-0` present) but
+  `pinctrl-maps` has NO `dvdd` entry → **the spmi-gpio PROVIDER does not apply its
+  own default pinctrl** (provider-probes-before-its-own-state ordering).
+- gpio-hog `output-high` → sets direction `out` but value reads **low**; suspect
+  the `pmic_gpio_of_xlate` `- PMIC_GPIO_PHYSICAL_OFFSET` means `gpios = <12>` in a
+  hog may not address the intended physical pad, OR the hog value path leaves
+  buffer open-drain. Hogs can't carry pinconf (push-pull/strength) anyway.
+
+**RESOLVED the pin-drive, but it was NOT the root cause.** The working config:
+`regulator-fixed` + `gpio = <&pm8998_gpios N GPIO_ACTIVE_HIGH>` + `enable-active-high`
++ `regulator-always-on/boot-on` + `pinctrl-0 = <&..._dvdd_en_default>` (state =
+function normal, drive-push-pull, STRENGTH_HIGH, **output-high**). With this, the
+**pmic@0 (gpiochip0) gpio9 reads `out high push-pull high`** — cam_vdig for sensor 3
+is genuinely powered. (Earlier `func0 2mA pull-down` reads were the WRONG chip —
+pmic@2/gpiochip1; the real `&pm8998_gpios` is **pmic@0 / gpiochip0, base 0**, and the
+debugfs is 1-indexed while of_xlate subtracts PMIC_GPIO_PHYSICAL_OFFSET. Always read
+the `c440000.spmi:pmic@0:gpio@c000` chip section specifically.)
+
+**DECISIVE RESULT: even with cam_vdig powered (gpio9 driven high), sensor 3 STILL
+NACKs (chip id 0).** So cam_vdig-not-powering was a real bug but **NOT the cause of
+the chip-id failure** — the NACK is common-mode across all 4 sensors and persists
+with vdig on. Two loose ends on the vdig fix: (i) gpio12 (camera_rear_ldo, sensors
+0-2) is NOT being requested/driven while gpio9 (camera_ldo) is, despite identical
+DTS — a per-pin gpiod request quirk to resolve; (ii) it doesn't matter for the NACK.
+
+**The REAL common-mode blocker is upstream of vdig — almost certainly the sensor
+RESET GPIO (TLMM) not deasserting, or the MCLK pin not actually muxed/driving.**
+Both are common to all sensors; a held-in-reset or unclocked sensor NACKs regardless
+of rails. Next session MUST verify the **TLMM** pins during probe (NOT the pmic
+chip): sensor reset = `<&tlmm 9>`/`<&tlmm 7>`, mclk0 = `<&tlmm 13>` — confirm the
+`cam_sensor_mclk*_active` + `cam_sensor_*_active` (reset) pinctrl states actually
+select and drive. Read the SPECIFIC tlmm gpiochip section (`3400000.pinctrl`), since
+multiple gpiochips share gpioN labels and cross-chip greps are misleading. Likely
+fix area: the sensor-node `pinctrl-0` (mclk+reset active) not applying, or the
+cam_res_mgr/cam_soc_util gpio request path on 6.18 (the legacy-integer GPIO bridge
+from 2.G-residual) not driving reset. The cam_vdig DTS work is committed as a
+checkpoint (gpio9 proven; gpio12 quirk + the fact vdig is insufficient both noted).
+
 State: **camerad initialises the entire Spectra stack with ZERO kernel oopses and
 reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
 chip-id read.
