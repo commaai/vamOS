@@ -276,6 +276,14 @@ static int32_t cam_sensor_driver_platform_probe(
 
 	s_ctrl->io_master_info.master_type = CCI_MASTER;
 
+	/*
+	 * Register the mclk->cam_mclk pinmux mapping BEFORE anything calls
+	 * devm_pinctrl_get() on this device. The of_platform-populated sensor
+	 * children get no pinctrl maps from DT on 6.18, so without this the
+	 * cam_default select is a no-op and mclk never reaches the sensor.
+	 */
+	cam_sensor_register_mclk_pinmux(&pdev->dev);
+
 	rc = cam_sensor_parse_dt(s_ctrl);
 	if (rc < 0) {
 		CAM_ERR(CAM_SENSOR, "failed: cam_sensor_parse_dt rc %d", rc);

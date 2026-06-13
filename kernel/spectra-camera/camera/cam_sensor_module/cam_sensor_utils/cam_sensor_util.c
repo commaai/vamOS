@@ -17,7 +17,9 @@
  * single-integer GPIO API and devm_pinctrl_get/pinctrl_lookup_state/etc.
  */
 #include <linux/gpio.h>
+#include <linux/of_gpio.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/pinctrl/machine.h>
 #include "cam_sensor_util.h"
 #include <cam_mem_mgr.h>
 #include "cam_res_mgr_api.h"
@@ -1403,6 +1405,70 @@ free_gpio_info:
 	kfree(gpio_num_info);
 	gpio_num_info = NULL;
 	return rc;
+}
+
+/*
+ * The cam-sensor devices are created by of_platform_populate() under the CCI
+ * node and on this 6.18 kernel they receive ZERO pinctrl maps from
+ * pinctrl_dt_to_map() (pinctrl-maps debugfs has no cam-sensor entry), so their
+ * DT "cam_default" pinctrl-0 (mclk -> cam_mclk) select is a vacuous no-op and
+ * the mclk pad never muxes -> no 24 MHz to the sensor -> CCI chip-id NACK.
+ *
+ * Work around it by registering the mclk mux mapping programmatically for this
+ * sensor's dev_name before devm_pinctrl_get(): grab the mclk TLMM pin from the
+ * sensor's "gpios" property (entry 0, the CAMIF_MCLK pin), build the group name
+ * "gpio<N>" and map it to function "cam_mclk" on the TLMM controller. Then the
+ * normal lookup_state("cam_default") + select_state path muxes it for real.
+ */
+int cam_sensor_register_mclk_pinmux(struct device *dev)
+{
+	struct pinctrl_map *map;
+	struct of_phandle_args args;
+	int rc;
+	char *grp;
+
+	if (!dev || !dev->of_node)
+		return 0;
+
+	/*
+	 * gpios[0] is the mclk pin (CAMIF_MCLK*). Read the RAW TLMM pin offset
+	 * (the first arg cell after the &tlmm phandle) — that's the pinctrl
+	 * group number ("gpio<offset>"), not the global gpio number.
+	 */
+	rc = of_parse_phandle_with_args(dev->of_node, "gpios", "#gpio-cells",
+			0, &args);
+	if (rc) {
+		CAM_ERR(CAM_SENSOR, "vamos-dbg no mclk gpio in sensor node rc=%d",
+			rc);
+		return 0;
+	}
+
+	map = kzalloc(sizeof(*map), GFP_KERNEL);
+	if (!map) {
+		of_node_put(args.np);
+		return -ENOMEM;
+	}
+
+	grp = kasprintf(GFP_KERNEL, "gpio%u", args.args[0]);
+	of_node_put(args.np);
+	if (!grp) {
+		kfree(map);
+		return -ENOMEM;
+	}
+
+	map->dev_name = dev_name(dev);
+	map->name = CAM_SENSOR_PINCTRL_STATE_DEFAULT; /* "cam_default" */
+	map->type = PIN_MAP_TYPE_MUX_GROUP;
+	map->ctrl_dev_name = "3400000.pinctrl";
+	map->data.mux.group = grp;
+	map->data.mux.function = "cam_mclk";
+
+	CAM_ERR(CAM_SENSOR,
+		"vamos-dbg register mclk pinmux dev=%s grp=%s func=cam_mclk",
+		map->dev_name, grp);
+
+	/* leak-on-purpose: lives for the device lifetime (small, one per sensor) */
+	return pinctrl_register_mappings(map, 1);
 }
 
 int msm_camera_pinctrl_init(
