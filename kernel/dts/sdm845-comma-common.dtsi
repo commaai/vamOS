@@ -1145,19 +1145,7 @@
 		clock-cntl-level = "lowsvs";
 		clock-rates = <0 0 0 0 0 37500000>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		/*
-		 * Mux mclk0-3 -> cam_mclk here on the CCI node. The cam-sensor
-		 * child devices' pinctrl_select_state is a no-op for the
-		 * cam_mclk function on this kernel (gpio13 stays UNCLAIMED even
-		 * with nothing blocking it), but the CCI device's pinctrl
-		 * reliably applies (i2c works). The sensor gpio-request table
-		 * skips the mclk pins (label CAMIF_MCLK*), and the sensor
-		 * pinctrl now carries ONLY mclk (reset/vana via gpio_request),
-		 * so nothing fights this mux.
-		 */
-		pinctrl-0 = <&cci0_active &cci1_active
-			&cam_sensor_mclk0_active &cam_sensor_mclk1_active
-			&cam_sensor_mclk2_active &cam_sensor_mclk3_active>;
+		pinctrl-0 = <&cci0_active &cci1_active>;
 		pinctrl-1 = <&cci0_suspend &cci1_suspend>;
 		gpios = <&tlmm 17 0>,
 			<&tlmm 18 0>,

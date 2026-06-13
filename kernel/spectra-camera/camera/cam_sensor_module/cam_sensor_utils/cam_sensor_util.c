@@ -816,14 +816,18 @@ int cam_sensor_util_request_gpio_table(
 			if (gpio_tbl[i].label &&
 				!strncmp(gpio_tbl[i].label, "CAMIF_MCLK",
 					strlen("CAMIF_MCLK"))) {
-				CAM_DBG(CAM_SENSOR,
-					"skip gpio_request for mclk pin %d:%s (pinmux cam_mclk)",
+				CAM_ERR(CAM_SENSOR,
+					"vamos-dbg SKIP mclk gpio %d:%s (pinmux cam_mclk)",
 					gpio_tbl[i].gpio, gpio_tbl[i].label);
 				continue;
 			}
 			rc = cam_res_mgr_gpio_request(soc_info->dev,
 					gpio_tbl[i].gpio,
 					gpio_tbl[i].flags, gpio_tbl[i].label);
+			CAM_ERR(CAM_SENSOR,
+				"vamos-dbg gpio_request %d:%s flags=0x%lx rc=%d",
+				gpio_tbl[i].gpio, gpio_tbl[i].label,
+				gpio_tbl[i].flags, rc);
 			if (rc) {
 				/*
 				 * After GPIO request fails, contine to
@@ -1430,6 +1434,12 @@ int msm_camera_pinctrl_init(
 		return -EINVAL;
 	}
 
+	CAM_ERR(CAM_SENSOR,
+		"vamos-dbg pinctrl_init OK dev=%s of_node=%pK(%pOF) pinctrl=%pK active=%pK",
+		dev ? dev_name(dev) : "NULL",
+		dev ? dev->of_node : NULL,
+		dev ? dev->of_node : NULL,
+		sensor_pctrl->pinctrl, sensor_pctrl->gpio_state_active);
 	return 0;
 }
 
@@ -1583,20 +1593,31 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	 * (no 24 MHz to the sensor -> CCI NACK). request_gpio_table() now skips
 	 * the mclk entry (label CAMIF_MCLK*), so the two no longer fight.
 	 */
+	CAM_ERR(CAM_SENSOR,
+		"vamos-dbg PWRUP dev=%s cam_pinctrl_status=%d pinctrl=%pK active=%pK",
+		ctrl->dev ? dev_name(ctrl->dev) : "NULL",
+		ctrl->cam_pinctrl_status, ctrl->pinctrl_info.pinctrl,
+		ctrl->pinctrl_info.gpio_state_active);
 	if (ctrl->cam_pinctrl_status) {
 		ret = pinctrl_select_state(
 			ctrl->pinctrl_info.pinctrl,
 			ctrl->pinctrl_info.gpio_state_active);
+		CAM_ERR(CAM_SENSOR,
+			"vamos-dbg pinctrl_select_state(active) ret=%d", ret);
 		if (ret)
 			CAM_ERR(CAM_SENSOR, "cannot set pin to active state");
+	} else {
+		CAM_ERR(CAM_SENSOR, "vamos-dbg cam_pinctrl_status=0 SKIP select");
 	}
 
 	ret = cam_res_mgr_shared_pinctrl_select_state(true);
+	CAM_ERR(CAM_SENSOR, "vamos-dbg shared_pinctrl_select(true) ret=%d", ret);
 	if (ret)
 		CAM_ERR(CAM_SENSOR,
 			"Cannot set shared pin to active state");
 
 	rc = cam_sensor_util_request_gpio_table(soc_info, 1);
+	CAM_ERR(CAM_SENSOR, "vamos-dbg request_gpio_table(1) rc=%d", rc);
 	if (rc < 0)
 		no_gpio = rc;
 
