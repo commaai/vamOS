@@ -4508,11 +4508,23 @@ static int cam_icp_mgr_init_devs(struct device_node *of_node)
 		child_dev_intf = (struct cam_hw_intf *)platform_get_drvdata(
 			child_pdev);
 		if (!child_dev_intf) {
-			CAM_ERR(CAM_ICP, "no child device");
+			/*
+			 * 6.18 port: the a5/ipe/bps child devices probe via deferred
+			 * probe and may not have set their drvdata yet when cam-icp's
+			 * HW manager initialises. The legacy code only tolerated this
+			 * for the optional ipe1; for a required child it left
+			 * a5/bps/ipe0_dev_intf NULL, so cam_icp_mgr_hw_open() later
+			 * failed with "a5_dev_intf is invalid" and FW download failed.
+			 * Defer the whole cam-icp probe until every child is up.
+			 */
 			of_node_put(child_node);
-			if (!icp_hw_mgr.ipe1_enable)
-				continue;
-			goto compat_hw_name_failed;
+			if (icp_hw_mgr.ipe1_enable) {
+				CAM_DBG(CAM_ICP,
+					"child %s not ready, defer cam-icp", name);
+				rc = -EPROBE_DEFER;
+				goto compat_hw_name_failed;
+			}
+			continue;
 		}
 		icp_hw_mgr.devices[child_dev_intf->hw_type]
 			[child_dev_intf->hw_idx] = child_dev_intf;
@@ -4676,8 +4688,18 @@ int cam_icp_hw_mgr_init(struct device_node *of_node, uint64_t *hw_mgr_hdl,
 	for (i = 0; i < CAM_ICP_CTX_MAX; i++)
 		mutex_init(&icp_hw_mgr.ctx_data[i].ctx_mutex);
 
-	cam_cpas_get_hw_info(&query.camera_family,
+	/*
+	 * 6.18 port: defer the whole cam-icp probe until CPAS is up. The caps read
+	 * here determines ipe0/ipe1/bps_enable; if CPAS isn't ready cam_caps stays 0
+	 * so ipe1_enable is wrongly false, and cam_icp_mgr_init_devs() then silently
+	 * skips the (not-yet-probed) a5/ipe/bps children, leaving a5_dev_intf NULL.
+	 * camerad's open of cam-icp then fails ("a5_dev_intf is invalid", FW download
+	 * failed). Deferring guarantees correct caps + all children present on retry.
+	 */
+	rc = cam_cpas_get_hw_info(&query.camera_family,
 		&query.camera_version, &query.cpas_version, &cam_caps);
+	if (rc)
+		return -EPROBE_DEFER;
 	if (cam_caps & CPAS_IPE0_BIT)
 		icp_hw_mgr.ipe0_enable = true;
 	if (cam_caps & CPAS_IPE1_BIT)
