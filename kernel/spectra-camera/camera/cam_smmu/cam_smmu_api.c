@@ -14,6 +14,7 @@
 #include <linux/dma-buf.h>
 #include <linux/dma-direction.h>
 #include <linux/of_platform.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/platform_device.h>
 #include <linux/iommu.h>
 #include <linux/slab.h>
@@ -1606,10 +1607,11 @@ int cam_smmu_reserve_sec_heap(int32_t smmu_hdl,
 
 	sec_heap_iova = iommu_cb_set.cb_info[idx].secheap_info.iova_start;
 	sec_heap_iova_len = iommu_cb_set.cb_info[idx].secheap_info.iova_len;
+	/* orig_nents: see the SHARED-path note in cam_smmu_map_buffer_and_add_to_list() */
 	size = iommu_map_sg(iommu_cb_set.cb_info[idx].domain,
 		sec_heap_iova,
 		secheap_buf->table->sgl,
-		secheap_buf->table->nents,
+		secheap_buf->table->orig_nents,
 		IOMMU_READ | IOMMU_WRITE,
 		GFP_KERNEL);
 	if (size != sec_heap_iova_len) {
@@ -1747,13 +1749,28 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 			goto err_unmap_sg;
 		}
 
-		size = iommu_map_sg(domain, iova, table->sgl, table->nents,
+		/*
+		 * Walk orig_nents (the CPU/physical scatterlist), NOT nents.
+		 * dma_buf_map_attachment() -> cam_mem_buf_map() runs
+		 * dma_map_sgtable() which COALESCES the list and overwrites
+		 * table->nents with the (often 1) DMA-segment count, while
+		 * iommu_map_sg() iterates by sg_phys()/sg->length over the
+		 * physical entries. Passing table->nents made iommu_map_sg map
+		 * only the first physical chunk (seen as 64 KiB of a 1 MiB qtbl/
+		 * shared buffer), so the A5 walked unmapped HFI queue pages and
+		 * watchdogged. orig_nents is intact regardless of DMA coalescing.
+		 */
+		size = iommu_map_sg(domain, iova, table->sgl, table->orig_nents,
 				IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
 
-		if (size < 0) {
-			CAM_ERR(CAM_SMMU, "IOMMU mapping failed");
+		if (size < 0 || size < *len_ptr) {
+			CAM_ERR(CAM_SMMU,
+				"IOMMU mapping failed mapped=%zd requested=%zu",
+				size, *len_ptr);
+			if (size > 0)
+				iommu_unmap(domain, iova, size);
 			rc = cam_smmu_free_iova(iova,
-				size, iommu_cb_set.cb_info[idx].handle);
+				*len_ptr, iommu_cb_set.cb_info[idx].handle);
 			if (rc)
 				CAM_ERR(CAM_SMMU, "IOVA free failed");
 			rc = -ENOMEM;
@@ -1783,7 +1800,14 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 			goto err_unmap_sg;
 		}
 
-		for_each_sg(table->sgl, sg, table->nents, i)
+		/*
+		 * orig_nents, not nents: cam_mem_buf_map() ran dma_map_sgtable()
+		 * which coalesces the list into nents DMA segments; the physical
+		 * scatterlist iommu_map_sg() consumes spans orig_nents. Using
+		 * nents undercounts both buf_len and the mapping (see the SHARED
+		 * path note above).
+		 */
+		for_each_sg(table->sgl, sg, table->orig_nents, i)
 			buf_len += sg->length;
 
 		rc = cam_smmu_alloc_io_iova(idx, buf_len, &io_iova);
@@ -1797,7 +1821,7 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 		 * blocks (ISP writes frames, ICP reads/writes), matching the
 		 * SHARED path and the legacy lazy mapper's full-attachment dir.
 		 */
-		size = iommu_map_sg(domain, io_iova, table->sgl, table->nents,
+		size = iommu_map_sg(domain, io_iova, table->sgl, table->orig_nents,
 				IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
 		if (size < buf_len) {
 			CAM_ERR(CAM_SMMU, "IO IOMMU mapping failed");
@@ -3593,6 +3617,24 @@ static int cam_smmu_probe(struct platform_device *pdev)
 		icp_fw.fw_dev = &pdev->dev;
 		icp_fw.fw_kva = NULL;
 		icp_fw.fw_dma_hdl = 0;
+
+		/*
+		 * Bind the camera_mem carveout (memory-region phandle) as this
+		 * device's coherent DMA pool so dma_alloc_coherent(fw_dev) in
+		 * cam_smmu_alloc_firmware() returns a write-combine, PA-identity
+		 * buffer from that fixed region — the legacy 4.9 "removed-dma-pool"
+		 * semantics the A5 FW download depends on. Legacy relied on the 4.9
+		 * platform core auto-attaching every memory-region; mainline 6.18
+		 * only auto-attaches "restricted-dma-pool", so a "shared-dma-pool"
+		 * per-device coherent region must be initialised explicitly here.
+		 * Without this, dma_alloc_coherent falls back to the default pool
+		 * and the A5 boots from the wrong/uncommitted pages -> watchdog.
+		 */
+		rc = of_reserved_mem_device_init(&pdev->dev);
+		if (rc)
+			CAM_ERR(CAM_SMMU,
+				"FW reserved-mem init failed rc=%d (camera_mem must be shared-dma-pool)",
+				rc);
 		return rc;
 	}
 

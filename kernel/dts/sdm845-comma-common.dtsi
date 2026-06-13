@@ -840,6 +840,49 @@
 };
 
 /* ========================================================================
+ * ICP firmware carveout (camera_mem) — make it a per-device coherent pool.
+ *
+ * cam_smmu_alloc_firmware() does dma_alloc_coherent(fw_dev) then
+ * iommu_map(icp_domain, IOVA 0x0, dma_handle, len) and a5_core memcpy_toio()s
+ * the CAMERA_ICP.elf segments into the returned kva; the A5 then fetches the FW
+ * from IOVA 0x0 through its own SMMU context bank. For that to work the kva the
+ * host writes and the physical pages the A5 reads must be the SAME memory, with
+ * a write-combine (uncached) attribute so memcpy_toio() is immediately visible
+ * to the A5 (no dirty-cache races) and the dma_handle is PA-identity so the
+ * iommu_map() points at the right pages.
+ *
+ * Legacy 4.9 achieved this with `compatible = "removed-dma-pool"` on
+ * pil_camera_mem. Mainline 6.18 has NO removed-dma-pool driver; the equivalent
+ * is `shared-dma-pool` + `no-map`, which kernel/dma/coherent.c handles as a
+ * per-device coherent pool via memremap(..., MEMREMAP_WC) with PA-identity
+ * handles — exactly the legacy semantics. Upstream sdm845.dtsi declares
+ * camera_mem as bare `no-map` (removed from the linear map, NOT a coherent
+ * pool), so without this override dma_alloc_coherent(fw_dev) falls back to the
+ * default allocator and the A5 boots stale/wrong FW -> watchdog. Add the
+ * shared-dma-pool compatible so fw_dev binds this region as its coherent pool.
+ */
+&camera_mem {
+	compatible = "shared-dma-pool";
+	/* no-map already set upstream; required by rmem_dma_setup */
+	/*
+	 * Resize 5 MiB -> 4 MiB (power of two). The per-device coherent pool
+	 * allocator (kernel/dma/coherent.c __dma_alloc_from_coherent) rounds the
+	 * request up to 2^get_order(size) PAGES via bitmap_find_free_region(), so a
+	 * 5 MiB (1280-page) request needs order-11 = 2048 pages = 8 MiB and FAILS
+	 * against a 5 MiB pool ("FW memory alloc failed"). The legacy 4.9
+	 * removed-dma-pool did contiguous (non-power-of-two) allocation, so 5 MiB
+	 * worked there. 4 MiB is exactly order-10 (1024 pages) so the whole pool is
+	 * one aligned power-of-two block: dma_alloc_coherent() succeeds and returns
+	 * the pool base 0x8bf00000 (PA-identity). 4 MiB comfortably exceeds the
+	 * ~1.1 MiB CAMERA_ICP.elf. The firmware IOVA region (msm_cam_smmu_icp,
+	 * iova-mem-region-firmware) is shrunk to 0x400000 to match this length so
+	 * the iommu_map(IOVA 0x0, dma_handle, len) covers exactly the backed pages.
+	 * Base stays 0x8bf00000; new end 0x8c300000 still clears ipa_fw@0x8c400000.
+	 */
+	reg = <0 0x8bf00000 0 0x400000>;
+};
+
+/* ========================================================================
  * Spectra camera HW blocks (ported from legacy sdm845-camera.dtsi).
  *
  * Transforms applied vs legacy 4.9 DTS:
@@ -1172,7 +1215,14 @@
 				iova-mem-region-firmware {
 					iova-region-name = "firmware";
 					iova-region-start = <0x0>;
-					iova-region-len = <0x500000>;
+					/*
+					 * 4 MiB to match the resized camera_mem coherent
+					 * pool (see &camera_mem override above). Legacy was
+					 * 5 MiB but the mainline per-device coherent
+					 * allocator only serves power-of-two page counts;
+					 * 4 MiB > the 1.1 MiB CAMERA_ICP.elf.
+					 */
+					iova-region-len = <0x400000>;
 					iova-region-id = <0x0>;
 					status = "ok";
 				};
@@ -1732,6 +1782,14 @@
 		reg-cam-base = <0x87000>;
 		regulator-names = "ipe0-vdd";
 		ipe0-vdd-supply = <&ipe_0_gdsc>;
+		/*
+		 * vamOS: attach the real IPE_0 GDSC genpd so the camcc IPE_0
+		 * power domain is actually on before ipe_0_*_clk enable. The
+		 * fixed-regulator stand-in above only satisfies regulator_get();
+		 * without this genpd attach the GDSC stays off and clk enable
+		 * returns -EBUSY (single-domain auto-attach via dev_pm_domain_attach).
+		 */
+		power-domains = <&clock_camcc IPE_0_GDSC>;
 		clock-names = "ipe_0_ahb_clk",
 			"ipe_0_areg_clk",
 			"ipe_0_axi_clk",
@@ -1762,6 +1820,8 @@
 		reg-cam-base = <0x91000>;
 		regulator-names = "ipe1-vdd";
 		ipe1-vdd-supply = <&ipe_1_gdsc>;
+		/* vamOS: attach real IPE_1 GDSC genpd (see ipe0 note). */
+		power-domains = <&clock_camcc IPE_1_GDSC>;
 		clock-names = "ipe_1_ahb_clk",
 			"ipe_1_areg_clk",
 			"ipe_1_axi_clk",
@@ -1792,6 +1852,8 @@
 		reg-cam-base = <0x6f000>;
 		regulator-names = "bps-vdd";
 		bps-vdd-supply = <&bps_gdsc>;
+		/* vamOS: attach real BPS GDSC genpd (see ipe0 note). */
+		power-domains = <&clock_camcc BPS_GDSC>;
 		clock-names = "bps_ahb_clk",
 			"bps_areg_clk",
 			"bps_axi_clk",
