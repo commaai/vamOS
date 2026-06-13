@@ -1022,15 +1022,44 @@ returns rc=0 anyway. Net: mclk pin stays GPIO, no 24 MHz clock output, sensor un
 → NACK. (My CCI-pinctrl test muxed it first, which then made the gpio_request fail
 -EBUSY — same conflict, opposite order.)
 
-**THE FIX:** mclk must be driven by the `cam_mclk` pinmux function (clock output),
-NOT gpio_requested. Exclude the mclk entry from the sensor gpio-request table (it's a
-placeholder in `gpios`; legacy did not hold it as a GPIO), OR ensure the sensor
-pinctrl `cam_default` (mclk active) is selected and the mclk pin is skipped by
-`cam_sensor_util_request_gpio_table`. Likely the cleanest: in the gpio-req-table
-build (`cam_sensor_util` / `cam_soc_util` parse of `gpio-req-tbl-*`), skip the entry
-whose label is the MCLK pin / whose pin is the mclk function. Then pinctrl select can
-mux gpio13→cam_mclk and the 24 MHz reaches the sensor. The CCI-node-pinctrl hack is
-REVERTED. This is the last gate before sensor chip-id 0x5304 reads.
+**THE FIX (mclk) — DONE, NACK ELIMINATED.** Three changes landed the mclk:
+1. `cam_sensor_util_request_gpio_table` skips the mclk entry (label `CAMIF_MCLK*`):
+   mclk is a clock output muxed by pinctrl, not a GPIO. gpio_request on it claimed
+   the pad and blocked the cam_mclk mux.
+2. Select the sensor pinctrl BEFORE requesting the gpio table (reorder).
+3. **Mux mclk0-3 → cam_mclk on the CCI node's pinctrl-0** (`&cam_sensor_mclk{0..3}_active`).
+   The cam-sensor CHILD devices' `pinctrl_select_state` is a genuine no-op for the
+   `cam_mclk` function on this kernel — pin13 stays UNCLAIMED even with nothing
+   blocking it and even though select returns rc=0 (the gpio-function `rear_active`
+   state DID apply on the same select, so it's specific to the cam_mclk function /
+   child-device pinctrl). The CCI parent device's pinctrl reliably applies, so mux
+   mclk there. **Verified: `read_words=0` NACK GONE, pin13 = `function cam_mclk`.**
+
+Also fixed along the way (both real bugs):
+- **Shared VANA gpio:** `shared-gpios = <8>` never matched because 6.18
+  `of_get_named_gpio` returns the GLOBAL number (TLMM base 552 + 8 = 560). Set
+  `shared-gpios = <560>` so cam_res_mgr refcounts the pin shared by cam-sensor@0+@1
+  instead of failing the 2nd VANA request -EBUSY. (Platform-specific; TLMM base 552.)
+- **Sensor pinctrl reset double-claim:** the per-sensor pinctrl-0 paired mclk with a
+  `*_active` state that claimed the RESET pin as `function=gpio`; that pinmux claim
+  collided with the reset gpio_request (-EBUSY). Reduced every sensor pinctrl-0 to
+  mclk-ONLY (reset/vana are gpio_request-driven).
+
+**REMAINING (last gate): reset gpios held at boot → power-up -EBUSY.** On a CLEAN
+boot, before camerad runs, the sensor RESET pins are already held:
+`pin 7/9/12: GPIO 3400000.pinctrl:559/561/564`. So camerad's power-up
+`request_gpio_table(1)` fails `gpio 561:CAM_RESET0 request fails` (-EBUSY) → `power
+up failed` → no chip-id read. The holder label is the gpio's own number (`:561`),
+the default gpiolib label for an unnamed `gpio_request` — consumer not yet
+identified (cam_sensor probe parses the gpio table but does NOT request it;
+`cam_sensor_parse_dt` → `get_dt_properties` + `init_gpio_pin_tbl` only build the
+table). Next: find who claims tlmm 7/9/12 at boot (a probe-time soc-resource
+request? an of_platform/gpiod auto-claim of the `gpios` property? a leftover
+suspend-state pinmux?), and free it / stop holding it so camerad's power-up can
+request the reset. This is the only thing between here and sensor chip-id 0x5304.
+
+Instrumentation prints (vamos-dbg) still in tree (cam_sensor_util.c, cam_cci_core.c)
+— remove before the final squash.
 
 State: **camerad initialises the entire Spectra stack with ZERO kernel oopses and
 reaches real sensor bringup.** The remaining gate to frames is sensor power-up /

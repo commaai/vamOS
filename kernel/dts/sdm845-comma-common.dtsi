@@ -1145,7 +1145,19 @@
 		clock-cntl-level = "lowsvs";
 		clock-rates = <0 0 0 0 0 37500000>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cci0_active &cci1_active>;
+		/*
+		 * Mux mclk0-3 -> cam_mclk here on the CCI node. The cam-sensor
+		 * child devices' pinctrl_select_state is a no-op for the
+		 * cam_mclk function on this kernel (gpio13 stays UNCLAIMED even
+		 * with nothing blocking it), but the CCI device's pinctrl
+		 * reliably applies (i2c works). The sensor gpio-request table
+		 * skips the mclk pins (label CAMIF_MCLK*), and the sensor
+		 * pinctrl now carries ONLY mclk (reset/vana via gpio_request),
+		 * so nothing fights this mux.
+		 */
+		pinctrl-0 = <&cci0_active &cci1_active
+			&cam_sensor_mclk0_active &cam_sensor_mclk1_active
+			&cam_sensor_mclk2_active &cam_sensor_mclk3_active>;
 		pinctrl-1 = <&cci0_suspend &cci1_suspend>;
 		gpios = <&tlmm 17 0>,
 			<&tlmm 18 0>,
@@ -2067,7 +2079,16 @@
 	qcom,cam-res-mgr {
 		compatible = "qcom,cam-res-mgr";
 		status = "ok";
-		shared-gpios = <8>;
+		/*
+		 * Shared VANA pin (TLMM gpio8), used by cam-sensor@0 AND @1.
+		 * cam_res_mgr matches requested gpios against this list to
+		 * refcount a shared pin instead of failing the 2nd request
+		 * -EBUSY. On 6.18 of_get_named_gpio() returns the GLOBAL gpio
+		 * number (TLMM base 552 + 8 = 560), so the match list must use
+		 * the global number too — the legacy raw "<8>" never matched and
+		 * the 2nd sensor's VANA request failed -EBUSY, aborting power-up.
+		 */
+		shared-gpios = <560>;
 		pinctrl-names = "cam_res_mgr_default", "cam_res_mgr_suspend";
 		pinctrl-0 = <&cam_res_mgr_active>;
 		pinctrl-1 = <&cam_res_mgr_suspend>;
@@ -2092,10 +2113,15 @@
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk0_active
-				&cam_sensor_rear_active>;
-		pinctrl-1 = <&cam_sensor_mclk0_suspend
-				&cam_sensor_rear_suspend>;
+		/*
+		 * Only mclk is pinmuxed (cam_mclk function). The reset/vana pins
+		 * are driven via gpio_request + gpio_set_value by the sensor
+		 * power-sequencer, so they must NOT also be claimed here as a
+		 * "gpio" pinmux function — that double-claim made the reset
+		 * gpio_request fail -EBUSY. (Dropped &cam_sensor_rear_active.)
+		 */
+		pinctrl-0 = <&cam_sensor_mclk0_active>;
+		pinctrl-1 = <&cam_sensor_mclk0_suspend>;
 		gpios = <&tlmm 13 0>,
 			<&tlmm 9 0>,
 			<&tlmm 8 0>;
@@ -2170,10 +2196,8 @@
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk2_active
-				 &cam_sensor_front_active>;
-		pinctrl-1 = <&cam_sensor_mclk2_suspend
-				 &cam_sensor_front_suspend>;
+		pinctrl-0 = <&cam_sensor_mclk2_active>;
+		pinctrl-1 = <&cam_sensor_mclk2_suspend>;
 		gpios = <&tlmm 15 0>,
 			<&tlmm 12 0>,
 			<&tlmm 8 0>;
@@ -2210,10 +2234,8 @@
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk3_active
-				 &cam_sensor_iris_active>;
-		pinctrl-1 = <&cam_sensor_mclk3_suspend
-				 &cam_sensor_iris_suspend>;
+		pinctrl-0 = <&cam_sensor_mclk3_active>;
+		pinctrl-1 = <&cam_sensor_mclk3_suspend>;
 		gpios = <&tlmm 16 0>,
 			<&tlmm 9 0>;
 		gpio-reset = <1>;
