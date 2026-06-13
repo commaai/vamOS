@@ -859,9 +859,42 @@ per-sensor bringup and each sensor fails:
 power-up / probe control; `-ENODEV` points at the CSIPHY/CCI/sensor-power path
 (reset/standby GPIO, mclk, LDO rails, or the chip-id read over CCI not landing).
 This is Phase 3.3's pending item (sensor chip-id 0x5304 over CCI). Device survives
-cleanly — no kernel oops anywhere in camerad init now. Next: capture kernel-side
-dmesg for the op_code-266 path (which subdev returns -ENODEV), check sensor power
-sequence + CCI i2c on device.
+cleanly — no kernel oops anywhere in camerad init now.
+
+**Diagnosis so far (op_code 266 / -ENODEV):** the kernel-side failure is a CCI i2c
+read returning no data:
+```
+CAM-CCI: cam_cci_read: read_words = 0, exp words = 1
+CAM-CCI: cam_cci_read_bytes: failed to read rc:-22   (-EINVAL)
+CAM-SENSOR: cam_cci_i2c_read: rc = -22
+CAM-SENSOR: cam_sensor_match_id: chip id 0 does not match 5304   (alt sensor: 5803)
+```
+All 4 sensors on BOTH cci masters fail identically (chip id reads 0) — a
+**common-mode** failure, not per-sensor. Key facts established on-device (sampled
+clk_summary / sysfs-regulator DURING an active probe):
+- **CCI controller IS clocked** — `cam_cc_cci_clk` enable_cnt reaches 1 during the
+  read (rate 37.5 MHz). Rules out the CCI-clock hypothesis.
+- **The probing sensor's mclk IS enabled** — summed `cam_cc_mclk[0-3]` enable_cnt
+  reaches exactly 1 at a time (one mclk per sensor, 24 MHz). Rules out no-mclk.
+- **`bob` (cam_vana 0-2) + `lvs1` (cam_vio, all) are enabled.**
+- The CCI transaction **completes** (no `wait_for_completion_timeout` / no CCI
+  TIMEOUT logged) but the read FIFO buf-level is 0 → the slave is **NOT ACKing**.
+A clocked controller + on mclk + vana/vio on, yet a NACK, points at the remaining
+sensor-power/reset items NOT yet verified:
+  1. **cam_vdig** (`camera_rear_ldo`/`camera_ldo`, 1.05 V) actually enabling during
+     probe — at-rest they read `disabled` (expected), but a live during-probe
+     sample was inconclusive (the on-device sysfs-walk-in-a-loop over serial was
+     too slow / garbled to confirm; do it with a lighter probe or a driver log).
+  2. **Sensor reset GPIO** being deasserted (a held-in-reset sensor is clocked but
+     won't ACK) and **mclk pin actually muxed** (CCF clock on != pin driving — verify
+     the `cam_sensor_mclk*_active` pinctrl state is selected).
+Next step (offline-reviewable): read the driver power-up sequence
+(`cam_sensor_util.c` `cam_sensor_core_power_up`) + the DTS sensor power-setting /
+gpio tables (`qcom,cam-sensor@0..3` in `sdm845-comma-common.dtsi`) to verify
+cam_vdig regulator mapping + reset-gpio wiring + mclk pinctrl, then targeted
+on-device confirmation. (On-device sampling note: prefer the mici-skill `bash
+--timeout N` inline form with a SHORT script; long sysfs loops over serial garble
+the frame.)
 
 State: **camerad initialises the entire Spectra stack with ZERO kernel oopses and
 reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
