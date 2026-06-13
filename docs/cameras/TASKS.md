@@ -1066,6 +1066,28 @@ reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
 chip-id read.
 
 ## Decisions / notes log
+- 2026-06-13 — **Session 5 END state: sensor mclk pinmux now APPLIES, but CCI read
+  still NACKs — a NEW factor.** The mclk no-mux root cause (cam-sensor devices get
+  zero DT pinctrl maps) is SOLVED: `cam_sensor_register_mclk_pinmux()` (called from
+  `cam_sensor_driver_platform_probe` BEFORE any `devm_pinctrl_get`) registers the
+  `mclk -> cam_mclk` `PIN_MAP_TYPE_MUX_GROUP` map per sensor. Maps now appear in
+  `pinctrl-maps` (cam-sensor@0..3 / cam_mclk) AND the mux applies — dmesg proves it:
+  `sdm845-pinctrl: not freeing pin 13 (GPIO_13) ... group gpio13 - it is already
+  used for some other setting` (pin13 IS activated as cam_mclk). YET chip-id still
+  reads 0 (`read_words=0`). So mclk muxing was necessary but NOT sufficient.
+  **Open leads for next session:** (a) the "already used for some other setting" on
+  pin13 means TWO settings claim it — my registered map + the empty DT cam_default
+  (or the suspend state); the mux may be in conflict / not electrically clean. Make
+  the map the SOLE owner (e.g. also register/clear the suspend state, or drop the
+  sensor DT pinctrl-0 entirely so only the registered map exists). (b) reading
+  `/sys/kernel/debug/pinctrl/3400000.pinctrl/pinmux-pins` now SEGFAULTS — a
+  pinctrl-state inconsistency from the registration; worth fixing as it hints the
+  map/handle wiring is off. (c) if mclk is truly muxed+toggling and the sensor still
+  NACKs, the next suspect is CSIPHY / sensor-side reset timing / the i2c electrical
+  path — verify mclk actually oscillates (scope or a downstream probe) and revisit
+  CSIPHY bring-up. Everything else is RULED OUT: vdig/vana/vio power, reset gpio
+  driven, cci_init rc=0, hw_version 0x10070000, correct sid 0x36/0x10. All
+  vamos-dbg instrumentation still in tree (strip before final squash).
 - 2026-06-12 — **Phase 3.1: camera DTS ported; mici .dtb builds clean.** Full
   Spectra camera node block + 4 sensors + 20 pinctrl states + 6 gdsc + 4 ldo
   regulator stand-ins in `sdm845-comma-common.dtsi`; board mclk drive-strength in
