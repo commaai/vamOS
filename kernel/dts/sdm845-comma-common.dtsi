@@ -8,6 +8,26 @@
 / {
 	aliases {
 		serial0 = &uart9;
+
+		/*
+		 * openpilot opens fixed i2c bus numbers: IMU on bus 1
+		 * (sensord.py I2C_BUS_IMU=1), ina231 power monitor on bus 0,
+		 * touch on bus 2. Linux derives the adapter number from these
+		 * aliases (of_alias_get_id). Upstream sdm845.dtsi ships identity
+		 * aliases (i2cN=&i2cN), so without this override the IMU node
+		 * (i2c@890000 = i2c4) would be bus 4. Remap the three buses we
+		 * use to the legacy numbers and park the displaced identity
+		 * aliases on unused nodes so no two aliases target one node.
+		 *
+		 * Matches agnos legacy DTS: se10=/dev/i2c-0 (power),
+		 * se4=IMU bus 1, se5=/dev/i2c-2 (touch).
+		 */
+		i2c0 = &i2c10;	/* i2c@a88000  legacy /dev/i2c-0 (no devices on mici) */
+		i2c1 = &i2c4;	/* i2c@890000  IMU            */
+		i2c2 = &i2c5;	/* i2c@894000  touch          */
+		i2c4 = &i2c0;
+		i2c5 = &i2c1;
+		i2c10 = &i2c2;
 	};
 
 	chosen {
@@ -375,6 +395,19 @@
 };
 
 &i2c5 {
+	status = "okay";
+	clock-frequency = <100000>;
+};
+
+/*
+ * Legacy /dev/i2c-0 (SE10, a88000) -> aliased to bus 0 above. On the comma
+ * four this bus carries no devices openpilot uses: there is NO ina231 (legacy
+ * comma_mici.dts /delete-node's it as "not populated on mici" — confirmed on
+ * device: probe of 0x40 returns -ENXIO, bus scan empty). openpilot reads power
+ * from the PMIC bms power_supply, not this bus. Kept enabled only to preserve
+ * bus-0 numbering parity with legacy.
+ */
+&i2c10 {
 	status = "okay";
 	clock-frequency = <100000>;
 };
