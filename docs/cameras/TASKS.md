@@ -979,6 +979,59 @@ cam_res_mgr/cam_soc_util gpio request path on 6.18 (the legacy-integer GPIO brid
 from 2.G-residual) not driving reset. The cam_vdig DTS work is committed as a
 checkpoint (gpio9 proven; gpio12 quirk + the fact vdig is insufficient both noted).
 
+### Session 5 — ROOT CAUSE FOUND: sensor MCLK/RESET pinctrl never selected
+
+Read the **TLMM** pinctrl (`/sys/kernel/debug/pinctrl/3400000.pinctrl/pinmux-pins`)
+DURING an active camerad probe:
+```
+pin 7 (GPIO_7):  UNCLAIMED      <- sensor reset1 (<&tlmm 7>)
+pin 9 (GPIO_9):  UNCLAIMED      <- sensor reset0 (<&tlmm 9>)
+pin 13 (GPIO_13): UNCLAIMED     <- mclk0 (<&tlmm 13>)
+```
+All sensor mclk + reset pins are **UNCLAIMED** — the sensor nodes'
+`pinctrl-0 = <&cam_sensor_mclk0_active &cam_sensor_rear_active>` (the "cam_default"
+state) is **NEVER SELECTED**. The pinmux *function* exists and is correct
+(`function 18: cam_mclk, groups = [gpio13 gpio14 gpio15 gpio16]`), it's just not
+applied. Consequences (both NACK the sensor):
+- **mclk pin not muxed** → the CCF `cam_cc_mclk*_clk` is enabled but the TLMM pin
+  never outputs it, so NO clock reaches the sensor (this is why "mclk enabled"
+  earlier was misleading — clock on ≠ pin driving).
+- **reset pin unclaimed** → reset GPIO never driven → sensor held in reset.
+
+**ROOT CAUSE NAILED (session 5, instrumented):** the MCLK pin is **gpio_requested,
+which blocks the pinctrl cam_mclk mux → no clock reaches the sensor.** Proven by
+on-device instrumentation + a decisive DTS test:
+- `cam_sensor_core_power_up`: pinctrl_init **rc=0**, `pinctrl_select_state` **rc=0**,
+  MCLK `clk_enable rc=0 rate=24000000`, RESET gpio driven (handle_gpio valid=1
+  gpio_num=560 val=1) — the driver reports total success.
+- Yet `pinmux-pins` showed mclk pin (gpio13) **UNCLAIMED**, and the CCI read NACKs
+  (read_words=0, no NACK irq bit, correct sid 0x36/0x10 = 7-bit of 0x6c/0x20, CCI
+  hwver=0x10070000 sane). A clocked-but-no-mclk sensor doesn't respond.
+- **Decisive test:** added `&cam_sensor_mclk0-3_active` to the **CCI node's**
+  pinctrl-0 (CCI pinctrl provably applies — i2c works). pin13 then read
+  `function cam_mclk group gpio13` (MUXED!) and the failure MODE CHANGED to
+  `gpio 567:CAMIF_MCLK2 request fails` / `gpio 564:CAM_RESET2` / `gpio 560:CAM_VANA2`
+  `-> request gpio failed -> power up failed:-16 (-EBUSY)`.
+
+**The mechanism:** in `cam_sensor_core_power_up`, `cam_sensor_util_request_gpio_table`
+(line ~1551) runs `cam_res_mgr_gpio_request`→`gpio_request_one` on EVERY entry of the
+sensor `gpios` table — INCLUDING the **mclk pin** (index 0, label CAMIF_MCLK*) —
+BEFORE `pinctrl_select_state` (line ~1556). So mclk13 gets claimed as a plain GPIO
+first; the subsequent pinctrl select can't mux it to `cam_mclk` (pin busy) but
+returns rc=0 anyway. Net: mclk pin stays GPIO, no 24 MHz clock output, sensor unclocked
+→ NACK. (My CCI-pinctrl test muxed it first, which then made the gpio_request fail
+-EBUSY — same conflict, opposite order.)
+
+**THE FIX:** mclk must be driven by the `cam_mclk` pinmux function (clock output),
+NOT gpio_requested. Exclude the mclk entry from the sensor gpio-request table (it's a
+placeholder in `gpios`; legacy did not hold it as a GPIO), OR ensure the sensor
+pinctrl `cam_default` (mclk active) is selected and the mclk pin is skipped by
+`cam_sensor_util_request_gpio_table`. Likely the cleanest: in the gpio-req-table
+build (`cam_sensor_util` / `cam_soc_util` parse of `gpio-req-tbl-*`), skip the entry
+whose label is the MCLK pin / whose pin is the mclk function. Then pinctrl select can
+mux gpio13→cam_mclk and the 24 MHz reaches the sensor. The CCI-node-pinctrl hack is
+REVERTED. This is the last gate before sensor chip-id 0x5304 reads.
+
 State: **camerad initialises the entire Spectra stack with ZERO kernel oopses and
 reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
 chip-id read.

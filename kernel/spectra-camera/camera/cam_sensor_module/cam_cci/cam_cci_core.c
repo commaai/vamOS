@@ -1252,6 +1252,14 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 	if (read_words != exp_words) {
 		CAM_ERR(CAM_CCI, "read_words = %d, exp words = %d",
 			read_words, exp_words);
+		CAM_ERR(CAM_CCI,
+			"vamos-dbg NACK? sid=0x%x m=%d irq0=0x%x irq1=0x%x hwver=0x%x curwc=0x%x",
+			c_ctrl->cci_info->sid, master,
+			cam_io_r_mb(base + CCI_IRQ_STATUS_0_ADDR),
+			cam_io_r_mb(base + CCI_IRQ_STATUS_1_ADDR),
+			cam_io_r_mb(base + CCI_HW_VERSION_ADDR),
+			cam_io_r_mb(base + CCI_I2C_M0_Q0_CUR_WORD_CNT_ADDR
+				+ master * 0x200));
 		memset(read_cfg->data, 0, read_cfg->num_byte);
 		rc = -EINVAL;
 		goto rel_mutex;

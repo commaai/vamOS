@@ -805,6 +805,22 @@ int cam_sensor_util_request_gpio_table(
 
 	if (gpio_en) {
 		for (i = 0; i < size; i++) {
+			/*
+			 * The MCLK pin is driven by the cam_mclk pinmux
+			 * function (clock output), selected via the sensor
+			 * pinctrl cam_default state before this call. Do NOT
+			 * gpio_request() it — that claims the pad as a plain
+			 * GPIO and the cam_mclk mux fails to apply, so no clock
+			 * reaches the sensor and the CCI chip-id read NACKs.
+			 */
+			if (gpio_tbl[i].label &&
+				!strncmp(gpio_tbl[i].label, "CAMIF_MCLK",
+					strlen("CAMIF_MCLK"))) {
+				CAM_DBG(CAM_SENSOR,
+					"skip gpio_request for mclk pin %d:%s (pinmux cam_mclk)",
+					gpio_tbl[i].gpio, gpio_tbl[i].label);
+				continue;
+			}
 			rc = cam_res_mgr_gpio_request(soc_info->dev,
 					gpio_tbl[i].gpio,
 					gpio_tbl[i].flags, gpio_tbl[i].label);
@@ -1390,7 +1406,9 @@ int msm_camera_pinctrl_init(
 
 	sensor_pctrl->pinctrl = devm_pinctrl_get(dev);
 	if (IS_ERR_OR_NULL(sensor_pctrl->pinctrl)) {
-		CAM_DBG(CAM_SENSOR, "Getting pinctrl handle failed");
+		CAM_ERR(CAM_SENSOR, "vamos-dbg devm_pinctrl_get FAILED dev=%s err=%ld",
+			dev ? dev_name(dev) : "NULL",
+			PTR_ERR(sensor_pctrl->pinctrl));
 		return -EINVAL;
 	}
 	sensor_pctrl->gpio_state_active =
@@ -1398,7 +1416,9 @@ int msm_camera_pinctrl_init(
 				CAM_SENSOR_PINCTRL_STATE_DEFAULT);
 	if (IS_ERR_OR_NULL(sensor_pctrl->gpio_state_active)) {
 		CAM_ERR(CAM_SENSOR,
-			"Failed to get the active state pinctrl handle");
+			"vamos-dbg lookup cam_default FAILED dev=%s err=%ld",
+			dev ? dev_name(dev) : "NULL",
+			PTR_ERR(sensor_pctrl->gpio_state_active));
 		return -EINVAL;
 	}
 	sensor_pctrl->gpio_state_suspend
@@ -1445,6 +1465,10 @@ int msm_cam_sensor_handle_reg_gpio(int seq_type,
 
 	gpio_offset = seq_type;
 
+	CAM_ERR(CAM_SENSOR,
+		"vamos-dbg handle_gpio seq_type=%d valid=%d gpio_num=%d val=%d",
+		seq_type, gpio_num_info->valid[gpio_offset],
+		gpio_num_info->gpio_num[gpio_offset], val);
 	if (gpio_num_info->valid[gpio_offset] == 1) {
 		CAM_DBG(CAM_SENSOR, "VALID GPIO offset: %d, seqtype: %d",
 			 gpio_offset, seq_type);
@@ -1534,6 +1558,9 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		cam_res_mgr_shared_clk_config(true);
 
 	ret = msm_camera_pinctrl_init(&(ctrl->pinctrl_info), ctrl->dev);
+	CAM_ERR(CAM_SENSOR, "vamos-dbg pinctrl_init rc=%d dev=%s ctrl_dev=%pK soc_dev=%pK",
+		ret, ctrl->dev ? dev_name(ctrl->dev) : "NULL",
+		ctrl->dev, soc_info->dev);
 	if (ret < 0) {
 		/* Some sensor subdev no pinctrl. */
 		CAM_DBG(CAM_SENSOR, "Initialization of pinctrl failed");
@@ -1548,10 +1575,14 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		return -EINVAL;
 	}
 
-	rc = cam_sensor_util_request_gpio_table(soc_info, 1);
-	if (rc < 0)
-		no_gpio = rc;
-
+	/*
+	 * Select the sensor pinctrl (mclk -> cam_mclk function, etc.) BEFORE
+	 * requesting the GPIO table. The mclk pin is a clock output muxed via
+	 * pinctrl; if request_gpio_table() gpio_request()s it first it claims
+	 * the pin as a plain GPIO and the cam_mclk mux silently fails to apply
+	 * (no 24 MHz to the sensor -> CCI NACK). request_gpio_table() now skips
+	 * the mclk entry (label CAMIF_MCLK*), so the two no longer fight.
+	 */
 	if (ctrl->cam_pinctrl_status) {
 		ret = pinctrl_select_state(
 			ctrl->pinctrl_info.pinctrl,
@@ -1564,6 +1595,10 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	if (ret)
 		CAM_ERR(CAM_SENSOR,
 			"Cannot set shared pin to active state");
+
+	rc = cam_sensor_util_request_gpio_table(soc_info, 1);
+	if (rc < 0)
+		no_gpio = rc;
 
 	CAM_DBG(CAM_SENSOR, "power setting size: %d", ctrl->power_setting_size);
 
@@ -1635,6 +1670,11 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 				rc = cam_soc_util_clk_enable(soc_info->clk[j],
 					soc_info->clk_name[j],
 					soc_info->clk_rate[0][j]);
+				CAM_ERR(CAM_SENSOR,
+					"vamos-dbg MCLK clk_enable[%d] name=%s rate=%ld rc=%d clk=%pK",
+					j, soc_info->clk_name[j],
+					soc_info->clk_rate[0][j], rc,
+					soc_info->clk[j]);
 				if (rc)
 					break;
 			}
