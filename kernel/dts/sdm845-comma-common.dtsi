@@ -1298,14 +1298,20 @@
 		 * gdsc stand-in this is a no-op perf hint, not probe-blocking.
 		 */
 		client-id-based;
+		/*
+		 * vamOS: added "csiphy3" (the driver-camera phy on mici, cell_index 3).
+		 * The legacy list stopped at csiphy2; csiphy3's CPAS client registration
+		 * then fails -EINVAL and aborts its probe (so the 4th cam-csiphy-driver
+		 * subdev never appears). Appended with a matching cam_hf_1 axi-port.
+		 */
 		client-names =
-			"csiphy0", "csiphy1", "csiphy2", "cci0",
+			"csiphy0", "csiphy1", "csiphy2", "csiphy3", "cci0",
 			"csid0", "csid1", "csid2",
 			"ife0", "ife1", "ife2", "ipe0",
 			"ipe1", "cam-cdm-intf0", "cpas-cdm0", "bps0",
 			"icp0", "jpeg-dma0", "jpeg-enc0", "fd0", "lrmecpas";
 		client-axi-port-names =
-			"cam_hf_1", "cam_hf_2", "cam_hf_2", "cam_sf_1",
+			"cam_hf_1", "cam_hf_2", "cam_hf_2", "cam_hf_1", "cam_sf_1",
 			"cam_hf_1", "cam_hf_2", "cam_hf_2",
 			"cam_hf_1", "cam_hf_2", "cam_hf_2", "cam_sf_1",
 			"cam_sf_1", "cam_sf_1", "cam_sf_1", "cam_sf_1",
@@ -1406,6 +1412,8 @@
 		regulator-names = "camss", "ife0";
 		camss-supply = <&titan_top_gdsc>;
 		ife0-supply = <&ife_0_gdsc>;
+		/* vamOS: attach real IFE_0 GDSC genpd (see vfe0 note). */
+		power-domains = <&clock_camcc IFE_0_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
@@ -1452,6 +1460,15 @@
 		regulator-names = "camss", "ife0";
 		camss-supply = <&titan_top_gdsc>;
 		ife0-supply = <&ife_0_gdsc>;
+		/*
+		 * vamOS: the camss/ife0 "supplies" above are fake always-on fixed
+		 * regulators (the driver calls regulator_enable on them). The REAL
+		 * GDSCs live in &clock_camcc as genpd power-domains; attach IFE_0_GDSC
+		 * (a subdomain of TITAN_TOP_GDSC, which genpd powers up as the parent)
+		 * so the IFE_0 power rail is actually on — otherwise clk_enable(ife_clk)
+		 * returns -EBUSY (power domain off) and VFE soc-enable fails.
+		 */
+		power-domains = <&clock_camcc IFE_0_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
@@ -1494,6 +1511,8 @@
 		regulator-names = "camss", "ife1";
 		camss-supply = <&titan_top_gdsc>;
 		ife1-supply = <&ife_1_gdsc>;
+		/* vamOS: attach real IFE_1 GDSC genpd (see vfe0 note). */
+		power-domains = <&clock_camcc IFE_1_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
@@ -1540,6 +1559,8 @@
 		regulator-names = "camss", "ife1";
 		camss-supply = <&titan_top_gdsc>;
 		ife1-supply = <&ife_1_gdsc>;
+		/* vamOS: attach real IFE_1 GDSC genpd (see vfe0 note). */
+		power-domains = <&clock_camcc IFE_1_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
@@ -1581,6 +1602,8 @@
 		interrupts = <GIC_SPI 468 IRQ_TYPE_EDGE_RISING>;
 		regulator-names = "camss";
 		camss-supply = <&titan_top_gdsc>;
+		/* vamOS: attach real TITAN_TOP GDSC genpd (see vfe0 note). */
+		power-domains = <&clock_camcc TITAN_TOP_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
@@ -1624,6 +1647,8 @@
 		interrupts = <GIC_SPI 469 IRQ_TYPE_EDGE_RISING>;
 		regulator-names = "camss";
 		camss-supply = <&titan_top_gdsc>;
+		/* vamOS: attach real TITAN_TOP GDSC genpd (see vfe0 note). */
+		power-domains = <&clock_camcc TITAN_TOP_GDSC>;
 		clock-names = "camera_ahb",
 			"camera_axi",
 			"soc_ahb_clk",
