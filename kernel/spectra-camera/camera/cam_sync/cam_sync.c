@@ -998,6 +998,14 @@ static int cam_sync_probe(struct platform_device *pdev)
 	sync_dev->vdev->ioctl_ops = &g_cam_sync_ioctl_ops;
 	sync_dev->vdev->minor     = -1;
 	sync_dev->vdev->vfl_type  = VFL_TYPE_VIDEO;
+	/*
+	 * 6.18 port: video_register_device() WARNs and fails (-EINVAL) when
+	 * device_caps is 0 (mandatory since ~5.0). Without this cam_sync_probe
+	 * faults here, the cam_sync video node never appears, and camerad's
+	 * open("/dev/v4l/by-path/platform-cam_sync-video-index0") asserts. Same
+	 * fix as the cam-req-mgr node.
+	 */
+	sync_dev->vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
 	rc = video_register_device(sync_dev->vdev,
 		VFL_TYPE_VIDEO, -1);
 	if (rc < 0)

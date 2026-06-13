@@ -693,6 +693,22 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 {
 	int rc;
 
+	/*
+	 * 6.18 port / openpilot ABI: camerad opens this video node by the exact
+	 * udev by-path "platform-soc:qcom_cam-req-mgr-video-index0" (spectra.cc).
+	 * That string is the platform device's dev_name, which mainline derives as
+	 * "<parent-node>:<node>" = "soc@0:qcom,cam-req-mgr" (mainline names the SoC
+	 * bus node "soc@0"; the legacy AGNOS tree named it "soc"). The DT core has
+	 * already added the device under that name by probe time, so dev_set_name()
+	 * is too late — device_rename() rewrites the live sysfs kobject so udev
+	 * walks up to "soc:qcom,cam-req-mgr" and the by-path matches what the
+	 * (unmodified) openpilot camerad expects. Done before the v4l2/media/video
+	 * child devices are created so they inherit the corrected parent path.
+	 */
+	rc = device_rename(&pdev->dev, "soc:qcom,cam-req-mgr");
+	if (rc)
+		CAM_ERR(CAM_CRM, "cam-req-mgr device_rename failed rc=%d", rc);
+
 	rc = cam_v4l2_device_setup(&pdev->dev);
 	if (rc)
 		return rc;
