@@ -1685,7 +1685,16 @@ int cam_smmu_release_sec_heap(int32_t smmu_hdl)
 	dma_buf_unmap_attachment(secheap_buf->attach,
 		secheap_buf->table, DMA_BIDIRECTIONAL);
 	dma_buf_detach(secheap_buf->buf, secheap_buf->attach);
-	dma_buf_put(secheap_buf->buf);
+	/*
+	 * Do NOT dma_buf_put() here. cam_smmu_reserve_sec_heap() only borrowed
+	 * this dma_buf (attach + map_attachment) without taking a reference via
+	 * dma_buf_get(); the owning reference lives in the mem-mgr slot
+	 * (tbl.bufq[idx].dma_buf) and is released by cam_mem_util_unmap() in the
+	 * same cam_mem_mgr_free_memory_region() teardown. Putting it here dropped
+	 * the slot's ref early, so the subsequent slot release drove the refcount
+	 * negative -> dma_buf_release() BUG() oops on camerad-exit fput. Undo only
+	 * what we did (unmap + detach); leave the put to the slot owner.
+	 */
 	iommu_cb_set.cb_info[idx].is_secheap_allocated = false;
 	mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 

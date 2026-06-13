@@ -82,6 +82,7 @@ struct cam_mem_buffer {
 	struct list_head attachments;
 	struct mutex lock;
 	unsigned long len;
+	unsigned int flags;
 	int vmap_cnt;
 	void *vaddr;
 };
@@ -186,6 +187,7 @@ static void *cam_mem_buf_do_vmap(struct cam_mem_buffer *buffer)
 	struct page **tmp = pages;
 	int i, j;
 	void *vaddr;
+	pgprot_t prot;
 
 	if (!pages)
 		return ERR_PTR(-ENOMEM);
@@ -198,7 +200,25 @@ static void *cam_mem_buf_do_vmap(struct cam_mem_buffer *buffer)
 			*(tmp++) = page++;
 	}
 
-	vaddr = vmap(pages, npages, VM_MAP, PAGE_KERNEL);
+	/*
+	 * Uncached buffers (no CAM_MEM_FLAG_CACHE) must be mapped write-combine,
+	 * NOT cached PAGE_KERNEL. The camera SMMU context banks are non-coherent
+	 * ("non-coherent table walk"), so a HW block reading through them does
+	 * not snoop the CPU cache. The ICP HFI queues (qtbl/cmd_q/msg_q/dbg_q/
+	 * sfr) are allocated uncached and the host CPU writes the queue headers
+	 * through THIS kva; with a cached mapping those writes sit in the
+	 * D-cache and the A5 reads stale queue descriptors -> it never finds the
+	 * queues, never posts ICP_INIT_RESP_SUCCESS, and watchdogs. WC makes the
+	 * writes immediately visible, matching the legacy uncached ION system
+	 * heap. Cached buffers (CAM_MEM_FLAG_CACHE) keep PAGE_KERNEL and rely on
+	 * the explicit cache ops in cam_mem_mgr_cache_op().
+	 */
+	if (buffer->flags & CAM_MEM_FLAG_CACHE)
+		prot = PAGE_KERNEL;
+	else
+		prot = pgprot_writecombine(PAGE_KERNEL);
+
+	vaddr = vmap(pages, npages, VM_MAP, prot);
 	vfree(pages);
 
 	if (!vaddr)
@@ -344,6 +364,7 @@ static struct dma_buf *cam_mem_util_buffer_alloc(size_t len, unsigned int flags)
 	INIT_LIST_HEAD(&buffer->attachments);
 	mutex_init(&buffer->lock);
 	buffer->len = len;
+	buffer->flags = flags;
 
 	INIT_LIST_HEAD(&pages);
 	while (size_remaining > 0) {
