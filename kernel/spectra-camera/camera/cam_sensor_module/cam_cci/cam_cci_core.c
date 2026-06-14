@@ -894,6 +894,7 @@ static int32_t cam_cci_burst_read(struct v4l2_subdev *sd,
 	soc_info = &cci_dev->soc_info;
 	base = soc_info->reg_map[0].mem_base;
 	mutex_lock(&cci_dev->cci_master_info[master].mutex_q[queue]);
+	reinit_completion(&cci_dev->cci_master_info[master].report_q[queue]);
 
 	/*
 	 * Todo: If there is a change in frequency of operation
@@ -1129,6 +1130,7 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 	reg_offset = master * 0x200 + queue * 0x100;
 
 	mutex_lock(&cci_dev->cci_master_info[master].mutex_q[queue]);
+	reinit_completion(&cci_dev->cci_master_info[master].report_q[queue]);
 
 	/*
 	 * Todo: If there is a change in frequency of operation
@@ -1224,8 +1226,16 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 	cam_io_w_mb(val, base + CCI_I2C_M0_Q0_EXEC_WORD_CNT_ADDR
 			+ master * 0x200 + queue * 0x100);
 
+	/*
+	 * This legacy tree reuses reset_complete for single-read RD_DONE.
+	 * Reinitialize it before queue start so a reset/init completion cannot
+	 * satisfy the read wait and leave us sampling an empty FIFO.
+	 */
+	reinit_completion(&cci_dev->cci_master_info[master].reset_complete);
+
 	val = 1 << ((master * 2) + queue);
 	cam_io_w_mb(val, base + CCI_QUEUE_START_ADDR);
+	exp_words = ((read_cfg->num_byte / 4) + 1);
 	CAM_DBG(CAM_CCI,
 		"waiting_for_rd_done [exp_words: %d]", exp_words);
 
@@ -1248,9 +1258,16 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 		rc = 0;
 	}
 
+	if (cci_dev->cci_master_info[master].status) {
+		CAM_ERR(CAM_CCI, "ERROR with Slave 0x%x",
+			(c_ctrl->cci_info->sid << 1));
+		rc = -EINVAL;
+		cci_dev->cci_master_info[master].status = 0;
+		goto rel_mutex;
+	}
+
 	read_words = cam_io_r_mb(base +
 		CCI_I2C_M0_READ_BUF_LEVEL_ADDR + master * 0x100);
-	exp_words = ((read_cfg->num_byte / 4) + 1);
 	if (read_words != exp_words) {
 		CAM_ERR(CAM_CCI, "read_words = %d, exp words = %d",
 			read_words, exp_words);
