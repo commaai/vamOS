@@ -52,8 +52,10 @@ booting on device (blocking subsystems may be stubbed; no camera function yet).
       change. See "Phase 2.C/E + build-links surface" below. Remaining stubs in the
       ledger are all OFF the mici non-secure data path (secure SCM, stage-2 ION,
       QPNP flash, SPI/OIS CMA, AHB icc no-op pending DTS).
-- [ ] **1.5** Boots on device; `dmesg` shows the driver registering (even if HW
-      blocks fail to probe). *(pending on-device flash/boot — build artifact ready)*
+- [x] **1.5** Boots on device; `dmesg` shows the driver registering. ☑
+      2026-06-14 — controlled mainline flash on mici boots `6.18.0-vamos-*`;
+      Spectra userspace opens cam-req-mgr, cam_sync, cam-isp, and cam-icp without
+      kernel oopses. Current failure is later, at sensor chip-id over CCI.
 
 ## Phase 2 — Blocking subsystem rewrites  ☐
 
@@ -153,6 +155,9 @@ Exit: every `cam-*` block probes; node/subdev names match legacy capture.
       bringup but each sensor fails `VIDIOC_CAM_CONTROL op_code 266 -> -ENODEV`
       (`sensor N FAILED bringup`) — sensor power-up / chip-id read over CCI is the
       live blocker. Pending: 4th csiphy; sensor power sequence + CCI i2c chip-id.
+      2026-06-14 controlled checkpoint: with intrusive WIP stripped, all three
+      openpilot cameras still fail `CAM_SENSOR_PROBE_CMD` at chip-id and
+      `snapshot_standalone` captures 0/0 cameras.
 - [◐] **3.4** `cam-isp` (CSID/IFE) + `cam-req-mgr` + `cam_sync` register; by-path
       video nodes appear with correct names. ◐ 2026-06-13 — cam-req-mgr video node
       `platform-soc@0:qcom_cam-req-mgr-video-index0` present; cam-isp still blocked
@@ -1066,6 +1071,36 @@ reaches real sensor bringup.** The remaining gate to frames is sensor power-up /
 chip-id read.
 
 ## Decisions / notes log
+- 2026-06-14 — **Controlled checkpoint after adversarial review: not equivalent
+  to legacy; still blocked at sensor chip-id.** Treat older "root cause" entries
+  below as historical hypotheses unless they are reproduced in this checkpoint.
+  Stripped the intrusive WIP bitbang/power/pinmux instrumentation and kept only
+  passive CCI failure logging. Committed fixes/checkpoints:
+  `6f368e5` (`iommu_map_sg()` errors handled as signed) and `eb5dd8b` (passive
+  CCI read-failure state log). Built and flashed the controlled mainline kernel
+  to mici via MDMA/QDL; device boots `6.18.0-vamos-*` and the openpilot
+  Spectra path opens cam-req-mgr, cam_sync, cam-isp, and cam-icp.
+
+  Snapshot gate result on the controlled mainline kernel:
+  `snapshot_standalone --out /tmp/snap-mainline` returns 1 and captures `0/0`
+  cameras. cam0 and cam2 probe slave `0x6c` (`sid=0x36`); cam1 probes slave
+  `0x20` (`sid=0x10`). All fail both expected IDs (`0x5304`, fallback `0x5803`)
+  at `CAM_SENSOR_PROBE_CMD`.
+
+  Kernel facts from the diagnostic run: `pinctrl_select_state(active) ret=0`,
+  `shared_pinctrl_select(true) ret=0`, mclk GPIO requests are skipped as intended,
+  MCLK enables at 24 MHz, and `cci enable_platform_resource rc=0`. Each CCI read
+  then reports `read_words=0, exp words=1` with `q=1`, `hwver=0x10070000`,
+  `execwc=0x5`, `rdbuf=0x0`, `scl=0x260038`, `misc=0x63`, `freq=1`, and no IRQ
+  bits. This proves the software reaches a programmed CCI read path, but does
+  **not** prove the sensor is seeing valid SCL/SDA/MCLK or has released reset.
+
+  Highest-value next action: physical/MDMA-assisted on-wire confirmation during
+  the exact probe window. Scope or logic-analyze CCI SDA/SCL plus the relevant
+  MCLK and reset line for cam0/cam1/cam2; verify ACKs, pullups, line ownership,
+  master mapping, and that MCLK is actually toggling at the sensor pad. Do not
+  reopen VDIG, stale completions, generic CCI clocking, or SMMU as primary leads
+  without new evidence; the reproducible blocker is still the chip-id read path.
 - 2026-06-13 — **Session 5 END state: sensor mclk pinmux now APPLIES, but CCI read
   still NACKs — a NEW factor.** The mclk no-mux root cause (cam-sensor devices get
   zero DT pinctrl maps) is SOLVED: `cam_sensor_register_mclk_pinmux()` (called from
