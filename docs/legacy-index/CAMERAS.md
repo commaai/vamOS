@@ -11,6 +11,11 @@ is the hard part.
   2 (driver). `camerad` synced all three with incrementing frame_ids + hw
   timestamps. `snapshot.py` produced real JPEGs (`camera-proof/legacy-{back,front}.jpg`,
   1344x760, full ISP YUV→RGB).
+- Additional controlled bundle captured 2026-06-14 with the same legacy 4.9.103
+  kernel: `snapshot_standalone` captured all three cameras as 1344x760 RGB PNG
+  plus NV12 (`snapshot.rc=0`, `=== captured 3/3 cameras ===`). Kernel dmesg shows
+  chip-id success for slots 0/1/2 at slave addresses `0x6c/0x20/0x6c`, all reading
+  `sensor_id:0x5304`.
 - Sensors: openpilot ships **two** sensor drivers for mici —
   `system/camerad/sensors/{os04c10,ox03c10}.cc`. The DT does NOT name the part;
   camerad probes the chip-id over CCI I2C at runtime. CCI has 4 sensor slots

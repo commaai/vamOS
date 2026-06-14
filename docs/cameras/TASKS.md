@@ -158,6 +158,23 @@ Exit: every `cam-*` block probes; node/subdev names match legacy capture.
       2026-06-14 controlled checkpoint: with intrusive WIP stripped, all three
       openpilot cameras still fail `CAM_SENSOR_PROBE_CMD` at chip-id and
       `snapshot_standalone` captures 0/0 cameras.
+      2026-06-14 legacy proof bundle captured from 4.9: `snapshot_standalone`
+      returns 0 and captures all 3 cameras (1344x760 RGB PNG + NV12); dmesg shows
+      `Probe success` for slots 0/1/2 with slave addresses `0x6c/0x20/0x6c` and
+      `sensor_id:0x5304`. Raw local bundle is under
+      `docs/legacy-index/camera-proof/20260614-legacy-bundle/` (large images left
+      untracked; commit only the README unless intentionally archiving artifacts).
+      Online audit: public `qualcomm-linux/camera-driver` (`56b463c`, v1.0.3 era)
+      and Motorola Android 15 legacy camera kernel (`5d274883`) both reinforce
+      keeping this as a downstream Spectra ABI port, not a qcom-camss rewrite.
+      Borrowed concrete delta: reinitialize CCI read completions before each queue
+      start and check master status before consuming the read FIFO. Mainline
+      post-fix still captures 0/0, but the failure changed from stale/empty FIFO
+      (`read_words=0`) to true CCI slave error on `0x6c/0x20`, so the remaining
+      blocker is real sensor NACK/power/reset/CCI wiring, not just completion reuse.
+      Upgrade note: every new kernel jump past 6.18 should first re-run this exact
+      chip-id gate and diff against newer public camera-driver CCI/sensor/compat
+      patterns; do not assume current 6.18 shims are future-stable.
 - [◐] **3.4** `cam-isp` (CSID/IFE) + `cam-req-mgr` + `cam_sync` register; by-path
       video nodes appear with correct names. ◐ 2026-06-13 — cam-req-mgr video node
       `platform-soc@0:qcom_cam-req-mgr-video-index0` present; cam-isp still blocked
