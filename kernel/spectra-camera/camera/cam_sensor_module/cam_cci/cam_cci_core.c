@@ -1106,6 +1106,7 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 	int32_t read_words = 0, exp_words = 0;
 	int32_t index = 0, first_byte = 0;
 	uint32_t i = 0;
+	uint32_t reg_offset = 0;
 	enum cci_i2c_master_t master;
 	enum cci_i2c_queue_t queue = QUEUE_1;
 	struct cci_device *cci_dev = NULL;
@@ -1125,6 +1126,7 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 
 	soc_info = &cci_dev->soc_info;
 	base = soc_info->reg_map[0].mem_base;
+	reg_offset = master * 0x200 + queue * 0x100;
 
 	mutex_lock(&cci_dev->cci_master_info[master].mutex_q[queue]);
 
@@ -1252,14 +1254,23 @@ static int32_t cam_cci_read(struct v4l2_subdev *sd,
 	if (read_words != exp_words) {
 		CAM_ERR(CAM_CCI, "read_words = %d, exp words = %d",
 			read_words, exp_words);
-		CAM_ERR(CAM_CCI,
-			"vamos-dbg NACK? sid=0x%x m=%d irq0=0x%x irq1=0x%x hwver=0x%x curwc=0x%x",
-			c_ctrl->cci_info->sid, master,
-			cam_io_r_mb(base + CCI_IRQ_STATUS_0_ADDR),
-			cam_io_r_mb(base + CCI_IRQ_STATUS_1_ADDR),
-			cam_io_r_mb(base + CCI_HW_VERSION_ADDR),
-			cam_io_r_mb(base + CCI_I2C_M0_Q0_CUR_WORD_CNT_ADDR
-				+ master * 0x200));
+			CAM_ERR(CAM_CCI,
+				"vamos-dbg NACK? sid=0x%x m=%d q=%d irq0=0x%x irq1=0x%x hwver=0x%x curwc=0x%x execwc=0x%x rdbuf=0x%x scl=0x%x misc=0x%x freq=%d",
+				c_ctrl->cci_info->sid, master, queue,
+				cam_io_r_mb(base + CCI_IRQ_STATUS_0_ADDR),
+				cam_io_r_mb(base + CCI_IRQ_STATUS_1_ADDR),
+				cam_io_r_mb(base + CCI_HW_VERSION_ADDR),
+				cam_io_r_mb(base + CCI_I2C_M0_Q0_CUR_WORD_CNT_ADDR
+					+ reg_offset),
+				cam_io_r_mb(base + CCI_I2C_M0_Q0_EXEC_WORD_CNT_ADDR
+					+ reg_offset),
+				cam_io_r_mb(base + CCI_I2C_M0_READ_BUF_LEVEL_ADDR
+					+ master * 0x100),
+				cam_io_r_mb(base + CCI_I2C_M0_SCL_CTL_ADDR
+					+ master * 0x100),
+				cam_io_r_mb(base + CCI_I2C_M0_MISC_CTL_ADDR
+					+ master * 0x100),
+				c_ctrl->cci_info->i2c_freq_mode);
 		memset(read_cfg->data, 0, read_cfg->num_byte);
 		rc = -EINVAL;
 		goto rel_mutex;
