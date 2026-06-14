@@ -1552,7 +1552,7 @@ int cam_smmu_reserve_sec_heap(int32_t smmu_hdl,
 	size_t *request_len)
 {
 	struct secheap_buf_info *secheap_buf = NULL;
-	size_t size = 0;
+	ssize_t mapped_size = 0;
 	uint32_t sec_heap_iova = 0;
 	size_t sec_heap_iova_len = 0;
 	int idx;
@@ -1608,14 +1608,19 @@ int cam_smmu_reserve_sec_heap(int32_t smmu_hdl,
 	sec_heap_iova = iommu_cb_set.cb_info[idx].secheap_info.iova_start;
 	sec_heap_iova_len = iommu_cb_set.cb_info[idx].secheap_info.iova_len;
 	/* orig_nents: see the SHARED-path note in cam_smmu_map_buffer_and_add_to_list() */
-	size = iommu_map_sg(iommu_cb_set.cb_info[idx].domain,
+	mapped_size = iommu_map_sg(iommu_cb_set.cb_info[idx].domain,
 		sec_heap_iova,
 		secheap_buf->table->sgl,
 		secheap_buf->table->orig_nents,
 		IOMMU_READ | IOMMU_WRITE,
 		GFP_KERNEL);
-	if (size != sec_heap_iova_len) {
-		CAM_ERR(CAM_SMMU, "IOMMU mapping failed");
+	if (mapped_size < 0 || mapped_size != sec_heap_iova_len) {
+		CAM_ERR(CAM_SMMU,
+			"IOMMU mapping failed mapped=%zd requested=%zu",
+			mapped_size, sec_heap_iova_len);
+		if (mapped_size > 0)
+			iommu_unmap(iommu_cb_set.cb_info[idx].domain,
+				sec_heap_iova, mapped_size);
 		goto err_unmap_sg;
 	}
 
@@ -1710,7 +1715,7 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 	struct dma_buf_attachment *attach = NULL;
 	struct sg_table *table = NULL;
 	struct iommu_domain *domain;
-	size_t size = 0;
+	ssize_t mapped_size = 0;
 	uint32_t iova = 0;
 	int rc = 0;
 
@@ -1769,15 +1774,15 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 		 * shared buffer), so the A5 walked unmapped HFI queue pages and
 		 * watchdogged. orig_nents is intact regardless of DMA coalescing.
 		 */
-		size = iommu_map_sg(domain, iova, table->sgl, table->orig_nents,
+		mapped_size = iommu_map_sg(domain, iova, table->sgl, table->orig_nents,
 				IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
 
-		if (size < 0 || size < *len_ptr) {
+		if (mapped_size < 0 || mapped_size < *len_ptr) {
 			CAM_ERR(CAM_SMMU,
 				"IOMMU mapping failed mapped=%zd requested=%zu",
-				size, *len_ptr);
-			if (size > 0)
-				iommu_unmap(domain, iova, size);
+				mapped_size, *len_ptr);
+			if (mapped_size > 0)
+				iommu_unmap(domain, iova, mapped_size);
 			rc = cam_smmu_free_iova(iova,
 				*len_ptr, iommu_cb_set.cb_info[idx].handle);
 			if (rc)
@@ -1785,9 +1790,10 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 			rc = -ENOMEM;
 			goto err_unmap_sg;
 		} else {
-			CAM_DBG(CAM_SMMU, "iommu_map_sg returned %zu", size);
+			CAM_DBG(CAM_SMMU, "iommu_map_sg returned %zd",
+				mapped_size);
 			*paddr_ptr = iova;
-			*len_ptr = size;
+			*len_ptr = mapped_size;
 		}
 	} else if (region_id == CAM_SMMU_REGION_IO) {
 		/*
@@ -1830,12 +1836,14 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 		 * blocks (ISP writes frames, ICP reads/writes), matching the
 		 * SHARED path and the legacy lazy mapper's full-attachment dir.
 		 */
-		size = iommu_map_sg(domain, io_iova, table->sgl, table->orig_nents,
+		mapped_size = iommu_map_sg(domain, io_iova, table->sgl, table->orig_nents,
 				IOMMU_READ | IOMMU_WRITE, GFP_KERNEL);
-		if (size < buf_len) {
-			CAM_ERR(CAM_SMMU, "IO IOMMU mapping failed");
-			if (size > 0)
-				iommu_unmap(domain, io_iova, size);
+		if (mapped_size < 0 || mapped_size < buf_len) {
+			CAM_ERR(CAM_SMMU,
+				"IO IOMMU mapping failed mapped=%zd requested=%zu",
+				mapped_size, buf_len);
+			if (mapped_size > 0)
+				iommu_unmap(domain, io_iova, mapped_size);
 			cam_smmu_free_io_iova(idx, io_iova, buf_len);
 			rc = -ENOMEM;
 			goto err_unmap_sg;
@@ -1895,7 +1903,7 @@ static int cam_smmu_map_buffer_validate(struct dma_buf *buf,
 err_alloc:
 	if (region_id == CAM_SMMU_REGION_SHARED) {
 		cam_smmu_free_iova(iova,
-			size,
+			*len_ptr,
 			iommu_cb_set.cb_info[idx].handle);
 
 		iommu_unmap(iommu_cb_set.cb_info[idx].domain,
@@ -2198,8 +2206,10 @@ static int cam_smmu_alloc_scratch_buffer_add_to_list(int idx,
 	size_t unmapped;
 	dma_addr_t iova = 0;
 	struct scatterlist *sg;
+	ssize_t mapped_size = 0;
 	int i = 0;
 	int rc;
+	bool iova_allocated = false;
 	struct iommu_domain *domain = NULL;
 	struct page *page;
 	struct sg_table *table = NULL;
@@ -2247,13 +2257,20 @@ static int cam_smmu_alloc_scratch_buffer_add_to_list(int idx,
 			"Could not find valid iova for scratch buffer");
 		goto err_iommu_map;
 	}
+	iova_allocated = true;
 
-	if (iommu_map_sg(domain,
+	mapped_size = iommu_map_sg(domain,
 		iova,
 		table->sgl,
 		table->nents,
-		iommu_dir, GFP_KERNEL) != virt_len) {
-		CAM_ERR(CAM_SMMU, "iommu_map_sg() failed");
+		iommu_dir, GFP_KERNEL);
+	if (mapped_size < 0 || mapped_size != virt_len) {
+		CAM_ERR(CAM_SMMU,
+			"iommu_map_sg() failed mapped=%zd requested=%zu",
+			mapped_size, virt_len);
+		if (mapped_size > 0)
+			iommu_unmap(domain, iova, mapped_size);
+		rc = -ENOMEM;
 		goto err_iommu_map;
 	}
 
@@ -2293,6 +2310,9 @@ err_mapping_info:
 		CAM_ERR(CAM_SMMU, "Unmapped only %zx instead of %zx",
 			unmapped, virt_len);
 err_iommu_map:
+	if (iova_allocated)
+		cam_smmu_free_scratch_va(&iommu_cb_set.cb_info[idx].scratch_map,
+			iova, virt_len);
 	__free_pages(page, get_order(phys_len));
 err_page_alloc:
 	sg_free_table(table);
