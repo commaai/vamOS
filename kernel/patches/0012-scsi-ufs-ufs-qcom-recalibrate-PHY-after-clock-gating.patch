@@ -1,0 +1,99 @@
+From 157fa49c9eb4038aede85a4337f16572af26af22 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Tue, 16 Jun 2026 22:41:39 -0700
+Subject: [PATCH] scsi: ufs: ufs-qcom: fix hibern8 -110 storm on v3 (SDM845)
+ PHY
+
+On SDM845 (v3 controller, QMP-v3 UFS PHY) the link emits a recurring
+'hibern8 enter/exit failed -110' / 'link is broken' storm with large
+TSTBUS_UNIPRO register dumps every few seconds whenever it goes idle.
+Two independent idle paths drive the failing DME_HIBERNATE transition,
+and both must be addressed:
+
+1. Software clock gating power-collapses the PHY via
+   ufs_qcom_setup_clocks() (PRE_CHANGE/off -> phy_power_off drops the
+   PHY regulators/clocks, losing serdes/tx/rx/pcs config). On resume
+   (POST_CHANGE/on) only phy_power_on() is called, which restores power
+   but does not re-write the init tables or restart the SerDes -- that
+   work lives in the PHY driver's ->calibrate(), previously invoked
+   only once at link startup. The PHY thus comes back uncalibrated and
+   the next DME_HIBERNATE_EXIT times out. Re-run phy_calibrate() on the
+   gating resume path, guarded by ufs_qcom_is_link_hibern8() so the
+   init-time setup_clocks() call (before link startup) is skipped.
+
+2. Hardware auto-hibern8 is driven entirely by the controller's idle
+   timer (REG_AUTO_HIBERNATE_IDLE_TIMER); it never goes through
+   setup_clocks() and so cannot be fixed by recalibration. The
+   autonomous UIC power-mode change simply does not complete on this
+   PHY. Set UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8 for v2/v3 controllers to
+   disable it (mirroring the downstream driver's behaviour under
+   qcom,disable-lpm). Software clock gating still provides idle power
+   saving.
+
+Signed-off-by: Trey Moen <trey@moen.ai>
+---
+ drivers/ufs/host/ufs-qcom.c | 41 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 41 insertions(+)
+
+diff --git a/drivers/ufs/host/ufs-qcom.c b/drivers/ufs/host/ufs-qcom.c
+index eba0e6617..395e4938d 100644
+--- a/drivers/ufs/host/ufs-qcom.c
++++ b/drivers/ufs/host/ufs-qcom.c
+@@ -1077,6 +1077,21 @@ static void ufs_qcom_advertise_quirks(struct ufs_hba *hba)
+ 	if (host->hw_ver.major == 0x2)
+ 		hba->quirks |= UFSHCD_QUIRK_BROKEN_UFS_HCI_VERSION;
+ 
++	/*
++	 * Hardware auto-hibern8 on the v2/v3 controllers (e.g. SDM845's
++	 * QMP-v3 UFS PHY) does not reliably complete the autonomous UIC
++	 * power-mode change: the DME_HIBERNATE enter/exit times out with
++	 * -ETIMEDOUT, the link is declared broken and re-initialised, and
++	 * the cycle repeats on every idle period. Unlike software clock
++	 * gating, this transition is driven entirely by the controller's
++	 * idle timer and never goes through ufs_qcom_setup_clocks(), so it
++	 * cannot be papered over by re-calibrating the PHY on resume.
++	 * Disable hardware auto-hibern8 on these controllers; software
++	 * clock gating still provides idle power saving.
++	 */
++	if (host->hw_ver.major <= 0x3)
++		hba->quirks |= UFSHCD_QUIRK_BROKEN_AUTO_HIBERN8;
++
+ 	if (host->hw_ver.major > 0x3)
+ 		hba->quirks |= UFSHCD_QUIRK_REINIT_AFTER_MAX_GEAR_SWITCH;
+ 
+@@ -1232,6 +1247,32 @@ static int ufs_qcom_setup_clocks(struct ufs_hba *hba, bool on,
+ 				return err;
+ 			}
+ 
++			/*
++			 * The PRE_CHANGE/off path power-collapses the PHY
++			 * (phy_power_off drops its regulators and clocks), which
++			 * loses the serdes/tx/rx/pcs configuration. phy_power_on
++			 * only restores power; it does not re-write the init
++			 * tables or restart the SerDes. Without re-calibrating
++			 * here the PHY comes back uncalibrated and the next
++			 * DME_HIBERNATE_EXIT UIC command times out (-ETIMEDOUT),
++			 * which on v3 controllers (e.g. SDM845) shows up as a
++			 * recurring "hibern8 exit failed -110" / "link is broken"
++			 * storm on every idle clock-gating cycle.
++			 *
++			 * Only do this on a genuine clock-gating resume (link in
++			 * hibern8). The init-time call from ufs_qcom_init() runs
++			 * before phy_init()/link startup, where the PHY isn't
++			 * powered yet and link startup will calibrate it anyway.
++			 */
++			if (ufs_qcom_is_link_hibern8(hba)) {
++				err = phy_calibrate(phy);
++				if (err) {
++					dev_err(hba->dev, "phy calibrate failed, ret = %d\n", err);
++					phy_power_off(phy);
++					return err;
++				}
++			}
++
+ 			/* enable the device ref clock for HS mode*/
+ 			if (ufshcd_is_hs_mode(&hba->pwr_info))
+ 				ufs_qcom_dev_ref_clk_ctrl(host, true);
+-- 
+2.43.0
+
