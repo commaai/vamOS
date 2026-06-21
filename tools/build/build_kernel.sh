@@ -71,6 +71,9 @@ fi
 
 KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
 
+# Compute on host; in-container git fails for worktrees (.git is outside $DIR)
+GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
+
 # Build docker container
 echo "Building vamos-builder docker image"
 export DOCKER_BUILDKIT=1
@@ -95,7 +98,13 @@ if [ "$HOST_OS" = "Darwin" ]; then
     -w "$DIR" \
     vamos-builder)
 else
-  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" -w "$DIR" vamos-builder)
+  # For a git worktree, mount the shared .git so in-container git resolves
+  GIT_MOUNT_ARGS=()
+  if [ -f "$DIR/.git" ]; then
+    GIT_COMMON_DIR="$(git -C "$DIR" rev-parse --path-format=absolute --git-common-dir)"
+    GIT_MOUNT_ARGS=(-v "$GIT_COMMON_DIR":"$GIT_COMMON_DIR")
+  fi
+  CONTAINER_ID=$(docker run -d -u "$(id -u):$(id -g)" -v "$DIR":"$DIR" "${GIT_MOUNT_ARGS[@]}" -w "$DIR" vamos-builder)
 fi
 
 trap cleanup EXIT
@@ -149,7 +158,7 @@ build_kernel() {
   export KBUILD_BUILD_HOST="vamos"
   export KCFLAGS="-w"
 
-  GIT_REV="$(git -C $DIR rev-parse --short HEAD)"
+  # GIT_REV is computed on the host and passed in via the container heredoc.
   export LOCALVERSION="-vamos-$GIT_REV"
 
   # Build kernel
@@ -266,6 +275,7 @@ PATCHES_DIR='$PATCHES_DIR'
 TMP_DIR='$TMP_DIR'
 OUT_DIR='$OUT_DIR'
 BOOT_IMG='$BOOT_IMG'
+GIT_REV='$GIT_REV'
 
 DTS_FILES=(
   '${DTS_FILES[0]}'
