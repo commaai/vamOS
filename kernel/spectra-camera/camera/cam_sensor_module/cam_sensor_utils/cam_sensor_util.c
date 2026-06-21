@@ -19,7 +19,6 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/pinctrl/consumer.h>
-#include <linux/pinctrl/machine.h>
 #include "cam_sensor_util.h"
 #include <cam_mem_mgr.h>
 #include "cam_res_mgr_api.h"
@@ -29,6 +28,12 @@
 
 #define VALIDATE_VOLTAGE(min, max, config_val) ((config_val) && \
 	(config_val >= min) && (config_val <= max))
+
+static bool cam_sensor_gpio_is_mclk(const struct cam_gpio *gpio)
+{
+	return gpio->label &&
+		!strncmp(gpio->label, "CAMIF_MCLK", strlen("CAMIF_MCLK"));
+}
 
 ///ALTEK_TAG_HwMiniISP>>>
 uint8_t g_SensorPowerState = 0;
@@ -809,15 +814,13 @@ int cam_sensor_util_request_gpio_table(
 		for (i = 0; i < size; i++) {
 			/*
 			 * The MCLK pin is driven by the cam_mclk pinmux
-			 * function (clock output), selected via the sensor
-			 * pinctrl cam_default state before this call. Do NOT
+			 * function (clock output), selected via the CCI
+			 * parent's pinctrl state before this call. Do NOT
 			 * gpio_request() it — that claims the pad as a plain
 			 * GPIO and the cam_mclk mux fails to apply, so no clock
 			 * reaches the sensor and the CCI chip-id read NACKs.
 			 */
-			if (gpio_tbl[i].label &&
-				!strncmp(gpio_tbl[i].label, "CAMIF_MCLK",
-					strlen("CAMIF_MCLK"))) {
+			if (cam_sensor_gpio_is_mclk(&gpio_tbl[i])) {
 				CAM_ERR(CAM_SENSOR,
 					"vamos-dbg SKIP mclk gpio %d:%s (pinmux cam_mclk)",
 					gpio_tbl[i].gpio, gpio_tbl[i].label);
@@ -841,7 +844,11 @@ int cam_sensor_util_request_gpio_table(
 			}
 		}
 	} else {
-		cam_res_mgr_gpio_free_arry(soc_info->dev, gpio_tbl, size);
+		for (i = 0; i < size; i++) {
+			if (cam_sensor_gpio_is_mclk(&gpio_tbl[i]))
+				continue;
+			cam_res_mgr_gpio_free_arry(soc_info->dev, &gpio_tbl[i], 1);
+		}
 	}
 
 	return rc;
@@ -1407,70 +1414,6 @@ free_gpio_info:
 	return rc;
 }
 
-/*
- * The cam-sensor devices are created by of_platform_populate() under the CCI
- * node and on this 6.18 kernel they receive ZERO pinctrl maps from
- * pinctrl_dt_to_map() (pinctrl-maps debugfs has no cam-sensor entry), so their
- * DT "cam_default" pinctrl-0 (mclk -> cam_mclk) select is a vacuous no-op and
- * the mclk pad never muxes -> no 24 MHz to the sensor -> CCI chip-id NACK.
- *
- * Work around it by registering the mclk mux mapping programmatically for this
- * sensor's dev_name before devm_pinctrl_get(): grab the mclk TLMM pin from the
- * sensor's "gpios" property (entry 0, the CAMIF_MCLK pin), build the group name
- * "gpio<N>" and map it to function "cam_mclk" on the TLMM controller. Then the
- * normal lookup_state("cam_default") + select_state path muxes it for real.
- */
-int cam_sensor_register_mclk_pinmux(struct device *dev)
-{
-	struct pinctrl_map *map;
-	struct of_phandle_args args;
-	int rc;
-	char *grp;
-
-	if (!dev || !dev->of_node)
-		return 0;
-
-	/*
-	 * gpios[0] is the mclk pin (CAMIF_MCLK*). Read the RAW TLMM pin offset
-	 * (the first arg cell after the &tlmm phandle) — that's the pinctrl
-	 * group number ("gpio<offset>"), not the global gpio number.
-	 */
-	rc = of_parse_phandle_with_args(dev->of_node, "gpios", "#gpio-cells",
-			0, &args);
-	if (rc) {
-		CAM_ERR(CAM_SENSOR, "vamos-dbg no mclk gpio in sensor node rc=%d",
-			rc);
-		return 0;
-	}
-
-	map = kzalloc(sizeof(*map), GFP_KERNEL);
-	if (!map) {
-		of_node_put(args.np);
-		return -ENOMEM;
-	}
-
-	grp = kasprintf(GFP_KERNEL, "gpio%u", args.args[0]);
-	of_node_put(args.np);
-	if (!grp) {
-		kfree(map);
-		return -ENOMEM;
-	}
-
-	map->dev_name = dev_name(dev);
-	map->name = CAM_SENSOR_PINCTRL_STATE_DEFAULT; /* "cam_default" */
-	map->type = PIN_MAP_TYPE_MUX_GROUP;
-	map->ctrl_dev_name = "3400000.pinctrl";
-	map->data.mux.group = grp;
-	map->data.mux.function = "cam_mclk";
-
-	CAM_ERR(CAM_SENSOR,
-		"vamos-dbg register mclk pinmux dev=%s grp=%s func=cam_mclk",
-		map->dev_name, grp);
-
-	/* leak-on-purpose: lives for the device lifetime (small, one per sensor) */
-	return pinctrl_register_mappings(map, 1);
-}
-
 int msm_camera_pinctrl_init(
 	struct msm_pinctrl_info *sensor_pctrl, struct device *dev) {
 
@@ -1633,16 +1576,20 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 	if (soc_info->use_shared_clk)
 		cam_res_mgr_shared_clk_config(true);
 
-	ret = msm_camera_pinctrl_init(&(ctrl->pinctrl_info), ctrl->dev);
-	CAM_ERR(CAM_SENSOR, "vamos-dbg pinctrl_init rc=%d dev=%s ctrl_dev=%pK soc_dev=%pK",
-		ret, ctrl->dev ? dev_name(ctrl->dev) : "NULL",
-		ctrl->dev, soc_info->dev);
-	if (ret < 0) {
-		/* Some sensor subdev no pinctrl. */
-		CAM_DBG(CAM_SENSOR, "Initialization of pinctrl failed");
-		ctrl->cam_pinctrl_status = 0;
+	if (ctrl->dev && ctrl->dev->of_node &&
+		of_property_present(ctrl->dev->of_node, "pinctrl-names")) {
+		ret = msm_camera_pinctrl_init(&(ctrl->pinctrl_info), ctrl->dev);
+		CAM_ERR(CAM_SENSOR, "vamos-dbg pinctrl_init rc=%d dev=%s ctrl_dev=%pK soc_dev=%pK",
+			ret, ctrl->dev ? dev_name(ctrl->dev) : "NULL",
+			ctrl->dev, soc_info->dev);
+		if (ret < 0) {
+			CAM_DBG(CAM_SENSOR, "Initialization of pinctrl failed");
+			ctrl->cam_pinctrl_status = 0;
+		} else {
+			ctrl->cam_pinctrl_status = 1;
+		}
 	} else {
-		ctrl->cam_pinctrl_status = 1;
+		ctrl->cam_pinctrl_status = 0;
 	}
 
 	if (cam_res_mgr_shared_pinctrl_init()) {
@@ -2200,4 +2147,3 @@ int cam_sensor_util_power_down(struct cam_sensor_power_ctrl_t *ctrl,
 
 	return 0;
 }
-

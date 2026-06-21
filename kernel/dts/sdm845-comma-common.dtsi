@@ -1145,8 +1145,25 @@
 		clock-cntl-level = "lowsvs";
 		clock-rates = <0 0 0 0 0 37500000>;
 		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cci0_active &cci1_active>;
-		pinctrl-1 = <&cci0_suspend &cci1_suspend>;
+		/*
+		 * The Spectra cam-sensor child devices are populated by the CCI
+		 * driver. On mainline 6.18 those children do not get reliable
+		 * DT pinctrl maps for cam_mclk, while the CCI parent does. Keep
+		 * the MCLK pads muxed by the parent, matching the separate
+		 * qcom-camss branch that successfully powers the sensors and
+		 * reads their chip IDs. The clocks themselves are still gated by
+		 * each sensor power sequence.
+		 */
+		pinctrl-0 = <&cci0_active &cci1_active
+			     &cam_sensor_mclk0_active
+			     &cam_sensor_mclk1_active
+			     &cam_sensor_mclk2_active
+			     &cam_sensor_mclk3_active>;
+		pinctrl-1 = <&cci0_suspend &cci1_suspend
+			     &cam_sensor_mclk0_suspend
+			     &cam_sensor_mclk1_suspend
+			     &cam_sensor_mclk2_suspend
+			     &cam_sensor_mclk3_suspend>;
 		gpios = <&tlmm 17 0>,
 			<&tlmm 18 0>,
 			<&tlmm 19 0>,
@@ -2061,7 +2078,8 @@
  *   cam_vdig &camera_rear_ldo (sensors 0-2, kept)
  *   cam_vdig &camera_ldo      (sensor 3, kept)
  *   cam_clk  &titan_top_gdsc  (fixed stand-in)
- * mclk pinctrl drive-strength reductions are board-specific -> mici.dts.
+ * MCLK muxing is owned by the CCI parent above; reset/VANA are driven by
+ * the legacy Spectra GPIO power sequence.
  * ------------------------------------------------------------------------ */
 &cam_cci {
 	qcom,cam-res-mgr {
@@ -2100,16 +2118,6 @@
 		rgltr-max-voltage = <0 3600000 1050000 0>;
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
-		pinctrl-names = "cam_default", "cam_suspend";
-		/*
-		 * Only mclk is pinmuxed (cam_mclk function). The reset/vana pins
-		 * are driven via gpio_request + gpio_set_value by the sensor
-		 * power-sequencer, so they must NOT also be claimed here as a
-		 * "gpio" pinmux function — that double-claim made the reset
-		 * gpio_request fail -EBUSY. (Dropped &cam_sensor_rear_active.)
-		 */
-		pinctrl-0 = <&cam_sensor_mclk0_active>;
-		pinctrl-1 = <&cam_sensor_mclk0_suspend>;
 		gpios = <&tlmm 13 0>,
 			<&tlmm 9 0>,
 			<&tlmm 8 0>;
@@ -2145,9 +2153,6 @@
 		rgltr-max-voltage = <0 3600000 1050000 0>;
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
-		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk1_active>;
-		pinctrl-1 = <&cam_sensor_mclk1_suspend>;
 		gpios = <&tlmm 14 0>,
 			<&tlmm 7 0>,
 			<&tlmm 8 0>;
@@ -2183,9 +2188,6 @@
 		rgltr-max-voltage = <0 3600000 1050000 0>;
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
-		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk2_active>;
-		pinctrl-1 = <&cam_sensor_mclk2_suspend>;
 		gpios = <&tlmm 15 0>,
 			<&tlmm 12 0>,
 			<&tlmm 8 0>;
@@ -2221,9 +2223,6 @@
 		rgltr-max-voltage = <0 2850000 1050000 0>;
 		rgltr-load-current = <0 80000 105000 0>;
 		gpio-no-mux = <0>;
-		pinctrl-names = "cam_default", "cam_suspend";
-		pinctrl-0 = <&cam_sensor_mclk3_active>;
-		pinctrl-1 = <&cam_sensor_mclk3_suspend>;
 		gpios = <&tlmm 16 0>,
 			<&tlmm 9 0>;
 		gpio-reset = <1>;

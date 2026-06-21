@@ -35,13 +35,6 @@ int cam_get_dt_power_setting_data(struct device_node *of_node,
 int msm_camera_pinctrl_init
 	(struct msm_pinctrl_info *sensor_pctrl, struct device *dev);
 
-/*
- * Register the mclk -> cam_mclk pinmux mapping for a cam-sensor device. Must be
- * called once at probe BEFORE any devm_pinctrl_get() on the device (the
- * of_platform-populated sensor children get no pinctrl maps from DT on 6.18).
- */
-int cam_sensor_register_mclk_pinmux(struct device *dev);
-
 int cam_sensor_i2c_command_parser(struct camera_io_master *io_master,
 	struct i2c_settings_array *i2c_reg_settings,
 	struct cam_cmd_buf_desc *cmd_desc, int32_t num_cmd_buffers);
