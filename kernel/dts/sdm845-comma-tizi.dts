@@ -5,7 +5,8 @@
 / {
 	model = "comma tizi";
 	compatible = "comma,tizi", "qcom,sdm845";
-	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
+	qcom,msm-id = <QCOM_ID_SDA845 0x20001>, <QCOM_ID_SDM845 0x20001>,
+		      <QCOM_ID_SDM845 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
 
 	tp3v3: tp3v3 {
@@ -14,7 +15,7 @@
 		regulator-name = "tp3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpio = <&pm8998_gpios 10 0>;
+		gpio = <&pm8998_gpios 10 GPIO_ACTIVE_HIGH>;
 		enable-active-high;
 		regulator-boot-on;
 	};
@@ -24,8 +25,7 @@
 	touchscreen@17 {
 		compatible = "samsung,s6sy761";
 		reg = <0x17>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		interrupts-extended = <&tlmm 125 IRQ_TYPE_EDGE_FALLING>;
 		vdd-supply = <&tp3v3>;
 		avdd-supply = <&tp3v3>;
 		touchscreen-size-x = <1080>;

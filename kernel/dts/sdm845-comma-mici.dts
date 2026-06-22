@@ -5,7 +5,8 @@
 / {
 	model = "comma mici";
 	compatible = "comma,mici", "qcom,sdm845";
-	qcom,msm-id = <341 0x20001>, <321 0x20001>, <321 0x20000>, <348 0x20001>;
+	qcom,msm-id = <QCOM_ID_SDA845 0x20001>, <QCOM_ID_SDM845 0x20001>,
+		      <QCOM_ID_SDM845 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x22 0>;
 
 	aliases {
@@ -18,8 +19,7 @@
 		compatible = "focaltech,ft3168";
 		reg = <0x38>;
 
-		interrupt-parent = <&tlmm>;
-		interrupts = <125 IRQ_TYPE_EDGE_FALLING>;
+		interrupts-extended = <&tlmm 125 IRQ_TYPE_EDGE_FALLING>;
 		reset-gpios = <&tlmm 104 GPIO_ACTIVE_LOW>;
 
 		iovcc-supply = <&vreg_s4a_1p8>;
