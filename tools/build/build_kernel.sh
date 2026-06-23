@@ -36,20 +36,20 @@ prepare_kernel_volume() {
 
 seed_kernel_workspace() {
   local sync_container_id
+  local kernel_bundle="$TMP_DIR/kernel-linux.bundle"
 
   echo "Syncing kernel/linux into Docker volume"
-  sync_container_id=$(docker run -d \
-    --entrypoint tail \
-    -v "$KERNEL_DIR:/kernel-source:ro" \
-    -v "$KERNEL_GIT_DIR:/kernel-git:ro" \
-    -v "$KERNEL_LINUX_VOLUME:/linux" \
-    vamos-builder \
-    -f /dev/null)
+  mkdir -p "$TMP_DIR"
+  rm -f "$kernel_bundle"
+  git -C "$KERNEL_DIR" bundle create "$kernel_bundle" HEAD >/dev/null
+
+  sync_container_id=$(docker run -d --entrypoint tail -v "$kernel_bundle:/kernel-linux.bundle:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
 
   docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
   # Transfer through a bundle so worktree gitdir pointers stay on the host side.
-  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "git --git-dir=/kernel-git --work-tree=/kernel-source bundle create /tmp/kernel.bundle HEAD >/dev/null && cd /linux && git clone /tmp/kernel.bundle . >/dev/null 2>&1 && git -c advice.detachedHead=false checkout --force '$KERNEL_REV' >/dev/null 2>&1"
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone /kernel-linux.bundle . >/dev/null 2>&1 && git -c advice.detachedHead=false checkout --force '$KERNEL_REV' >/dev/null 2>&1"
   docker container rm -f "$sync_container_id" >/dev/null
+  rm -f "$kernel_bundle"
 }
 
 prepare_ccache_volume() {
@@ -76,7 +76,6 @@ if [ ! -f "$KERNEL_DIR/Makefile" ]; then
 fi
 
 KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
-KERNEL_GIT_DIR="$(git -C "$KERNEL_DIR" rev-parse --path-format=absolute --git-dir)"
 
 # Compute on host; in-container git fails for worktrees (.git is outside $DIR)
 GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
