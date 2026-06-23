@@ -47,7 +47,7 @@ seed_kernel_workspace() {
 
   docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
   # Transfer through a bundle so worktree gitdir pointers stay on the host side.
-  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone /kernel-linux.bundle . >/dev/null 2>&1 && git -c advice.detachedHead=false checkout --force '$KERNEL_REV' >/dev/null 2>&1"
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone /kernel-linux.bundle . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
   docker container rm -f "$sync_container_id" >/dev/null
   rm -f "$kernel_bundle"
 }
