@@ -36,14 +36,20 @@ prepare_kernel_volume() {
 
 seed_kernel_workspace() {
   local sync_container_id
+  local kernel_bundle="$TMP_DIR/kernel-linux.bundle"
 
   echo "Syncing kernel/linux into Docker volume"
-  sync_container_id=$(docker run -d --entrypoint tail -v "$DIR:/repo:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
+  mkdir -p "$TMP_DIR"
+  rm -f "$kernel_bundle"
+  git -C "$KERNEL_DIR" bundle create "$kernel_bundle" HEAD >/dev/null
+
+  sync_container_id=$(docker run -d --entrypoint tail -v "$kernel_bundle:/kernel-linux.bundle:ro" -v "$KERNEL_LINUX_VOLUME:/linux" vamos-builder -f /dev/null)
 
   docker exec "$sync_container_id" sh -lc "rm -rf /linux/* /linux/.[!.]* /linux/..?*"
-  # Force pack-based transfer from the macOS bind mount into the Docker volume.
-  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone --no-local /repo/kernel/linux . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
+  # Transfer through a bundle so worktree gitdir pointers stay on the host side.
+  docker exec -u "$(id -u):$(id -g)" "$sync_container_id" sh -lc "cd /linux && git clone /kernel-linux.bundle . >/dev/null 2>&1 && git checkout --force '$KERNEL_REV' >/dev/null 2>&1"
   docker container rm -f "$sync_container_id" >/dev/null
+  rm -f "$kernel_bundle"
 }
 
 prepare_ccache_volume() {
@@ -283,8 +289,8 @@ DTS_FILES=(
 )
 
 # building both kernel and system at same time cause git dubious ownership errors
-git config --global --add safe.directory '$DIR'
-git config --global --add safe.directory '$KERNEL_DIR'
+git -C / config --global --add safe.directory '$DIR'
+git -C / config --global --add safe.directory '$KERNEL_DIR'
 
 $(declare -f apply_patches)
 $(declare -f build_kernel)
