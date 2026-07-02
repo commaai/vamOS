@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Wed, 1 Jul 2026 00:00:00 +0000
+Subject: remoteproc: qcom_q6v5_mss: auto-boot the modem
+
+On an unmodified legacy comma rootfs the proprietary Qualcomm daemons are
+inert, so nothing in userspace ever starts the modem. The modem is required
+to bring up the WCN3990 wlan protection domain (which publishes the QMI WLFW
+service ath10k_snoc waits on). The modem firmware is built into the kernel
+image via CONFIG_EXTRA_FIRMWARE, so no rootfs wait is needed; auto-boot as
+soon as the driver probes.
+
+---
+ drivers/remoteproc/qcom_q6v5_mss.c |  2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/remoteproc/qcom_q6v5_mss.c b/drivers/remoteproc/qcom_q6v5_mss.c
+index 3087d895b..0e12923f6 100644
+--- a/drivers/remoteproc/qcom_q6v5_mss.c
++++ b/drivers/remoteproc/qcom_q6v5_mss.c
+@@ -2079,7 +2079,7 @@ static int q6v5_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 	}
+ 
+-	rproc->auto_boot = false;
++	rproc->auto_boot = true;
+ 	rproc_coredump_set_elf_info(rproc, ELFCLASS32, EM_NONE);
+ 
+ 	qproc = rproc->priv;
+-- 
+2.53.0
+

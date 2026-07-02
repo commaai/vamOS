@@ -1,0 +1,881 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Wed, 1 Jul 2026 00:00:01 +0000
+Subject: soc: qcom: add in-kernel TFTP-over-QRTR server (tqftpserv)
+
+Minimal read-only in-kernel reimplementation of Bjorn Andersson's userspace
+tqftpserv (https://github.com/andersson/tqftpserv). Publishes QRTR service
+4096 and serves peripheral firmware images (notably wlanmdsp.mbn) to the modem
+over TFTP-over-QRTR via the kernel firmware loader. Required to bring up the
+WCN3990 wlan protection domain on comma devices where the proprietary Qualcomm
+userspace is inert. Supports the blksize/tsize/wsize/rsize/seek/timeoutms
+options and windowed reads, mirroring the userspace protocol behavior. Writes
+are rejected.
+
+Also make QCOM_PD_MAPPER select QCOM_PDR_HELPERS so the kernel-space service
+registry (servreg) and its protection-domain helpers are built in together;
+this keeps PDR_HELPERS=y on a modules-less rootfs.
+
+---
+diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
+index 2caadbbcf..0922d0cb5 100644
+--- a/drivers/soc/qcom/Kconfig
++++ b/drivers/soc/qcom/Kconfig
+@@ -75,6 +75,7 @@ config QCOM_OCMEM
+ config QCOM_PD_MAPPER
+ 	tristate "Qualcomm Protection Domain Mapper"
+ 	select QCOM_QMI_HELPERS
++	select QCOM_PDR_HELPERS
+ 	select QCOM_PDR_MSG
+ 	select AUXILIARY_BUS
+ 	depends on NET && QRTR && (ARCH_QCOM || COMPILE_TEST)
+@@ -94,6 +95,18 @@ config QCOM_PDR_HELPERS
+ config QCOM_PDR_MSG
+ 	tristate
+ 
++config QCOM_TQFTPSERV
++	tristate "Qualcomm in-kernel TFTP-over-QRTR server"
++	depends on NET && QRTR
++	select FW_LOADER
++	help
++	  In-kernel reimplementation of the userspace tqftpserv daemon. It
++	  publishes QRTR service 4096 and serves peripheral firmware images
++	  (e.g. wlanmdsp.mbn) to the modem over TFTP-over-QRTR using the kernel
++	  firmware loader. This is needed to bring up the WCN3990 wlan
++	  protection domain on systems where the proprietary Qualcomm userspace
++	  is not present. Read-only; writes are rejected.
++
+ config QCOM_PMIC_PDCHARGER_ULOG
+ 	tristate "Qualcomm PMIC PDCharger ULOG driver"
+ 	depends on RPMSG
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index b7f1d2a57..7903de1ee 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -10,6 +10,7 @@ obj-$(CONFIG_QCOM_OCMEM)	+= ocmem.o
+ obj-$(CONFIG_QCOM_PD_MAPPER)	+= qcom_pd_mapper.o
+ obj-$(CONFIG_QCOM_PDR_HELPERS)	+= pdr_interface.o
+ obj-$(CONFIG_QCOM_PDR_MSG)	+= qcom_pdr_msg.o
++obj-$(CONFIG_QCOM_TQFTPSERV)	+= qcom_tqftpserv.o
+ obj-$(CONFIG_QCOM_PMIC_GLINK)	+= pmic_glink.o
+ obj-$(CONFIG_QCOM_PMIC_GLINK)	+= pmic_glink_altmode.o
+ obj-$(CONFIG_QCOM_PMIC_PDCHARGER_ULOG)	+= pmic_pdcharger_ulog.o
+diff --git a/drivers/soc/qcom/qcom_tqftpserv.c b/drivers/soc/qcom/qcom_tqftpserv.c
+new file mode 100644
+index 000000000..7c535860f
+--- /dev/null
++++ b/drivers/soc/qcom/qcom_tqftpserv.c
+@@ -0,0 +1,810 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * In-kernel TFTP-over-QRTR server (tqftpserv).
++ *
++ * On an unmodified legacy comma rootfs the proprietary Qualcomm userspace
++ * daemons are inert, so nothing answers the TFTP-over-QRTR requests the modem
++ * issues to fetch its peripheral firmware (notably wlanmdsp.mbn, needed to
++ * bring up the WCN3990 wlan protection domain). This is a minimal, read-only,
++ * in-kernel reimplementation of Bjorn Andersson's userspace tqftpserv
++ * (https://github.com/andersson/tqftpserv) that serves those files out of the
++ * kernel firmware loader (request_firmware()).
++ *
++ * It publishes QRTR service 4096 (version 1, instance 0) and handles TFTP RRQ
++ * transfers, mirroring the userspace protocol behavior (blksize/tsize/wsize/
++ * rsize/seek/timeoutms options, windowed reads). Writes are not supported.
++ *
++ * Copyright (c) 2018, Linaro Ltd. (protocol reference)
++ */
++
++#define pr_fmt(fmt) "tqftpserv: " fmt
++
++#include <linux/firmware.h>
++#include <linux/kernel.h>
++#include <linux/kthread.h>
++#include <linux/list.h>
++#include <linux/module.h>
++#include <linux/net.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <net/sock.h>
++
++#include <linux/soc/qcom/qmi.h>
++#include <uapi/linux/qrtr.h>
++
++/* QRTR service registration for the TFTP server. Mirror andersson/tqftpserv:
++ * qrtr_publish(fd, 4096, 1, 0) => service 4096, version 1, instance 0.
++ */
++#define TQFTP_SERVICE		4096
++#define TQFTP_VERSION		1
++#define TQFTP_INSTANCE		0
++
++/* TFTP opcodes (RFC 1350 + RFC 2347 OACK) */
++enum {
++	OP_RRQ = 1,
++	OP_WRQ,
++	OP_DATA,
++	OP_ACK,
++	OP_ERROR,
++	OP_OACK,
++};
++
++/* TFTP error codes (RFC 1350) plus the tqftpserv end-of-transfer sentinel */
++enum tftp_error {
++	TFTP_ERROR_UNDEF	= 0,
++	TFTP_ERROR_ENOENT	= 1,
++	TFTP_ERROR_EACCESS	= 2,
++	TFTP_ERROR_ENOSPACE	= 3,
++	TFTP_ERROR_EBADOP	= 4,
++	TFTP_ERROR_EBADID	= 5,
++	TFTP_ERROR_EEXISTS	= 6,
++	TFTP_ERROR_ENOUSER	= 7,
++	TFTP_ERROR_EOPTNEG	= 8,
++	ERROR_END_OF_TRANSFER	= 9,
++};
++
++/* RFC 2348 blksize range */
++#define MIN_BLKSIZE	8
++#define MAX_BLKSIZE	65464
++/* RFC 7440 windowsize range */
++#define MIN_WSIZE	1
++#define MAX_WSIZE	65535
++#define MAX_RSIZE	(100 * 1024 * 1024)
++#define MIN_TIMEOUTMS	1
++#define MAX_TIMEOUTMS	255000
++#define MIN_SEEK	0
++
++/* Path prefixes that map into the kernel firmware search path */
++static const char * const readonly_prefixes[] = {
++	"/readonly/vendor/firmware/",
++	"/readonly/firmware/image/",
++	"/readonly/vendor/firmware_mnt/image/",
++};
++#define READWRITE_PREFIX	"/readwrite/"
++
++/* Candidate directory prefixes for request_firmware(), in priority order.
++ * The first two match the built-in EXTRA_FIRMWARE blobs; the bare name
++ * covers a filesystem fallback under /lib/firmware.
++ */
++static const char * const fw_dir_prefixes[] = {
++	"ath10k/WCN3990/hw1.0/",
++	"qcom/sdm845/",
++	"",
++};
++
++struct tftp_client {
++	struct list_head node;
++
++	struct socket *sock;
++	struct sockaddr_qrtr sq;	/* peer address */
++
++	const struct firmware *fw;
++
++	size_t blksize;
++	size_t rsize;
++	size_t wsize;
++	unsigned int timeoutms;
++	loff_t seek;
++
++	u8 *blk_buf;		/* blksize + 4 header bytes */
++};
++
++static struct task_struct *tqftp_thread;
++static struct socket *tqftp_ctrl_sock;
++static struct sockaddr_qrtr tqftp_local;	/* our own node/port */
++static LIST_HEAD(readers);
++
++/* Woken by sk_data_ready on any of our sockets */
++static DECLARE_WAIT_QUEUE_HEAD(tqftp_waitq);
++static atomic_t tqftp_wake = ATOMIC_INIT(0);
++
++static void tqftp_data_ready(struct sock *sk)
++{
++	atomic_set(&tqftp_wake, 1);
++	wake_up_interruptible(&tqftp_waitq);
++}
++
++/* ---- low level QRTR socket helpers ---- */
++
++static int tqftp_sendto(struct socket *sock, const void *buf, size_t len,
++			const struct sockaddr_qrtr *dst)
++{
++	struct msghdr msg = { };
++	struct kvec iv = { (void *)buf, len };
++
++	if (dst) {
++		msg.msg_name = (void *)dst;
++		msg.msg_namelen = sizeof(*dst);
++	}
++
++	return kernel_sendmsg(sock, &msg, &iv, 1, len);
++}
++
++static int tqftp_recvfrom(struct socket *sock, void *buf, size_t len,
++			  struct sockaddr_qrtr *src)
++{
++	struct msghdr msg = { };
++	struct kvec iv = { buf, len };
++
++	msg.msg_name = src;
++	msg.msg_namelen = sizeof(*src);
++
++	return kernel_recvmsg(sock, &msg, &iv, 1, len, MSG_DONTWAIT);
++}
++
++static struct socket *tqftp_open_sock(struct sockaddr_qrtr *local)
++{
++	struct socket *sock;
++	int ret;
++
++	ret = sock_create_kern(&init_net, AF_QIPCRTR, SOCK_DGRAM,
++			       PF_QIPCRTR, &sock);
++	if (ret < 0)
++		return ERR_PTR(ret);
++
++	if (local) {
++		ret = kernel_getsockname(sock, (struct sockaddr *)local);
++		if (ret < 0) {
++			sock_release(sock);
++			return ERR_PTR(ret);
++		}
++	}
++
++	sock->sk->sk_data_ready = tqftp_data_ready;
++	sock->sk->sk_error_report = tqftp_data_ready;
++
++	return sock;
++}
++
++/* ---- TFTP protocol ---- */
++
++static void tftp_send_error(struct socket *sock, const struct sockaddr_qrtr *dst,
++			    enum tftp_error code, const char *msg)
++{
++	size_t len = 4 + strlen(msg) + 1;
++	u8 *buf;
++
++	buf = kzalloc(len, GFP_KERNEL);
++	if (!buf)
++		return;
++
++	buf[0] = 0;
++	buf[1] = OP_ERROR;
++	buf[2] = (code >> 8) & 0xff;
++	buf[3] = code & 0xff;
++	memcpy(buf + 4, msg, len - 4);
++
++	tqftp_sendto(sock, buf, len, dst);
++	kfree(buf);
++}
++
++/* Send TFTP ERROR to a peer we don't have a session for yet. */
++static void tftp_send_error_to(const struct sockaddr_qrtr *sq,
++			       enum tftp_error code, const char *msg)
++{
++	struct socket *sock;
++
++	sock = tqftp_open_sock(NULL);
++	if (IS_ERR(sock))
++		return;
++
++	tftp_send_error(sock, sq, code, msg);
++	sock_release(sock);
++}
++
++/*
++ * tftp_send_data() - send one DATA block to the client.
++ * @block: 1-based TFTP block number
++ * @offset: byte offset into the firmware image (already includes seek)
++ * @response_size: if non-zero, cap the payload to this many bytes (rsize path)
++ *
++ * Returns the number of payload bytes placed in the packet (0..blksize) on
++ * success, or negative on error.
++ */
++static int tftp_send_data(struct tftp_client *client, unsigned int block,
++			  size_t offset, size_t response_size)
++{
++	u8 *buf = client->blk_buf;
++	u8 *p = buf;
++	size_t avail;
++	size_t payload;
++	int ret;
++
++	*p++ = 0;
++	*p++ = OP_DATA;
++	*p++ = (block >> 8) & 0xff;
++	*p++ = block & 0xff;
++
++	if (offset >= client->fw->size)
++		avail = 0;
++	else
++		avail = client->fw->size - offset;
++
++	payload = min(avail, client->blksize);
++
++	if (response_size != 0) {
++		if (response_size > payload) {
++			pr_err("requested %zu bytes but only %zu available, rejecting\n",
++			       response_size, payload);
++			return -EINVAL;
++		}
++		payload = response_size;
++	}
++
++	if (payload)
++		memcpy(p, client->fw->data + offset, payload);
++	p += payload;
++
++	ret = tqftp_sendto(client->sock, buf, p - buf, &client->sq);
++	if (ret < 0)
++		return ret;
++
++	pr_debug("sent block %u (%zu bytes) to %d:%d\n",
++		 block, payload, client->sq.sq_node, client->sq.sq_port);
++	return payload;
++}
++
++static int tftp_send_oack(struct socket *sock, const struct sockaddr_qrtr *dst,
++			  const size_t *blksize, const ssize_t *tsize,
++			  const size_t *wsize, const unsigned int *timeoutms,
++			  const size_t *rsize, const loff_t *seek)
++{
++	char buf[512];
++	char *end = buf + sizeof(buf);
++	char *p = buf;
++	int n;
++
++	*p++ = 0;
++	*p++ = OP_OACK;
++
++#define APPEND_OPT(name, fmt, val)					\
++	do {								\
++		size_t nlen = sizeof(name);				\
++		if (p + nlen >= end)					\
++			return -EINVAL;					\
++		memcpy(p, name, nlen);					\
++		p += nlen;						\
++		n = scnprintf(p, end - p, fmt, val);			\
++		p += n + 1;	/* include the NUL scnprintf wrote */	\
++	} while (0)
++
++	if (blksize)
++		APPEND_OPT("blksize", "%zu", *blksize);
++	if (timeoutms)
++		APPEND_OPT("timeoutms", "%u", *timeoutms);
++	if (tsize && *tsize != -1)
++		APPEND_OPT("tsize", "%zd", *tsize);
++	if (wsize)
++		APPEND_OPT("wsize", "%zu", *wsize);
++	if (rsize)
++		APPEND_OPT("rsize", "%zu", *rsize);
++	if (seek)
++		APPEND_OPT("seek", "%lld", (long long)*seek);
++#undef APPEND_OPT
++
++	return tqftp_sendto(sock, buf, p - buf, dst);
++}
++
++/*
++ * parse_options() - parse the option list trailing an RRQ.
++ * Mirrors andersson/tqftpserv parse_options(): NUL-separated opt/value pairs.
++ */
++static int parse_options(const char *buf, size_t len, size_t *blksize,
++			 ssize_t *tsize, size_t *wsize, unsigned int *timeoutms,
++			 size_t *rsize, loff_t *seek)
++{
++	const char *end = buf + len;
++	const char *p = buf;
++	const char *opt, *value;
++	size_t opt_len, value_len;
++	long long val;
++
++	while (p < end) {
++		opt = p;
++		opt_len = strnlen(opt, end - p);
++		if (opt_len == (size_t)(end - p))
++			return -1;
++		p += opt_len + 1;
++
++		if (p >= end)
++			return -1;
++
++		value = p;
++		value_len = strnlen(value, end - p);
++		if (value_len == (size_t)(end - p))
++			return -1;
++		p += value_len + 1;
++
++		if (kstrtoll(value, 10, &val))
++			continue;
++
++		if (!strcmp(opt, "blksize")) {
++			if (val < MIN_BLKSIZE || val > MAX_BLKSIZE)
++				return -1;
++			*blksize = val;
++		} else if (!strcmp(opt, "timeoutms")) {
++			if (val < MIN_TIMEOUTMS || val > MAX_TIMEOUTMS)
++				return -1;
++			*timeoutms = val;
++		} else if (!strcmp(opt, "tsize")) {
++			if (val < 0)
++				return -1;
++			*tsize = val;
++		} else if (!strcmp(opt, "rsize")) {
++			if (val < 1 || val > MAX_RSIZE)
++				return -1;
++			*rsize = val;
++		} else if (!strcmp(opt, "wsize")) {
++			if (val < MIN_WSIZE || val > MAX_WSIZE)
++				return -1;
++			*wsize = val;
++		} else if (!strcmp(opt, "seek")) {
++			if (val < MIN_SEEK)
++				return -1;
++			*seek = val;
++		} else {
++			pr_debug("ignoring unknown option '%s'='%s'\n", opt, value);
++		}
++	}
++
++	return 0;
++}
++
++/*
++ * translate_path() - map a virtual TFTP path to a firmware image.
++ *
++ * Strips a known readonly prefix, rejects path traversal, then tries
++ * request_firmware() with each candidate directory prefix in order. On
++ * success stores the firmware in *out_fw. Returns 0 on success.
++ */
++static int translate_path(const char *path, const struct firmware **out_fw)
++{
++	const char *rel = NULL;
++	char name[256];
++	int i;
++
++	if (!strncmp(path, READWRITE_PREFIX, strlen(READWRITE_PREFIX))) {
++		pr_info("write path '%s' rejected (read-only server)\n", path);
++		return -EACCES;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(readonly_prefixes); i++) {
++		size_t plen = strlen(readonly_prefixes[i]);
++
++		if (!strncmp(path, readonly_prefixes[i], plen)) {
++			rel = path + plen;
++			break;
++		}
++	}
++
++	if (!rel) {
++		pr_info("path '%s' has no known prefix, rejecting\n", path);
++		return -ENOENT;
++	}
++
++	if (strstr(rel, "..")) {
++		pr_info("path traversal in '%s' rejected\n", path);
++		return -EACCES;
++	}
++
++	for (i = 0; i < ARRAY_SIZE(fw_dir_prefixes); i++) {
++		int ret;
++
++		if (snprintf(name, sizeof(name), "%s%s",
++			     fw_dir_prefixes[i], rel) >= sizeof(name))
++			continue;
++
++		ret = request_firmware(out_fw, name, NULL);
++		if (!ret) {
++			pr_info("serving '%s' as '%s' (%zu bytes)\n",
++				path, name, (*out_fw)->size);
++			return 0;
++		}
++	}
++
++	pr_info("no firmware found for '%s' (rel '%s')\n", path, rel);
++	return -ENOENT;
++}
++
++static void client_free(struct tftp_client *client)
++{
++	list_del(&client->node);
++	if (client->fw)
++		release_firmware(client->fw);
++	if (client->sock)
++		sock_release(client->sock);
++	kfree(client->blk_buf);
++	kfree(client);
++}
++
++static void handle_rrq(const char *buf, size_t len, const struct sockaddr_qrtr *sq)
++{
++	struct tftp_client *client;
++	const char *end = buf + len;
++	const char *p = buf + 2;
++	const char *filename, *mode;
++	size_t filename_len, mode_len;
++	ssize_t tsize = -1;
++	size_t blksize = 512;
++	unsigned int timeoutms = 1000;
++	size_t rsize = 0;
++	size_t wsize = 1;
++	loff_t seek = 0;
++	bool do_oack = false;
++	struct socket *sock;
++	const struct firmware *fw = NULL;
++	int ret;
++
++	filename = p;
++	filename_len = strnlen(filename, end - p);
++	if (filename_len == (size_t)(end - p)) {
++		pr_err("RRQ: filename not NUL-terminated\n");
++		return;
++	}
++	p += filename_len + 1;
++
++	if (p >= end) {
++		pr_err("RRQ: missing mode\n");
++		return;
++	}
++	mode = p;
++	mode_len = strnlen(mode, end - p);
++	if (mode_len == (size_t)(end - p)) {
++		pr_err("RRQ: mode not NUL-terminated\n");
++		return;
++	}
++	p += mode_len + 1;
++
++	if (strcasecmp(mode, "octet")) {
++		pr_err("RRQ: unsupported mode '%s'\n", mode);
++		tftp_send_error_to(sq, TFTP_ERROR_EBADOP, "Only octet mode supported");
++		return;
++	}
++
++	pr_info("RRQ '%s' (mode %s) from %d:%d\n",
++		filename, mode, sq->sq_node, sq->sq_port);
++
++	if (p < end) {
++		do_oack = true;
++		ret = parse_options(p, end - p, &blksize, &tsize, &wsize,
++				    &timeoutms, &rsize, &seek);
++		if (ret < 0) {
++			pr_err("RRQ: bad options, rejecting\n");
++			tftp_send_error_to(sq, TFTP_ERROR_EOPTNEG,
++					   "Option negotiation failed");
++			return;
++		}
++	}
++
++	ret = translate_path(filename, &fw);
++	if (ret < 0) {
++		tftp_send_error_to(sq, TFTP_ERROR_ENOENT, "file not found");
++		return;
++	}
++
++	if (tsize != -1)
++		tsize = fw->size;
++
++	sock = tqftp_open_sock(NULL);
++	if (IS_ERR(sock)) {
++		release_firmware(fw);
++		return;
++	}
++
++	client = kzalloc(sizeof(*client), GFP_KERNEL);
++	if (!client) {
++		sock_release(sock);
++		release_firmware(fw);
++		return;
++	}
++
++	client->blk_buf = kzalloc(blksize + 4, GFP_KERNEL);
++	if (!client->blk_buf) {
++		kfree(client);
++		sock_release(sock);
++		release_firmware(fw);
++		return;
++	}
++
++	client->sock = sock;
++	client->sq = *sq;
++	client->fw = fw;
++	client->blksize = blksize;
++	client->rsize = rsize;
++	client->wsize = wsize;
++	client->timeoutms = timeoutms;
++	client->seek = seek;
++
++	pr_info("'%s' opened (blksize=%zu wsize=%zu rsize=%zu seek=%lld)\n",
++		filename, blksize, wsize, rsize, (long long)seek);
++
++	list_add(&client->node, &readers);
++
++	if (do_oack) {
++		/*
++		 * Options were negotiated: reply with OACK. The client then
++		 * ACKs block 0, driving the windowed transfer in handle_reader.
++		 */
++		tftp_send_oack(sock, sq, &blksize,
++			       tsize ? &tsize : NULL,
++			       wsize ? &wsize : NULL,
++			       &client->timeoutms,
++			       rsize ? &rsize : NULL,
++			       seek ? &seek : NULL);
++	} else {
++		/* No options: start streaming immediately with block 1. */
++		tftp_send_data(client, 1, 0, 0);
++	}
++}
++
++/*
++ * handle_reader() - process one ACK from a client and send the next window.
++ *
++ * Mirrors andersson/tqftpserv handle_reader() exactly. On an ACK for block
++ * @last we send blocks [last+1 .. last+wsize], each optionally capped by
++ * rsize. seek shifts the file offset. Returns:
++ *   <= 0 : transfer complete or failed, caller frees the client
++ *   > 0  : window sent, keep the client alive
++ */
++static int handle_reader(struct tftp_client *client)
++{
++	struct sockaddr_qrtr sq;
++	u8 buf[128];
++	u16 last;
++	unsigned int block;
++	int opcode;
++	int len;
++	int n = 0;
++
++	len = tqftp_recvfrom(client->sock, buf, sizeof(buf), &sq);
++	if (len < 0)
++		return -1;
++
++	/* Drop unsolicited/spoofed messages */
++	if (sq.sq_node != client->sq.sq_node ||
++	    sq.sq_port != client->sq.sq_port) {
++		pr_debug("discarding spoofed message\n");
++		return -1;
++	}
++
++	if (len < 4)
++		return -1;
++
++	opcode = buf[0] << 8 | buf[1];
++	if (opcode == OP_ERROR) {
++		int err = buf[2] << 8 | buf[3];
++
++		if (err == ERROR_END_OF_TRANSFER)
++			pr_info("end of transfer from %d:%d\n",
++				sq.sq_node, sq.sq_port);
++		else
++			pr_err("remote error %d from %d:%d\n",
++			       err, sq.sq_node, sq.sq_port);
++		return -1;
++	} else if (opcode != OP_ACK) {
++		pr_err("expected ACK, got %d\n", opcode);
++		tftp_send_error(client->sock, &client->sq,
++				TFTP_ERROR_EBADOP, "Expected ACK opcode");
++		return -1;
++	}
++
++	last = buf[2] << 8 | buf[3];
++	pr_debug("got ack %u from %d:%d\n", last, sq.sq_node, sq.sq_port);
++
++	/* We've already sent enough data for rsize */
++	if (client->rsize && last * client->blksize > client->rsize)
++		return 0;
++
++	for (block = last; block < last + client->wsize; block++) {
++		size_t offset = client->seek + (size_t)block * client->blksize;
++		size_t response_size = 0;
++
++		if (client->rsize &&
++		    (block + 1) * client->blksize > client->rsize)
++			response_size = client->rsize % client->blksize;
++
++		n = tftp_send_data(client, block + 1, offset, response_size);
++		if (n < 0) {
++			pr_err("send block %u failed: %d\n", block + 1, n);
++			break;
++		}
++		if (n == 0)	/* short/empty block: end of file */
++			break;
++
++		if (client->rsize &&
++		    (block + 1) * client->blksize > client->rsize)
++			break;
++	}
++
++	return 1;
++}
++
++/* Decode a QRTR control packet on the control socket (only BYE matters). */
++static void handle_ctrl(const void *buf, size_t len, const struct sockaddr_qrtr *sq)
++{
++	const struct qrtr_ctrl_pkt *pkt = buf;
++	struct tftp_client *client, *next;
++	u32 cmd;
++
++	if (len < sizeof(*pkt))
++		return;
++
++	cmd = le32_to_cpu(pkt->cmd);
++	if (cmd == QRTR_TYPE_BYE) {
++		list_for_each_entry_safe(client, next, &readers, node) {
++			if (client->sq.sq_node == sq->sq_node)
++				client_free(client);
++		}
++	} else if (cmd == QRTR_TYPE_DEL_CLIENT) {
++		u32 node = le32_to_cpu(pkt->client.node);
++		u32 port = le32_to_cpu(pkt->client.port);
++
++		list_for_each_entry_safe(client, next, &readers, node) {
++			if (client->sq.sq_node == node &&
++			    client->sq.sq_port == port)
++				client_free(client);
++		}
++	}
++}
++
++/* Drain the control socket: RRQ/WRQ requests and QRTR control messages. */
++static void service_ctrl_sock(void)
++{
++	static u8 buf[4096];
++	struct sockaddr_qrtr sq;
++	int opcode;
++	int len;
++
++	while ((len = tqftp_recvfrom(tqftp_ctrl_sock, buf, sizeof(buf), &sq)) >= 0) {
++		if (sq.sq_port == QRTR_PORT_CTRL) {
++			handle_ctrl(buf, len, &sq);
++			continue;
++		}
++
++		if (len < 2)
++			continue;
++
++		opcode = buf[0] << 8 | buf[1];
++		switch (opcode) {
++		case OP_RRQ:
++			handle_rrq(buf, len, &sq);
++			break;
++		case OP_WRQ:
++			pr_info("WRQ from %d:%d rejected (read-only server)\n",
++				sq.sq_node, sq.sq_port);
++			tftp_send_error_to(&sq, TFTP_ERROR_EACCESS,
++					   "Write not supported");
++			break;
++		case OP_ERROR:
++			pr_err("error %d from %d:%d\n",
++			       buf[2] << 8 | buf[3], sq.sq_node, sq.sq_port);
++			break;
++		default:
++			pr_err("unhandled op %d from %d:%d\n",
++			       opcode, sq.sq_node, sq.sq_port);
++			break;
++		}
++	}
++}
++
++/* Register QRTR service 4096 by sending a NEW_SERVER control packet. */
++static int tqftp_publish(void)
++{
++	struct qrtr_ctrl_pkt pkt = { };
++	struct sockaddr_qrtr sq;
++
++	pkt.cmd = cpu_to_le32(QRTR_TYPE_NEW_SERVER);
++	pkt.server.service = cpu_to_le32(TQFTP_SERVICE);
++	/* Encoding matches qmi_send_new_server(): version | instance << 8 */
++	pkt.server.instance = cpu_to_le32(TQFTP_VERSION | TQFTP_INSTANCE << 8);
++	pkt.server.node = cpu_to_le32(tqftp_local.sq_node);
++	pkt.server.port = cpu_to_le32(tqftp_local.sq_port);
++
++	sq.sq_family = tqftp_local.sq_family;
++	sq.sq_node = tqftp_local.sq_node;
++	sq.sq_port = QRTR_PORT_CTRL;
++
++	return tqftp_sendto(tqftp_ctrl_sock, &pkt, sizeof(pkt), &sq);
++}
++
++static int tqftp_kthread(void *data)
++{
++	struct tftp_client *client, *next;
++	int ret;
++
++	/*
++	 * Open the control socket in the kthread context. qrtr may still be
++	 * coming up during boot, so retry the whole open+publish sequence
++	 * until it succeeds (the modem retries its TFTP fetch anyway, but we
++	 * want to be registered as early as possible).
++	 */
++	while (!kthread_should_stop()) {
++		tqftp_ctrl_sock = tqftp_open_sock(&tqftp_local);
++		if (!IS_ERR(tqftp_ctrl_sock)) {
++			ret = tqftp_publish();
++			if (ret >= 0)
++				break;
++			pr_warn("service publish failed (%d), retrying\n", ret);
++			sock_release(tqftp_ctrl_sock);
++			tqftp_ctrl_sock = NULL;
++		}
++		schedule_timeout_interruptible(HZ);
++	}
++
++	if (kthread_should_stop())
++		return 0;
++
++	pr_info("published TFTP service %d (node %d port %d)\n",
++		TQFTP_SERVICE, tqftp_local.sq_node, tqftp_local.sq_port);
++
++	while (!kthread_should_stop()) {
++		wait_event_interruptible(tqftp_waitq,
++					 atomic_xchg(&tqftp_wake, 0) ||
++					 kthread_should_stop());
++		if (kthread_should_stop())
++			break;
++
++		/*
++		 * A single sk_data_ready fires for whichever socket got data;
++		 * we don't know which, so drain them all (mirrors the userspace
++		 * select() loop servicing every ready fd).
++		 */
++		list_for_each_entry_safe(client, next, &readers, node) {
++			ret = handle_reader(client);
++			if (ret <= 0)
++				client_free(client);
++		}
++
++		service_ctrl_sock();
++	}
++
++	list_for_each_entry_safe(client, next, &readers, node)
++		client_free(client);
++
++	return 0;
++}
++
++static int __init tqftp_init(void)
++{
++	tqftp_thread = kthread_run(tqftp_kthread, NULL, "tqftpserv");
++	if (IS_ERR(tqftp_thread)) {
++		pr_err("failed to start kthread: %ld\n", PTR_ERR(tqftp_thread));
++		return PTR_ERR(tqftp_thread);
++	}
++	return 0;
++}
++
++static void __exit tqftp_exit(void)
++{
++	if (tqftp_thread)
++		kthread_stop(tqftp_thread);
++	if (tqftp_ctrl_sock && !IS_ERR(tqftp_ctrl_sock))
++		sock_release(tqftp_ctrl_sock);
++}
++
++/* late_initcall: run after qrtr (subsys/module init) is up. */
++late_initcall(tqftp_init);
++module_exit(tqftp_exit);
++
++MODULE_DESCRIPTION("In-kernel TFTP-over-QRTR server for Qualcomm peripheral firmware");
++MODULE_LICENSE("GPL");
+-- 
+2.53.0
+
