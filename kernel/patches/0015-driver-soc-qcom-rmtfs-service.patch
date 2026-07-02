@@ -21,6 +21,14 @@ symlinks are needed. RW_IOVEC payload moves through the reserved qcom,rmtfs-mem
 region, which the existing qcom_rmtfs_mem driver still SCM-assigns to the
 modem; this service only additionally memremaps it.
 
+Response buffers are sized by encoded TLV length (3-byte TLV header per
+element plus payload), not decoded struct size, as qmi_send_response() sizes
+its encode buffer from the len argument and returns -ETOOSMALL otherwise.
+The modem's first OPEN typically races UFS probe; since a QMI failure makes
+the modem fatal instantly, OPEN polls for the backing partition (up to 60s)
+before answering. Blocking is safe: the QMI handle runs handlers on its own
+ordered workqueue and the modem is the only client.
+
 ---
 diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
 index 0922d0cb5..fe616cbad 100644
@@ -61,10 +69,10 @@ index 7903de1ee..de19d30e9 100644
  obj-$(CONFIG_QCOM_PMIC_PDCHARGER_ULOG)	+= pmic_pdcharger_ulog.o
 diff --git a/drivers/soc/qcom/qcom_rmtfs_serv.c b/drivers/soc/qcom/qcom_rmtfs_serv.c
 new file mode 100644
-index 000000000..e82330b3d
+index 000000000..30b2de29d
 --- /dev/null
 +++ b/drivers/soc/qcom/qcom_rmtfs_serv.c
-@@ -0,0 +1,1156 @@
+@@ -0,0 +1,1208 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * In-kernel Qualcomm remote filesystem (rmtfs) QMI service.
@@ -100,6 +108,7 @@ index 000000000..e82330b3d
 +#define pr_fmt(fmt) "rmtfs: " fmt
 +
 +#include <linux/blkdev.h>
++#include <linux/delay.h>
 +#include <linux/fs.h>
 +#include <linux/io.h>
 +#include <linux/kernel.h>
@@ -146,6 +155,36 @@ index 000000000..e82330b3d
 +
 +/* Max iovec entries in one RW_IOVEC (rmtfs_iovec_req.iovec is [255]) */
 +#define RMTFS_MAX_IOVEC			255
++
++/*
++ * Maximum ENCODED (wire TLV) response sizes. qmi_send_response() sizes its
++ * encode buffer from the len argument, so these must cover the encoded TLVs
++ * (each TLV costs 3 bytes of type+length header plus its payload), NOT the
++ * decoded C struct size, which lacks the TLV headers (using sizeof() here
++ * made the encoder return -ETOOSMALL).
++ */
++#define RMTFS_TLV(payload)		(3 + (payload))
++/* result(4) + caller_id(4) */
++#define RMTFS_OPEN_RESP_MAX_LEN		(RMTFS_TLV(4) + RMTFS_TLV(4))
++/* result(4) */
++#define RMTFS_CLOSE_RESP_MAX_LEN	RMTFS_TLV(4)
++/* result(4) */
++#define RMTFS_IOVEC_RESP_MAX_LEN	RMTFS_TLV(4)
++/* result(4) + buff_address(8) */
++#define RMTFS_ALLOC_RESP_MAX_LEN	(RMTFS_TLV(4) + RMTFS_TLV(8))
++/* result(4) + status(1) */
++#define RMTFS_DEV_ERROR_RESP_MAX_LEN	(RMTFS_TLV(4) + RMTFS_TLV(1))
++
++/*
++ * Receive-buffer size for incoming requests. The largest is RW_IOVEC:
++ * caller_id(4) + direction(1) + iovec array (1-byte count + 255 * 12) +
++ * is_force_sync(1), each TLV-framed (~3080 bytes). Rounded up generously.
++ */
++#define RMTFS_MAX_MSG_LEN		4096
++
++/* How long OPEN waits for the backing partition to appear (UFS probe) */
++#define RMTFS_PART_WAIT_MS		60000
++#define RMTFS_PART_POLL_MS		250
 +
 +/*
 + * Path -> GPT partlabel mapping. The modem opens the "/boot/modem_*" virtual
@@ -640,11 +679,32 @@ index 000000000..e82330b3d
 +	u8 *buf;
 +	int ret;
 +
++	/*
++	 * The modem's first OPEN typically arrives before UFS has finished
++	 * probing, so the backing partition may not exist yet. Answering with
++	 * a QMI failure makes the modem fatal immediately (it does not use
++	 * its own retry budget for OPEN errors), so instead poll for the
++	 * partition here. Blocking is fine: the QMI handle runs handlers on
++	 * its own ordered workqueue and the modem is our only client, so
++	 * nothing else is stalled while we wait.
++	 */
 +	ret = rmtfs_devt_from_partlabel(part->partlabel, &devt);
 +	if (ret) {
-+		pr_err("partition '%s' not found (UFS not up yet?)\n",
-+		       part->partlabel);
-+		return ret;
++		unsigned long timeout = jiffies +
++					msecs_to_jiffies(RMTFS_PART_WAIT_MS);
++
++		pr_info("waiting for partition '%s' to appear (UFS still probing?)\n",
++			part->partlabel);
++		while (ret && time_before(jiffies, timeout)) {
++			msleep(RMTFS_PART_POLL_MS);
++			ret = rmtfs_devt_from_partlabel(part->partlabel, &devt);
++		}
++		if (ret) {
++			pr_err("partition '%s' did not appear within %d ms\n",
++			       part->partlabel, RMTFS_PART_WAIT_MS);
++			return ret;
++		}
++		pr_info("partition '%s' appeared\n", part->partlabel);
 +	}
 +
 +	bdev_file = bdev_file_open_by_dev(devt, BLK_OPEN_READ, &rmtfds, NULL);
@@ -830,7 +890,7 @@ index 000000000..e82330b3d
 +
 +respond:
 +	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_OPEN,
-+				sizeof(struct rmtfs_open_resp),
++				RMTFS_OPEN_RESP_MAX_LEN,
 +				rmtfs_open_resp_ei, &resp);
 +	if (ret < 0)
 +		pr_err("OPEN: failed to send response: %d\n", ret);
@@ -872,7 +932,7 @@ index 000000000..e82330b3d
 +	mutex_unlock(&rmtfs_lock);
 +
 +	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_CLOSE,
-+				sizeof(struct rmtfs_close_resp),
++				RMTFS_CLOSE_RESP_MAX_LEN,
 +				rmtfs_close_resp_ei, &resp);
 +	if (ret < 0)
 +		pr_err("CLOSE: failed to send response: %d\n", ret);
@@ -973,7 +1033,7 @@ index 000000000..e82330b3d
 +	mutex_unlock(&rmtfs_lock);
 +
 +	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_RW_IOVEC,
-+				sizeof(struct rmtfs_iovec_resp),
++				RMTFS_IOVEC_RESP_MAX_LEN,
 +				rmtfs_iovec_resp_ei, &resp);
 +	if (ret < 0)
 +		pr_err("RW_IOVEC: failed to send response: %d\n", ret);
@@ -1012,7 +1072,7 @@ index 000000000..e82330b3d
 +	mutex_unlock(&rmtfs_lock);
 +
 +	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_ALLOC_BUFF,
-+				sizeof(struct rmtfs_alloc_buf_resp),
++				RMTFS_ALLOC_RESP_MAX_LEN,
 +				rmtfs_alloc_buf_resp_ei, &resp);
 +	if (ret < 0)
 +		pr_err("ALLOC_BUFF: failed to send response: %d\n", ret);
@@ -1041,7 +1101,7 @@ index 000000000..e82330b3d
 +	mutex_unlock(&rmtfs_lock);
 +
 +	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_GET_DEV_ERROR,
-+				sizeof(struct rmtfs_dev_error_resp),
++				RMTFS_DEV_ERROR_RESP_MAX_LEN,
 +				rmtfs_dev_error_resp_ei, &resp);
 +	if (ret < 0)
 +		pr_err("GET_DEV_ERROR: failed to send response: %d\n", ret);
@@ -1151,7 +1211,7 @@ index 000000000..e82330b3d
 +	if (ret)
 +		return ret;
 +
-+	ret = qmi_handle_init(&rmtfs_qmi, sizeof(struct rmtfs_iovec_req),
++	ret = qmi_handle_init(&rmtfs_qmi, RMTFS_MAX_MSG_LEN,
 +			      &rmtfs_qmi_ops, rmtfs_msg_handlers);
 +	if (ret) {
 +		pr_err("failed to init QMI handle: %d\n", ret);
