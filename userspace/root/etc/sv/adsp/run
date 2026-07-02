@@ -1,4 +1,5 @@
 #!/bin/sh
+set -e
 # adsp - Audio DSP init (runs once)
 exec 2>&1
 

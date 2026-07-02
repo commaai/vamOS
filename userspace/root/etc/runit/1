@@ -104,6 +104,11 @@ mount_part() {
     opts="${3:-ro}"
     dev="/dev/disk/by-partlabel/$label"
 
+    if mountpoint -q "$mnt"; then
+        echo "=> $mnt already mounted"
+        return 0
+    fi
+
     if wait_for_dev "$dev" 60; then
         if mount -o "$opts" "$dev" "$mnt"; then
             echo "=> $mnt mounted ($label)"
@@ -120,6 +125,7 @@ echo "=> Mounting partitions..."
 # Note: /firmware (modem_a) is mounted earlier before udev
 for part in \
     "userdata:/data:rw,noatime,nodiratime" \
+    "modem_a:/firmware:ro" \
     "dsp_a:/dsp:ro" \
     "persist:/persist:ro" \
     "cache:/cache:relatime,data=ordered,noauto_da_alloc,discard,noexec,nodev,nosuid" \

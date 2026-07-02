@@ -1,68 +1,121 @@
 #!/bin/sh
-###############################################################################
-#
-# This script is used for administration of the Hexagon DSP
-#
-# Copyright (c) 2012-2016 Qualcomm Technologies, Inc.
-# All Rights Reserved.
-# Confidential and Proprietary - Qualcomm Technologies, Inc.
-#
-###############################################################################
+set -e
 
-KEEP_ALIVE=0
-subsys_name=""
+firmware_available() {
+  [ -s /firmware/image/adsp.mdt ] && return 0
+  [ -s /lib/firmware/updates/adsp.mdt ] && return 0
+  [ -s /lib/firmware/adsp.mdt ] && return 0
+  [ -s /lib/firmware/qcom/sdm845/adsp.mdt ] && return 0
+  return 1
+}
 
-echo -n "/firmware/image" > /sys/module/firmware_class/parameters/path
+ensure_firmware_ready() {
+  N=0
+  while :; do
+    firmware_available && return 0
 
-# Wait for adsp.mdt to show up
-count=0
-while [ ! -s /firmware/image/adsp.mdt ]; do
-  sleep 0.1
-  # wait 10s for /firmware mounted
-  count=$(( $count + 1 ))
-  if [ $count -ge 100 ]; then
-    echo "[ERROR] Can not find the adsp's firmware"
-    exit 1
-  fi
-done
-
-for subsys in `ls /sys/bus/msm_subsys/devices`; do
-  name=`cat /sys/bus/msm_subsys/devices/${subsys}/name`
-  if [ "`cat /sys/bus/msm_subsys/devices/${subsys}/name`" = "adsp" ]; then
-    subsys_name="${subsys}"
-    break
-  fi
-done
-
-if [ "$KEEP_ALIVE" = "1" ]; then
-  if [ -n "${subsys_name}" ]; then
-    sysctl -w kernel.panic=0
-    echo 1 > /sys/bus/msm_subsys/devices/${subsys_name}/keep_alive
-  else
-    echo "[ERROR] Can not keep adsp alive"
-  fi
-fi
-
-# FIXME: See ATL-3054
-echo 1 > /sys/module/subsystem_restart/parameters/enable_debug
-# Bring adsp out of reset
-echo "[INFO] Bringing adsp out of reset"
-echo "${subsys_name}"
-echo 1 > /sys/kernel/boot_adsp/boot
-
-# wait boot finished
-if [ -n "${subsys_name}" ]; then
-  count=0
-  state=`cat /sys/bus/msm_subsys/devices/${subsys_name}/state`
-  while [ "${state}" != "ONLINE" ]; do
-    # wait 2s for subsys boot finished
-    count=$(( $count + 1 ))
-    if [ $count -ge 200 ]; then
-      echo "[ERROR] adsp fail to boot"
-      exit 1
+    # If modem firmware partition is not mounted yet, try mounting it.
+    if ! mountpoint -q /firmware 2>/dev/null; then
+      if [ -b /dev/disk/by-partlabel/modem_a ]; then
+        mount -t vfat -o ro /dev/disk/by-partlabel/modem_a /firmware 2>/dev/null || true
+      elif [ -b /dev/sde4 ]; then
+        mount -t vfat -o ro /dev/sde4 /firmware 2>/dev/null || true
+      fi
     fi
-    state=`cat /sys/bus/msm_subsys/devices/${subsys_name}/state`
+
+    N=$((N + 1))
+    [ "$N" -ge 600 ] && return 1
     sleep 0.1
   done
-fi
+}
 
+find_adsp_remoteproc() {
+  for d in /sys/class/remoteproc/remoteproc*; do
+    [ -d "$d" ] || continue
+    if [ "$(cat "$d/name" 2>/dev/null)" = "adsp" ]; then
+      echo "$d"
+      return 0
+    fi
+  done
+  return 1
+}
+
+start_adsp_remoteproc() {
+  ADSP_RP=""
+  ADSP_STATE=""
+  TRY_N=0
+  ADSP_N=0
+  while :; do
+    ADSP_RP="$(find_adsp_remoteproc || true)"
+    [ -n "$ADSP_RP" ] && break
+    ADSP_N=$((ADSP_N + 1))
+    [ "$ADSP_N" -ge 200 ] && return 1
+    sleep 0.1
+  done
+
+  ADSP_STATE="$(cat "$ADSP_RP/state" 2>/dev/null || true)"
+  if [ "$ADSP_STATE" = "running" ]; then
+    return 0
+  fi
+
+  ensure_firmware_ready
+
+  # Firmware can become available slightly after remoteproc shows up, so retry start.
+  TRY_N=0
+  while :; do
+    echo "adsp.mdt" > "$ADSP_RP/firmware"
+    echo "start" > "$ADSP_RP/state" 2>/dev/null || true
+    ADSP_STATE="$(cat "$ADSP_RP/state" 2>/dev/null || true)"
+    [ "$ADSP_STATE" = "running" ] && return 0
+    TRY_N=$((TRY_N + 1))
+    [ "$TRY_N" -ge 120 ] && return 1
+    sleep 0.1
+  done
+}
+
+start_adsp_legacy() {
+  ADSP_SUBSYS_NAME=""
+  ADSP_COUNT=0
+  ADSP_STATE=""
+
+  echo -n "/firmware/image" > /sys/module/firmware_class/parameters/path
+
+  while [ ! -s /firmware/image/adsp.mdt ]; do
+    sleep 1
+    ADSP_COUNT=$((ADSP_COUNT + 1))
+    [ "$ADSP_COUNT" -ge 100 ] && return 1
+  done
+
+  for subsys in /sys/bus/msm_subsys/devices/*; do
+    [ -d "$subsys" ] || continue
+    if [ "$(cat "$subsys/name" 2>/dev/null)" = "adsp" ]; then
+      ADSP_SUBSYS_NAME="${subsys##*/}"
+      break
+    fi
+  done
+
+  [ -n "$ADSP_SUBSYS_NAME" ] || return 1
+
+  if [ -e /sys/module/subsystem_restart/parameters/enable_debug ]; then
+    echo 1 > /sys/module/subsystem_restart/parameters/enable_debug
+  fi
+
+  echo 1 > /sys/kernel/boot_adsp/boot
+
+  ADSP_COUNT=0
+  ADSP_STATE="$(cat "/sys/bus/msm_subsys/devices/${ADSP_SUBSYS_NAME}/state" 2>/dev/null || true)"
+  while [ "$ADSP_STATE" != "ONLINE" ]; do
+    ADSP_COUNT=$((ADSP_COUNT + 1))
+    [ "$ADSP_COUNT" -ge 200 ] && return 1
+    sleep 0.1
+    ADSP_STATE="$(cat "/sys/bus/msm_subsys/devices/${ADSP_SUBSYS_NAME}/state" 2>/dev/null || true)"
+  done
+}
+
+if [ -d /sys/class/remoteproc ]; then
+  echo "[INFO] Starting ADSP via remoteproc"
+  start_adsp_remoteproc
+else
+  echo "[INFO] Starting ADSP via legacy msm_subsys"
+  start_adsp_legacy
+fi
