@@ -1,0 +1,1225 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Trey Moen <trey@moen.ai>
+Date: Wed, 1 Jul 2026 00:00:02 +0000
+Subject: soc: qcom: add in-kernel remote filesystem (rmtfs) QMI service
+
+Minimal in-kernel reimplementation of the userspace linux-msm/rmtfs daemon.
+Publishes QMI service 14 (rmtfs, version 1, instance 0) and services the
+modem's EFS read/write requests, which the modem remoteproc requires: without
+it the modem boots but self-fatals after ~40s because rmtfs is unavailable.
+Required on comma devices where the proprietary Qualcomm userspace is inert.
+
+EFS lives in the modemst1/modemst2/fsc/fsg GPT partitions (factory
+calibration/provisioning). To eliminate any risk of corrupting that data,
+on-flash EFS is treated as strictly read-only: each backing partition is
+shadowed in RAM on first access, reads are served from the shadow, and writes
+are applied only to the shadow (never written back to flash). This mirrors the
+userspace daemon's read-only shadow mode, which is how vamOS runs it
+(rmtfs -r -s -P). Partitions are resolved by GPT partlabel entirely in-kernel
+(matching bd_meta_info->volname across block_class), so no udev by-partlabel
+symlinks are needed. RW_IOVEC payload moves through the reserved qcom,rmtfs-mem
+region, which the existing qcom_rmtfs_mem driver still SCM-assigns to the
+modem; this service only additionally memremaps it.
+
+---
+diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
+index 0922d0cb5..fe616cbad 100644
+--- a/drivers/soc/qcom/Kconfig
++++ b/drivers/soc/qcom/Kconfig
+@@ -107,6 +107,20 @@ config QCOM_TQFTPSERV
+ 	  protection domain on systems where the proprietary Qualcomm userspace
+ 	  is not present. Read-only; writes are rejected.
+ 
++config QCOM_RMTFS_SERV
++	tristate "Qualcomm in-kernel remote filesystem (rmtfs) QMI service"
++	depends on NET && QRTR && BLOCK
++	select QCOM_QMI_HELPERS
++	help
++	  In-kernel reimplementation of the userspace linux-msm/rmtfs daemon.
++	  It publishes QMI service 14 (rmtfs) and services the modem's EFS
++	  read/write requests out of the modemst1/modemst2/fsc/fsg partitions,
++	  moving payload through the reserved qcom,rmtfs-mem region. This is
++	  needed to keep the modem remoteproc alive on systems where the
++	  proprietary Qualcomm userspace is not present. On-flash EFS is treated
++	  as read-only: partitions are shadowed in RAM and writes are applied
++	  only to the RAM copy, never written back to flash.
++
+ config QCOM_PMIC_PDCHARGER_ULOG
+ 	tristate "Qualcomm PMIC PDCharger ULOG driver"
+ 	depends on RPMSG
+diff --git a/drivers/soc/qcom/Makefile b/drivers/soc/qcom/Makefile
+index 7903de1ee..de19d30e9 100644
+--- a/drivers/soc/qcom/Makefile
++++ b/drivers/soc/qcom/Makefile
+@@ -11,6 +11,7 @@ obj-$(CONFIG_QCOM_PD_MAPPER)	+= qcom_pd_mapper.o
+ obj-$(CONFIG_QCOM_PDR_HELPERS)	+= pdr_interface.o
+ obj-$(CONFIG_QCOM_PDR_MSG)	+= qcom_pdr_msg.o
+ obj-$(CONFIG_QCOM_TQFTPSERV)	+= qcom_tqftpserv.o
++obj-$(CONFIG_QCOM_RMTFS_SERV)	+= qcom_rmtfs_serv.o
+ obj-$(CONFIG_QCOM_PMIC_GLINK)	+= pmic_glink.o
+ obj-$(CONFIG_QCOM_PMIC_GLINK)	+= pmic_glink_altmode.o
+ obj-$(CONFIG_QCOM_PMIC_PDCHARGER_ULOG)	+= pmic_pdcharger_ulog.o
+diff --git a/drivers/soc/qcom/qcom_rmtfs_serv.c b/drivers/soc/qcom/qcom_rmtfs_serv.c
+new file mode 100644
+index 000000000..e82330b3d
+--- /dev/null
++++ b/drivers/soc/qcom/qcom_rmtfs_serv.c
+@@ -0,0 +1,1156 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * In-kernel Qualcomm remote filesystem (rmtfs) QMI service.
++ *
++ * On an unmodified legacy comma rootfs the proprietary Qualcomm userspace
++ * daemons are inert, so nothing answers the RMTFS QMI requests the modem
++ * issues to access its EFS storage. The modem remoteproc boots but self-fatals
++ * after ~40s because QMI service 14 (rmtfs) is unavailable. This is a minimal,
++ * in-kernel reimplementation of the userspace linux-msm/rmtfs daemon that
++ * publishes QMI service 14 (version 1, instance 0) and services the modem's
++ * EFS read/write requests.
++ *
++ * Storage safety model (deliberate):
++ *   The modem's EFS lives in the modemst1/modemst2/fsc/fsg GPT partitions,
++ *   which hold factory calibration and provisioning data. To eliminate any
++ *   risk of corrupting that data we treat on-flash EFS as strictly READ-ONLY:
++ *   on first access each backing partition is copied in full into a RAM shadow
++ *   buffer; reads are served from the shadow, and writes are applied ONLY to
++ *   the shadow (never written back to flash). This keeps the modem happy
++ *   (its writes "succeed") with zero risk to the factory partitions. This
++ *   mirrors the userspace daemon's -r (read-only) shadow-buffer behaviour,
++ *   which is how vamOS runs it (rmtfs -r -s -P).
++ *
++ * The bulk EFS payload for RW_IOVEC transfers moves through the reserved rmtfs
++ * shared-memory region (DT compatible "qcom,rmtfs-mem"), which the existing
++ * qcom_rmtfs_mem driver has already SCM-assigned to the modem. We additionally
++ * memremap the same region here to move sectors between it and the RAM shadow.
++ *
++ * Protocol reference: linux-msm/rmtfs (github.com/linux-msm/rmtfs).
++ * Copyright (c) 2016-2018, Linaro Ltd. (protocol reference)
++ */
++
++#define pr_fmt(fmt) "rmtfs: " fmt
++
++#include <linux/blkdev.h>
++#include <linux/fs.h>
++#include <linux/io.h>
++#include <linux/kernel.h>
++#include <linux/kthread.h>
++#include <linux/module.h>
++#include <linux/mutex.h>
++#include <linux/of.h>
++#include <linux/of_reserved_mem.h>
++#include <linux/sizes.h>
++#include <linux/slab.h>
++#include <linux/string.h>
++#include <linux/vmalloc.h>
++
++#include <linux/soc/qcom/qmi.h>
++
++/* QMI service identity: RMTFS, version 1, instance 0 */
++#define RMTFS_SERVICE			14
++#define RMTFS_VERSION			1
++#define RMTFS_INSTANCE			0
++
++/* QMI message ids (from linux-msm/rmtfs qmi_rmtfs.h) */
++#define QMI_RMTFS_OPEN			0x01
++#define QMI_RMTFS_CLOSE			0x02
++#define QMI_RMTFS_RW_IOVEC		0x03
++#define QMI_RMTFS_ALLOC_BUFF		0x04
++#define QMI_RMTFS_GET_DEV_ERROR		0x05
++/* 0x06 FORCE_SYNC is an indication we send to the modem; unused here */
++
++/* rmtfs-specific result/error codes */
++#define QMI_RMTFS_ERR_NONE		0
++#define QMI_RMTFS_ERR_INTERNAL		1
++
++/* EFS is addressed in 512-byte sectors (linux-msm/rmtfs SECTOR_SIZE) */
++#define RMTFS_SECTOR_SIZE		512
++
++/* Max simultaneous callers, mirrors linux-msm/rmtfs MAX_CALLERS */
++#define RMTFS_MAX_CALLERS		10
++
++/* Longest path the modem may request (rmtfs_open_req.path is char[256]) */
++#define RMTFS_MAX_PATH			256
++
++/* Refuse to shadow a partition larger than this (EFS partitions are small) */
++#define RMTFS_MAX_SHADOW		(16 * 1024 * 1024)
++
++/* Max iovec entries in one RW_IOVEC (rmtfs_iovec_req.iovec is [255]) */
++#define RMTFS_MAX_IOVEC			255
++
++/*
++ * Path -> GPT partlabel mapping. The modem opens the "/boot/modem_*" virtual
++ * paths; each maps to a raw EFS partition addressed by its GPT volume name.
++ * (linux-msm/rmtfs storage.c partition_table.)
++ */
++static const struct rmtfs_partition {
++	const char *path;
++	const char *partlabel;
++} rmtfs_partitions[] = {
++	{ "/boot/modem_fs1",		"modemst1" },
++	{ "/boot/modem_fs2",		"modemst2" },
++	{ "/boot/modem_fsc",		"fsc" },
++	{ "/boot/modem_fsg",		"fsg" },
++	{ "/boot/modem_study",		"study" },
++	{ "/boot/modem_tunning",	"tunning" },
++};
++
++/*
++ * One open EFS backing store. caller_id is the index of this slot in the
++ * rmtfds[] array (mirrors linux-msm/rmtfs, where caller_id == array index).
++ */
++struct rmtfs_caller {
++	bool in_use;
++	unsigned int id;		/* == index in rmtfds[] == caller_id */
++	unsigned int node;		/* QRTR node that opened us */
++	const struct rmtfs_partition *part;
++
++	/* RAM shadow of the backing partition (read-only w.r.t. flash) */
++	u8 *shadow;
++	size_t shadow_len;
++
++	u32 dev_error;
++};
++
++/* ---- QMI wire structures (decoded form) ---- */
++
++struct rmtfs_qmi_result {
++	u16 result;
++	u16 error;
++};
++
++struct rmtfs_iovec_entry {
++	u32 sector_addr;
++	u32 phys_offset;
++	u32 num_sector;
++};
++
++struct rmtfs_open_req {
++	char path[RMTFS_MAX_PATH];
++};
++
++struct rmtfs_open_resp {
++	struct rmtfs_qmi_result result;
++	u8 caller_id_valid;
++	u32 caller_id;
++};
++
++struct rmtfs_close_req {
++	u32 caller_id;
++};
++
++struct rmtfs_close_resp {
++	struct rmtfs_qmi_result result;
++};
++
++struct rmtfs_iovec_req {
++	u32 caller_id;
++	u8 direction;			/* 0 = read (mem<-storage), 1 = write */
++	u32 iovec_len;
++	struct rmtfs_iovec_entry iovec[RMTFS_MAX_IOVEC];
++	u8 is_force_sync;
++};
++
++struct rmtfs_iovec_resp {
++	struct rmtfs_qmi_result result;
++};
++
++struct rmtfs_alloc_buf_req {
++	u32 caller_id;
++	u32 buff_size;
++};
++
++struct rmtfs_alloc_buf_resp {
++	struct rmtfs_qmi_result result;
++	u8 buff_address_valid;
++	u64 buff_address;
++};
++
++struct rmtfs_dev_error_req {
++	u32 caller_id;
++};
++
++struct rmtfs_dev_error_resp {
++	struct rmtfs_qmi_result result;
++	u8 status_valid;
++	u8 status;
++};
++
++/* ---- QMI TLV descriptors (mirror linux-msm/rmtfs qmi_rmtfs.c) ---- */
++
++static const struct qmi_elem_info rmtfs_qmi_result_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_2_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u16),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0,
++		.offset		= offsetof(struct rmtfs_qmi_result, result),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_2_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u16),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0,
++		.offset		= offsetof(struct rmtfs_qmi_result, error),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_iovec_entry_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0,
++		.offset		= offsetof(struct rmtfs_iovec_entry, sector_addr),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0,
++		.offset		= offsetof(struct rmtfs_iovec_entry, phys_offset),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0,
++		.offset		= offsetof(struct rmtfs_iovec_entry, num_sector),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_open_req_ei[] = {
++	{
++		.data_type	= QMI_STRING,
++		.elem_len	= RMTFS_MAX_PATH,
++		.elem_size	= sizeof(char),
++		.array_type	= VAR_LEN_ARRAY,
++		.tlv_type	= 0x01,
++		.offset		= offsetof(struct rmtfs_open_req, path),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_open_resp_ei[] = {
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= 1,
++		.elem_size	= sizeof(struct rmtfs_qmi_result),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_open_resp, result),
++		.ei_array	= rmtfs_qmi_result_ei,
++	},
++	{
++		.data_type	= QMI_OPT_FLAG,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_open_resp, caller_id_valid),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_open_resp, caller_id),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_close_req_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x01,
++		.offset		= offsetof(struct rmtfs_close_req, caller_id),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_close_resp_ei[] = {
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= 1,
++		.elem_size	= sizeof(struct rmtfs_qmi_result),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_close_resp, result),
++		.ei_array	= rmtfs_qmi_result_ei,
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_iovec_req_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x01,
++		.offset		= offsetof(struct rmtfs_iovec_req, caller_id),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_1_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_iovec_req, direction),
++	},
++	{
++		.data_type	= QMI_DATA_LEN,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x03,
++		.offset		= offsetof(struct rmtfs_iovec_req, iovec_len),
++	},
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= RMTFS_MAX_IOVEC,
++		.elem_size	= sizeof(struct rmtfs_iovec_entry),
++		.array_type	= VAR_LEN_ARRAY,
++		.tlv_type	= 0x03,
++		.offset		= offsetof(struct rmtfs_iovec_req, iovec),
++		.ei_array	= rmtfs_iovec_entry_ei,
++	},
++	{
++		.data_type	= QMI_UNSIGNED_1_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x04,
++		.offset		= offsetof(struct rmtfs_iovec_req, is_force_sync),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_iovec_resp_ei[] = {
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= 1,
++		.elem_size	= sizeof(struct rmtfs_qmi_result),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_iovec_resp, result),
++		.ei_array	= rmtfs_qmi_result_ei,
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_alloc_buf_req_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x01,
++		.offset		= offsetof(struct rmtfs_alloc_buf_req, caller_id),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_alloc_buf_req, buff_size),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_alloc_buf_resp_ei[] = {
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= 1,
++		.elem_size	= sizeof(struct rmtfs_qmi_result),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_alloc_buf_resp, result),
++		.ei_array	= rmtfs_qmi_result_ei,
++	},
++	{
++		.data_type	= QMI_OPT_FLAG,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_alloc_buf_resp, buff_address_valid),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_8_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u64),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_alloc_buf_resp, buff_address),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_dev_error_req_ei[] = {
++	{
++		.data_type	= QMI_UNSIGNED_4_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u32),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x01,
++		.offset		= offsetof(struct rmtfs_dev_error_req, caller_id),
++	},
++	{}
++};
++
++static const struct qmi_elem_info rmtfs_dev_error_resp_ei[] = {
++	{
++		.data_type	= QMI_STRUCT,
++		.elem_len	= 1,
++		.elem_size	= sizeof(struct rmtfs_qmi_result),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x02,
++		.offset		= offsetof(struct rmtfs_dev_error_resp, result),
++		.ei_array	= rmtfs_qmi_result_ei,
++	},
++	{
++		.data_type	= QMI_OPT_FLAG,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_dev_error_resp, status_valid),
++	},
++	{
++		.data_type	= QMI_UNSIGNED_1_BYTE,
++		.elem_len	= 1,
++		.elem_size	= sizeof(u8),
++		.array_type	= NO_ARRAY,
++		.tlv_type	= 0x10,
++		.offset		= offsetof(struct rmtfs_dev_error_resp, status),
++	},
++	{}
++};
++
++/* ---- driver state ---- */
++
++static struct qmi_handle rmtfs_qmi;
++static bool rmtfs_qmi_ready;
++
++static DEFINE_MUTEX(rmtfs_lock);	/* guards rmtfds[] and shared-mem access */
++static struct rmtfs_caller rmtfds[RMTFS_MAX_CALLERS];
++
++/* memremap of the reserved "qcom,rmtfs-mem" region (shared with the modem) */
++static void __iomem *rmtfs_shmem;
++static phys_addr_t rmtfs_shmem_base;
++static size_t rmtfs_shmem_size;
++
++/* ---- reserved shared-memory region ---- */
++
++/*
++ * Map the reserved rmtfs shared-memory region. The modem transfers EFS payload
++ * through this region; RW_IOVEC phys_offset values are absolute physical
++ * addresses within it. We resolve and memremap it exactly the way the existing
++ * qcom_rmtfs_mem driver does (same base/size, same optional guard pages, same
++ * MEMREMAP_WC), so our view of a phys_offset matches the modem's. The
++ * qcom_rmtfs_mem driver still owns the SCM assignment; we only add a mapping.
++ */
++static int rmtfs_map_shmem(void)
++{
++	struct device_node *node;
++	struct reserved_mem *rmem;
++	phys_addr_t addr;
++	size_t size;
++
++	if (rmtfs_shmem)
++		return 0;
++
++	node = of_find_compatible_node(NULL, NULL, "qcom,rmtfs-mem");
++	if (!node) {
++		pr_err("no qcom,rmtfs-mem reserved-memory node in DT\n");
++		return -ENODEV;
++	}
++
++	rmem = of_reserved_mem_lookup(node);
++	if (!rmem) {
++		of_node_put(node);
++		pr_err("failed to look up rmtfs reserved memory\n");
++		return -EINVAL;
++	}
++
++	addr = rmem->base;
++	size = rmem->size;
++
++	/* Match qcom_rmtfs_mem's optional guard-page trimming. */
++	if (of_property_read_bool(node, "qcom,use-guard-pages")) {
++		addr += SZ_4K;
++		size -= 2 * SZ_4K;
++	}
++	of_node_put(node);
++
++	rmtfs_shmem = memremap(addr, size, MEMREMAP_WC);
++	if (!rmtfs_shmem) {
++		pr_err("failed to memremap rmtfs shmem %pa (%zu bytes)\n",
++		       &addr, size);
++		return -ENOMEM;
++	}
++
++	rmtfs_shmem_base = addr;
++	rmtfs_shmem_size = size;
++	pr_info("mapped rmtfs shmem: base %pa size %zu\n", &addr, size);
++	return 0;
++}
++
++/*
++ * Translate a modem phys_offset (absolute physical address within the shared
++ * region) to a kernel pointer, validating that [off, off+len) is in-bounds.
++ * Mirrors linux-msm/rmtfs: base + (phys - region_base).
++ */
++static void __iomem *rmtfs_shmem_ptr(u64 phys, size_t len)
++{
++	u64 rel;
++
++	if (phys < rmtfs_shmem_base)
++		return NULL;
++	rel = phys - rmtfs_shmem_base;
++	if (rel > rmtfs_shmem_size || len > rmtfs_shmem_size - rel)
++		return NULL;
++	return rmtfs_shmem + rel;
++}
++
++/* ---- partition -> RAM shadow ---- */
++
++static int rmtfs_match_partlabel(struct device *dev, const void *data)
++{
++	struct block_device *bdev = dev_to_bdev(dev);
++	const char *label = data;
++
++	if (!bdev->bd_meta_info || strcmp(label, bdev->bd_meta_info->volname))
++		return 0;
++	return 1;
++}
++
++/*
++ * Resolve a GPT partlabel to a dev_t entirely in-kernel by matching
++ * bd_meta_info->volname across block_class. This is the same mechanism the
++ * kernel's own PARTLABEL= root= parsing uses (block/early-lookup.c), so it
++ * needs no udev/by-partlabel symlinks in userspace.
++ */
++static int rmtfs_devt_from_partlabel(const char *label, dev_t *devt)
++{
++	struct device *dev;
++
++	dev = class_find_device(&block_class, NULL, label,
++				rmtfs_match_partlabel);
++	if (!dev)
++		return -ENODEV;
++	*devt = dev->devt;
++	put_device(dev);
++	return 0;
++}
++
++/*
++ * Read an EFS backing partition in full into a freshly allocated RAM shadow.
++ * The partition is opened READ-ONLY; we never write back to flash.
++ */
++static int rmtfs_load_shadow(const struct rmtfs_partition *part,
++			     u8 **out_buf, size_t *out_len)
++{
++	struct file *bdev_file;
++	dev_t devt;
++	loff_t size;
++	loff_t pos = 0;
++	u8 *buf;
++	int ret;
++
++	ret = rmtfs_devt_from_partlabel(part->partlabel, &devt);
++	if (ret) {
++		pr_err("partition '%s' not found (UFS not up yet?)\n",
++		       part->partlabel);
++		return ret;
++	}
++
++	bdev_file = bdev_file_open_by_dev(devt, BLK_OPEN_READ, &rmtfds, NULL);
++	if (IS_ERR(bdev_file)) {
++		ret = PTR_ERR(bdev_file);
++		pr_err("failed to open partition '%s': %d\n",
++		       part->partlabel, ret);
++		return ret;
++	}
++
++	size = bdev_nr_bytes(file_bdev(bdev_file));
++	if (size <= 0 || size > RMTFS_MAX_SHADOW) {
++		pr_err("partition '%s' has implausible size %lld, refusing\n",
++		       part->partlabel, size);
++		ret = -EFBIG;
++		goto out_close;
++	}
++
++	buf = vmalloc(size);
++	if (!buf) {
++		ret = -ENOMEM;
++		goto out_close;
++	}
++
++	while (pos < size) {
++		ssize_t n = kernel_read(bdev_file, buf + pos, size - pos, &pos);
++
++		if (n <= 0) {
++			pr_err("read of partition '%s' failed at %lld: %zd\n",
++			       part->partlabel, pos, n);
++			vfree(buf);
++			ret = n < 0 ? n : -EIO;
++			goto out_close;
++		}
++	}
++
++	*out_buf = buf;
++	*out_len = size;
++	ret = 0;
++	pr_info("loaded EFS shadow for '%s' (%s): %lld bytes (read-only)\n",
++		part->path, part->partlabel, size);
++
++out_close:
++	fput(bdev_file);
++	return ret;
++}
++
++/*
++ * Serve a sector read from the RAM shadow, zero-padding past EOF.
++ * Mirrors linux-msm/rmtfs storage_pread shadow behaviour.
++ */
++static void rmtfs_shadow_read(struct rmtfs_caller *c, u8 *dst, loff_t off,
++			      size_t len)
++{
++	size_t avail = 0;
++
++	if (off < c->shadow_len)
++		avail = min_t(size_t, len, c->shadow_len - off);
++	if (avail)
++		memcpy(dst, c->shadow + off, avail);
++	if (avail < len)
++		memset(dst + avail, 0, len - avail);
++}
++
++/*
++ * Apply a sector write to the RAM shadow ONLY (never to flash). Grows the
++ * shadow buffer if the modem writes past the current end, mirroring
++ * linux-msm/rmtfs storage_pwrite read-only shadow behaviour.
++ */
++static int rmtfs_shadow_write(struct rmtfs_caller *c, const u8 *src,
++			      loff_t off, size_t len)
++{
++	if (off < 0 || len > RMTFS_MAX_SHADOW || off > RMTFS_MAX_SHADOW - len)
++		return -EFBIG;
++
++	if (off + len > c->shadow_len) {
++		size_t newlen = off + len;
++		u8 *nb = vmalloc(newlen);
++
++		if (!nb)
++			return -ENOMEM;
++		if (c->shadow_len)
++			memcpy(nb, c->shadow, c->shadow_len);
++		memset(nb + c->shadow_len, 0, newlen - c->shadow_len);
++		vfree(c->shadow);
++		c->shadow = nb;
++		c->shadow_len = newlen;
++	}
++
++	memcpy(c->shadow + off, src, len);
++	return 0;
++}
++
++static void rmtfs_caller_release(struct rmtfs_caller *c)
++{
++	if (!c->in_use)
++		return;
++	vfree(c->shadow);
++	c->shadow = NULL;
++	c->shadow_len = 0;
++	c->in_use = false;
++	c->part = NULL;
++	c->node = 0;
++	c->dev_error = 0;
++}
++
++/* ---- QMI message handlers ---- */
++
++static void rmtfs_handle_open(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			      struct qmi_txn *txn, const void *decoded)
++{
++	const struct rmtfs_open_req *req = decoded;
++	struct rmtfs_open_resp resp = {};
++	const struct rmtfs_partition *part = NULL;
++	struct rmtfs_caller *c = NULL;
++	char path[RMTFS_MAX_PATH];
++	int i, ret;
++
++	strscpy(path, req->path, sizeof(path));
++	pr_info("OPEN '%s' from %d:%d\n", path, sq->sq_node, sq->sq_port);
++
++	for (i = 0; i < ARRAY_SIZE(rmtfs_partitions); i++) {
++		if (!strcmp(path, rmtfs_partitions[i].path)) {
++			part = &rmtfs_partitions[i];
++			break;
++		}
++	}
++	if (!part) {
++		pr_err("OPEN: unknown path '%s'\n", path);
++		resp.result.result = QMI_RESULT_FAILURE_V01;
++		resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++		goto respond;
++	}
++
++	mutex_lock(&rmtfs_lock);
++
++	/* Reuse an existing open for the same partition from the same node. */
++	for (i = 0; i < RMTFS_MAX_CALLERS; i++) {
++		if (rmtfds[i].in_use && rmtfds[i].part == part &&
++		    rmtfds[i].node == sq->sq_node) {
++			c = &rmtfds[i];
++			break;
++		}
++	}
++
++	if (!c) {
++		for (i = 0; i < RMTFS_MAX_CALLERS; i++) {
++			if (!rmtfds[i].in_use) {
++				c = &rmtfds[i];
++				break;
++			}
++		}
++		if (!c) {
++			mutex_unlock(&rmtfs_lock);
++			pr_err("OPEN: no free caller slots\n");
++			resp.result.result = QMI_RESULT_FAILURE_V01;
++			resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++			goto respond;
++		}
++
++		ret = rmtfs_load_shadow(part, &c->shadow, &c->shadow_len);
++		if (ret) {
++			mutex_unlock(&rmtfs_lock);
++			resp.result.result = QMI_RESULT_FAILURE_V01;
++			resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++			goto respond;
++		}
++
++		c->in_use = true;
++		c->id = i;
++		c->node = sq->sq_node;
++		c->part = part;
++		c->dev_error = 0;
++	}
++
++	resp.result.result = QMI_RESULT_SUCCESS_V01;
++	resp.result.error = QMI_RMTFS_ERR_NONE;
++	resp.caller_id_valid = 1;
++	resp.caller_id = c->id;
++	mutex_unlock(&rmtfs_lock);
++
++	pr_info("OPEN '%s' -> caller_id %u\n", path, resp.caller_id);
++
++respond:
++	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_OPEN,
++				sizeof(struct rmtfs_open_resp),
++				rmtfs_open_resp_ei, &resp);
++	if (ret < 0)
++		pr_err("OPEN: failed to send response: %d\n", ret);
++}
++
++static struct rmtfs_caller *rmtfs_find_caller(u32 caller_id, unsigned int node)
++{
++	struct rmtfs_caller *c;
++
++	if (caller_id >= RMTFS_MAX_CALLERS)
++		return NULL;
++	c = &rmtfds[caller_id];
++	if (!c->in_use || c->node != node)
++		return NULL;
++	return c;
++}
++
++static void rmtfs_handle_close(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			       struct qmi_txn *txn, const void *decoded)
++{
++	const struct rmtfs_close_req *req = decoded;
++	struct rmtfs_close_resp resp = {};
++	struct rmtfs_caller *c;
++	int ret;
++
++	mutex_lock(&rmtfs_lock);
++	c = rmtfs_find_caller(req->caller_id, sq->sq_node);
++	if (c) {
++		pr_info("CLOSE caller_id %u ('%s')\n",
++			req->caller_id, c->part->path);
++		rmtfs_caller_release(c);
++		resp.result.result = QMI_RESULT_SUCCESS_V01;
++		resp.result.error = QMI_RMTFS_ERR_NONE;
++	} else {
++		pr_err("CLOSE: bad caller_id %u\n", req->caller_id);
++		resp.result.result = QMI_RESULT_FAILURE_V01;
++		resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++	}
++	mutex_unlock(&rmtfs_lock);
++
++	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_CLOSE,
++				sizeof(struct rmtfs_close_resp),
++				rmtfs_close_resp_ei, &resp);
++	if (ret < 0)
++		pr_err("CLOSE: failed to send response: %d\n", ret);
++}
++
++/*
++ * RW_IOVEC: move EFS sectors between the shared-memory region and the RAM
++ * shadow. direction 0 = read (storage -> shmem), 1 = write (shmem -> storage,
++ * i.e. into the shadow only). Mirrors linux-msm/rmtfs rmtfs_iovec():
++ *   phys_base   = entry.phys_offset  (absolute phys addr in shmem)
++ *   sector_base = entry.sector_addr * SECTOR_SIZE  (byte offset in storage)
++ * transferring num_sector * SECTOR_SIZE bytes per entry.
++ */
++static void rmtfs_handle_iovec(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			       struct qmi_txn *txn, const void *decoded)
++{
++	const struct rmtfs_iovec_req *req = decoded;
++	struct rmtfs_iovec_resp resp = {};
++	struct rmtfs_caller *c;
++	bool is_write = req->direction;
++	u8 sector[RMTFS_SECTOR_SIZE];
++	unsigned int i, j;
++	bool logged = false;
++	int ret = 0;
++
++	mutex_lock(&rmtfs_lock);
++
++	c = rmtfs_find_caller(req->caller_id, sq->sq_node);
++	if (!c) {
++		pr_err("RW_IOVEC: bad caller_id %u\n", req->caller_id);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	if (!rmtfs_shmem) {
++		pr_err("RW_IOVEC: shmem not mapped\n");
++		ret = -ENODEV;
++		goto out;
++	}
++
++	if (req->iovec_len > RMTFS_MAX_IOVEC) {
++		pr_err("RW_IOVEC: iovec_len %u too large\n", req->iovec_len);
++		ret = -EINVAL;
++		goto out;
++	}
++
++	for (i = 0; i < req->iovec_len; i++) {
++		const struct rmtfs_iovec_entry *e = &req->iovec[i];
++		u64 phys_base = e->phys_offset;
++		loff_t sector_base = (loff_t)e->sector_addr * RMTFS_SECTOR_SIZE;
++		loff_t off = 0;
++
++		for (j = 0; j < e->num_sector; j++) {
++			void __iomem *mem;
++
++			mem = rmtfs_shmem_ptr(phys_base + off, RMTFS_SECTOR_SIZE);
++			if (!mem) {
++				pr_err("RW_IOVEC: phys 0x%llx out of shmem\n",
++				       phys_base + off);
++				ret = -EINVAL;
++				goto out;
++			}
++
++			if (is_write) {
++				memcpy_fromio(sector, mem, RMTFS_SECTOR_SIZE);
++				ret = rmtfs_shadow_write(c, sector,
++							 sector_base + off,
++							 RMTFS_SECTOR_SIZE);
++				if (ret) {
++					pr_err("RW_IOVEC: shadow write failed: %d\n",
++					       ret);
++					goto out;
++				}
++			} else {
++				rmtfs_shadow_read(c, sector, sector_base + off,
++						  RMTFS_SECTOR_SIZE);
++				memcpy_toio(mem, sector, RMTFS_SECTOR_SIZE);
++			}
++			off += RMTFS_SECTOR_SIZE;
++		}
++
++		if (!logged) {
++			pr_info("RW_IOVEC caller %u %s: sector %u+%u ('%s')\n",
++				req->caller_id, is_write ? "write" : "read",
++				e->sector_addr, e->num_sector, c->part->path);
++			logged = true;
++		}
++	}
++
++out:
++	if (ret) {
++		resp.result.result = QMI_RESULT_FAILURE_V01;
++		resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++	} else {
++		resp.result.result = QMI_RESULT_SUCCESS_V01;
++		resp.result.error = QMI_RMTFS_ERR_NONE;
++	}
++	mutex_unlock(&rmtfs_lock);
++
++	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_RW_IOVEC,
++				sizeof(struct rmtfs_iovec_resp),
++				rmtfs_iovec_resp_ei, &resp);
++	if (ret < 0)
++		pr_err("RW_IOVEC: failed to send response: %d\n", ret);
++}
++
++/*
++ * ALLOC_BUFF: the modem asks for a scratch buffer of buff_size bytes in the
++ * shared region. Like linux-msm/rmtfs, we hand back the base physical address
++ * of the region (there is a single shared arena; the modem serialises its own
++ * use of it), after checking the request fits.
++ */
++static void rmtfs_handle_alloc(struct qmi_handle *qmi, struct sockaddr_qrtr *sq,
++			       struct qmi_txn *txn, const void *decoded)
++{
++	const struct rmtfs_alloc_buf_req *req = decoded;
++	struct rmtfs_alloc_buf_resp resp = {};
++	int ret;
++
++	mutex_lock(&rmtfs_lock);
++
++	if (!rmtfs_shmem || req->buff_size > rmtfs_shmem_size) {
++		pr_err("ALLOC_BUFF caller %u: size %u exceeds shmem %zu\n",
++		       req->caller_id, req->buff_size, rmtfs_shmem_size);
++		resp.result.result = QMI_RESULT_FAILURE_V01;
++		resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++	} else {
++		resp.result.result = QMI_RESULT_SUCCESS_V01;
++		resp.result.error = QMI_RMTFS_ERR_NONE;
++		resp.buff_address_valid = 1;
++		resp.buff_address = rmtfs_shmem_base;
++		pr_info("ALLOC_BUFF caller %u: %u bytes -> 0x%llx\n",
++			req->caller_id, req->buff_size,
++			(unsigned long long)resp.buff_address);
++	}
++
++	mutex_unlock(&rmtfs_lock);
++
++	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_ALLOC_BUFF,
++				sizeof(struct rmtfs_alloc_buf_resp),
++				rmtfs_alloc_buf_resp_ei, &resp);
++	if (ret < 0)
++		pr_err("ALLOC_BUFF: failed to send response: %d\n", ret);
++}
++
++static void rmtfs_handle_dev_error(struct qmi_handle *qmi,
++				   struct sockaddr_qrtr *sq,
++				   struct qmi_txn *txn, const void *decoded)
++{
++	const struct rmtfs_dev_error_req *req = decoded;
++	struct rmtfs_dev_error_resp resp = {};
++	struct rmtfs_caller *c;
++	int ret;
++
++	mutex_lock(&rmtfs_lock);
++	c = rmtfs_find_caller(req->caller_id, sq->sq_node);
++	if (c) {
++		resp.result.result = QMI_RESULT_SUCCESS_V01;
++		resp.result.error = QMI_RMTFS_ERR_NONE;
++		resp.status_valid = 1;
++		resp.status = c->dev_error;
++	} else {
++		resp.result.result = QMI_RESULT_FAILURE_V01;
++		resp.result.error = QMI_RMTFS_ERR_INTERNAL;
++	}
++	mutex_unlock(&rmtfs_lock);
++
++	ret = qmi_send_response(qmi, sq, txn, QMI_RMTFS_GET_DEV_ERROR,
++				sizeof(struct rmtfs_dev_error_resp),
++				rmtfs_dev_error_resp_ei, &resp);
++	if (ret < 0)
++		pr_err("GET_DEV_ERROR: failed to send response: %d\n", ret);
++}
++
++static const struct qmi_msg_handler rmtfs_msg_handlers[] = {
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= QMI_RMTFS_OPEN,
++		.ei		= rmtfs_open_req_ei,
++		.decoded_size	= sizeof(struct rmtfs_open_req),
++		.fn		= rmtfs_handle_open,
++	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= QMI_RMTFS_CLOSE,
++		.ei		= rmtfs_close_req_ei,
++		.decoded_size	= sizeof(struct rmtfs_close_req),
++		.fn		= rmtfs_handle_close,
++	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= QMI_RMTFS_RW_IOVEC,
++		.ei		= rmtfs_iovec_req_ei,
++		.decoded_size	= sizeof(struct rmtfs_iovec_req),
++		.fn		= rmtfs_handle_iovec,
++	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= QMI_RMTFS_ALLOC_BUFF,
++		.ei		= rmtfs_alloc_buf_req_ei,
++		.decoded_size	= sizeof(struct rmtfs_alloc_buf_req),
++		.fn		= rmtfs_handle_alloc,
++	},
++	{
++		.type		= QMI_REQUEST,
++		.msg_id		= QMI_RMTFS_GET_DEV_ERROR,
++		.ei		= rmtfs_dev_error_req_ei,
++		.decoded_size	= sizeof(struct rmtfs_dev_error_req),
++		.fn		= rmtfs_handle_dev_error,
++	},
++	{}
++};
++
++/*
++ * The modem crash-loops until rmtfs is up and drops all its clients on each
++ * restart. Release any per-caller state (RAM shadows) when the name service
++ * resets or a client goes away, so a fresh modem boot starts clean.
++ */
++static void rmtfs_release_node(unsigned int node)
++{
++	int i;
++
++	mutex_lock(&rmtfs_lock);
++	for (i = 0; i < RMTFS_MAX_CALLERS; i++) {
++		if (rmtfds[i].in_use && rmtfds[i].node == node)
++			rmtfs_caller_release(&rmtfds[i]);
++	}
++	mutex_unlock(&rmtfs_lock);
++}
++
++static void rmtfs_ops_bye(struct qmi_handle *qmi, unsigned int node)
++{
++	pr_info("node %u gone, releasing callers\n", node);
++	rmtfs_release_node(node);
++}
++
++static void rmtfs_ops_del_client(struct qmi_handle *qmi, unsigned int node,
++				 unsigned int port)
++{
++	int i;
++
++	mutex_lock(&rmtfs_lock);
++	for (i = 0; i < RMTFS_MAX_CALLERS; i++) {
++		if (rmtfds[i].in_use && rmtfds[i].node == node)
++			rmtfs_caller_release(&rmtfds[i]);
++	}
++	mutex_unlock(&rmtfs_lock);
++}
++
++static void rmtfs_ops_net_reset(struct qmi_handle *qmi)
++{
++	int i;
++
++	pr_info("name service reset, releasing all callers\n");
++	mutex_lock(&rmtfs_lock);
++	for (i = 0; i < RMTFS_MAX_CALLERS; i++)
++		rmtfs_caller_release(&rmtfds[i]);
++	mutex_unlock(&rmtfs_lock);
++}
++
++static const struct qmi_ops rmtfs_qmi_ops = {
++	.bye		= rmtfs_ops_bye,
++	.del_client	= rmtfs_ops_del_client,
++	.net_reset	= rmtfs_ops_net_reset,
++};
++
++/* ---- lifecycle ---- */
++
++static struct task_struct *rmtfs_thread;
++
++static int rmtfs_start(void)
++{
++	int ret;
++
++	ret = rmtfs_map_shmem();
++	if (ret)
++		return ret;
++
++	ret = qmi_handle_init(&rmtfs_qmi, sizeof(struct rmtfs_iovec_req),
++			      &rmtfs_qmi_ops, rmtfs_msg_handlers);
++	if (ret) {
++		pr_err("failed to init QMI handle: %d\n", ret);
++		return ret;
++	}
++
++	ret = qmi_add_server(&rmtfs_qmi, RMTFS_SERVICE, RMTFS_VERSION,
++			     RMTFS_INSTANCE);
++	if (ret) {
++		pr_err("failed to add QMI server: %d\n", ret);
++		qmi_handle_release(&rmtfs_qmi);
++		return ret;
++	}
++
++	rmtfs_qmi_ready = true;
++	pr_info("published rmtfs QMI service %d (v%d instance %d)\n",
++		RMTFS_SERVICE, RMTFS_VERSION, RMTFS_INSTANCE);
++	return 0;
++}
++
++/*
++ * Bring-up runs in a kthread so we can retry: qrtr may still be coming up at
++ * late_initcall time. The modem retries its EFS access for ~40s, so a few
++ * seconds of retry here is well within budget.
++ */
++static int rmtfs_kthread(void *data)
++{
++	while (!kthread_should_stop()) {
++		if (!rmtfs_start())
++			break;
++		schedule_timeout_interruptible(HZ);
++	}
++	return 0;
++}
++
++static int __init rmtfs_serv_init(void)
++{
++	rmtfs_thread = kthread_run(rmtfs_kthread, NULL, "qcom_rmtfs_serv");
++	if (IS_ERR(rmtfs_thread)) {
++		pr_err("failed to start kthread: %ld\n", PTR_ERR(rmtfs_thread));
++		return PTR_ERR(rmtfs_thread);
++	}
++	return 0;
++}
++
++static void __exit rmtfs_serv_exit(void)
++{
++	int i;
++
++	if (rmtfs_thread)
++		kthread_stop(rmtfs_thread);
++	if (rmtfs_qmi_ready)
++		qmi_handle_release(&rmtfs_qmi);
++
++	mutex_lock(&rmtfs_lock);
++	for (i = 0; i < RMTFS_MAX_CALLERS; i++)
++		rmtfs_caller_release(&rmtfds[i]);
++	mutex_unlock(&rmtfs_lock);
++
++	if (rmtfs_shmem)
++		memunmap(rmtfs_shmem);
++}
++
++/* late_initcall: run after qrtr and the block layer are up. */
++late_initcall(rmtfs_serv_init);
++module_exit(rmtfs_serv_exit);
++
++MODULE_DESCRIPTION("In-kernel Qualcomm remote filesystem (rmtfs) QMI service");
++MODULE_LICENSE("GPL");
+-- 
+2.53.0
