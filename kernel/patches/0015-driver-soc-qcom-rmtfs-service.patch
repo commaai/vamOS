@@ -30,10 +30,11 @@ its encode buffer from the len argument and returns -ETOOSMALL otherwise.
 The modem's first OPEN typically races UFS probe; since a QMI failure makes
 the modem fatal instantly, OPEN polls for the backing partition (up to 60s)
 before answering. Callers are keyed on (node, caller_id) and survive client
-sockets closing: DEL_CLIENT is a deliberate no-op like in userspace rmtfs
-(the modem opens each caller from its own transient socket and other modem
-QMI clients disconnect constantly); per-node state is released only on BYE
-and net_reset.
+sockets closing: DEL_CLIENT is a deliberate no-op like in userspace rmtfs;
+per-node state is released only on BYE and net_reset. The RW_IOVEC iovec
+array accepts up to 512 entries with a 16-bit wire length prefix: the
+userspace IDL says 255/u8 but the modem firmware demonstrably sends a u16
+prefix with 257 entries in its first RW_IOVEC.
 
 ---
 diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
@@ -75,10 +76,10 @@ index 7903de1ee..de19d30e9 100644
  obj-$(CONFIG_QCOM_PMIC_PDCHARGER_ULOG)	+= pmic_pdcharger_ulog.o
 diff --git a/drivers/soc/qcom/qcom_rmtfs_serv.c b/drivers/soc/qcom/qcom_rmtfs_serv.c
 new file mode 100644
-index 000000000..f6b01b189
+index 000000000..095d60579
 --- /dev/null
 +++ b/drivers/soc/qcom/qcom_rmtfs_serv.c
-@@ -0,0 +1,1263 @@
+@@ -0,0 +1,1276 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * In-kernel Qualcomm remote filesystem (rmtfs) QMI service.
@@ -167,8 +168,15 @@ index 000000000..f6b01b189
 + */
 +#define RMTFS_SHADOW_CAP		(16 * 1024 * 1024)
 +
-+/* Max iovec entries in one RW_IOVEC (rmtfs_iovec_req.iovec is [255]) */
-+#define RMTFS_MAX_IOVEC			255
++/*
++ * Max iovec entries in one RW_IOVEC. The userspace linux-msm/rmtfs IDL says
++ * 255 with a u8 length prefix, but the modem firmware on the comma four
++ * demonstrably sends a u16 length prefix with 257 entries in its first
++ * RW_IOVEC, so its own IDL allows more. Accept up to 512. (The kernel QMI
++ * codec picks the wire prefix width from the DATA_LEN element's elem_size:
++ * u8 -> 1 byte, otherwise 2 bytes; see qmi_encdec.c.)
++ */
++#define RMTFS_MAX_IOVEC			512
 +
 +/*
 + * Maximum ENCODED (wire TLV) response sizes. qmi_send_response() sizes its
@@ -191,10 +199,10 @@ index 000000000..f6b01b189
 +
 +/*
 + * Receive-buffer size for incoming requests. The largest is RW_IOVEC:
-+ * caller_id(4) + direction(1) + iovec array (1-byte count + 255 * 12) +
-+ * is_force_sync(1), each TLV-framed (~3080 bytes). Rounded up generously.
++ * caller_id(4) + direction(1) + iovec array (2-byte count + 512 * 12) +
++ * is_force_sync(1), each TLV-framed (~6170 bytes). Rounded up generously.
 + */
-+#define RMTFS_MAX_MSG_LEN		4096
++#define RMTFS_MAX_MSG_LEN		8192
 +
 +/* How long OPEN waits for the backing partition to appear (UFS probe) */
 +#define RMTFS_PART_WAIT_MS		60000
@@ -436,9 +444,15 @@ index 000000000..f6b01b189
 +		.offset		= offsetof(struct rmtfs_iovec_req, direction),
 +	},
 +	{
++		/*
++		 * elem_size != sizeof(u8) selects a 16-bit wire length prefix,
++		 * matching what the modem actually sends (its first RW_IOVEC
++		 * carries 257 entries). The decoded value is always stored as
++		 * a u32 in iovec_len regardless of elem_size.
++		 */
 +		.data_type	= QMI_DATA_LEN,
 +		.elem_len	= 1,
-+		.elem_size	= sizeof(u32),
++		.elem_size	= sizeof(u16),
 +		.array_type	= NO_ARRAY,
 +		.tlv_type	= 0x03,
 +		.offset		= offsetof(struct rmtfs_iovec_req, iovec_len),
