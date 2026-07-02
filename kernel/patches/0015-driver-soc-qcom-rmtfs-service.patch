@@ -169,14 +169,14 @@ index 000000000..095d60579
 +#define RMTFS_SHADOW_CAP		(16 * 1024 * 1024)
 +
 +/*
-+ * Max iovec entries in one RW_IOVEC. The userspace linux-msm/rmtfs IDL says
-+ * 255 with a u8 length prefix, but the modem firmware on the comma four
-+ * demonstrably sends a u16 length prefix with 257 entries in its first
-+ * RW_IOVEC, so its own IDL allows more. Accept up to 512. (The kernel QMI
-+ * codec picks the wire prefix width from the DATA_LEN element's elem_size:
-+ * u8 -> 1 byte, otherwise 2 bytes; see qmi_encdec.c.)
++ * Max iovec entries in one RW_IOVEC. Matches the userspace linux-msm/rmtfs
++ * IDL: u8 length prefix, at most 255 entries. Confirmed on-device: the
++ * modem's first RW_IOVEC TLV is 11 bytes = 1-byte count (1) followed by a
++ * single 10-byte iovec entry. (The kernel QMI codec picks the wire prefix
++ * width from the DATA_LEN element's elem_size: u8 -> 1 byte, otherwise
++ * 2 bytes; see qmi_encdec.c.)
 + */
-+#define RMTFS_MAX_IOVEC			512
++#define RMTFS_MAX_IOVEC			255
 +
 +/*
 + * Maximum ENCODED (wire TLV) response sizes. qmi_send_response() sizes its
@@ -445,14 +445,14 @@ index 000000000..095d60579
 +	},
 +	{
 +		/*
-+		 * elem_size != sizeof(u8) selects a 16-bit wire length prefix,
-+		 * matching what the modem actually sends (its first RW_IOVEC
-+		 * carries 257 entries). The decoded value is always stored as
-+		 * a u32 in iovec_len regardless of elem_size.
++		 * u8 wire length prefix, per the rmtfs QMI IDL (max 255
++		 * entries). Confirmed on-device: the modem's RW_IOVEC TLV is
++		 * 11 bytes = 1-byte count (1) + one 10-byte iovec entry. The
++		 * decoded value is always stored as a u32 in iovec_len.
 +		 */
 +		.data_type	= QMI_DATA_LEN,
 +		.elem_len	= 1,
-+		.elem_size	= sizeof(u16),
++		.elem_size	= sizeof(u8),
 +		.array_type	= NO_ARRAY,
 +		.tlv_type	= 0x03,
 +		.offset		= offsetof(struct rmtfs_iovec_req, iovec_len),
