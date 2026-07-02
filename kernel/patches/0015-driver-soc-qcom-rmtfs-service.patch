@@ -11,23 +11,29 @@ Required on comma devices where the proprietary Qualcomm userspace is inert.
 
 EFS lives in the modemst1/modemst2/fsc/fsg GPT partitions (factory
 calibration/provisioning). To eliminate any risk of corrupting that data,
-on-flash EFS is treated as strictly read-only: each backing partition is
-shadowed in RAM on first access, reads are served from the shadow, and writes
-are applied only to the shadow (never written back to flash). This mirrors the
-userspace daemon's read-only shadow mode, which is how vamOS runs it
-(rmtfs -r -s -P). Partitions are resolved by GPT partlabel entirely in-kernel
-(matching bd_meta_info->volname across block_class), so no udev by-partlabel
-symlinks are needed. RW_IOVEC payload moves through the reserved qcom,rmtfs-mem
-region, which the existing qcom_rmtfs_mem driver still SCM-assigns to the
-modem; this service only additionally memremaps it.
+on-flash EFS is treated as strictly read-only: the head of each backing
+partition (up to a 16MiB cap; fsc on the comma four is ~1.5GiB but the modem
+only uses a small cookie area at its start) is shadowed in RAM on first
+access, reads are served from the shadow (zeros beyond it), and writes are
+applied only to the shadow (never written back to flash; beyond the cap they
+are accepted and dropped). This mirrors the userspace daemon's read-only
+shadow mode, which is how vamOS runs it (rmtfs -r -s -P). Partitions are
+resolved by GPT partlabel entirely in-kernel (matching bd_meta_info->volname
+across block_class), so no udev by-partlabel symlinks are needed. RW_IOVEC
+payload moves through the reserved qcom,rmtfs-mem region, which the existing
+qcom_rmtfs_mem driver still SCM-assigns to the modem; this service only
+additionally memremaps it.
 
 Response buffers are sized by encoded TLV length (3-byte TLV header per
 element plus payload), not decoded struct size, as qmi_send_response() sizes
 its encode buffer from the len argument and returns -ETOOSMALL otherwise.
 The modem's first OPEN typically races UFS probe; since a QMI failure makes
 the modem fatal instantly, OPEN polls for the backing partition (up to 60s)
-before answering. Blocking is safe: the QMI handle runs handlers on its own
-ordered workqueue and the modem is the only client.
+before answering. Callers are keyed on (node, caller_id) and survive client
+sockets closing: DEL_CLIENT is a deliberate no-op like in userspace rmtfs
+(the modem opens each caller from its own transient socket and other modem
+QMI clients disconnect constantly); per-node state is released only on BYE
+and net_reset.
 
 ---
 diff --git a/drivers/soc/qcom/Kconfig b/drivers/soc/qcom/Kconfig
@@ -69,10 +75,10 @@ index 7903de1ee..de19d30e9 100644
  obj-$(CONFIG_QCOM_PMIC_PDCHARGER_ULOG)	+= pmic_pdcharger_ulog.o
 diff --git a/drivers/soc/qcom/qcom_rmtfs_serv.c b/drivers/soc/qcom/qcom_rmtfs_serv.c
 new file mode 100644
-index 000000000..30b2de29d
+index 000000000..f6b01b189
 --- /dev/null
 +++ b/drivers/soc/qcom/qcom_rmtfs_serv.c
-@@ -0,0 +1,1208 @@
+@@ -0,0 +1,1263 @@
 +// SPDX-License-Identifier: GPL-2.0
 +/*
 + * In-kernel Qualcomm remote filesystem (rmtfs) QMI service.
@@ -89,9 +95,10 @@ index 000000000..30b2de29d
 + *   The modem's EFS lives in the modemst1/modemst2/fsc/fsg GPT partitions,
 + *   which hold factory calibration and provisioning data. To eliminate any
 + *   risk of corrupting that data we treat on-flash EFS as strictly READ-ONLY:
-+ *   on first access each backing partition is copied in full into a RAM shadow
-+ *   buffer; reads are served from the shadow, and writes are applied ONLY to
-+ *   the shadow (never written back to flash). This keeps the modem happy
++ *   on first access the head of each backing partition (up to a 16MiB cap) is
++ *   copied into a RAM shadow buffer; reads are served from the shadow (zeros
++ *   beyond it), and writes are applied ONLY to the shadow (never written back
++ *   to flash; writes beyond the cap are accepted and dropped). This keeps the modem happy
 + *   (its writes "succeed") with zero risk to the factory partitions. This
 + *   mirrors the userspace daemon's -r (read-only) shadow-buffer behaviour,
 + *   which is how vamOS runs it (rmtfs -r -s -P).
@@ -150,8 +157,15 @@ index 000000000..30b2de29d
 +/* Longest path the modem may request (rmtfs_open_req.path is char[256]) */
 +#define RMTFS_MAX_PATH			256
 +
-+/* Refuse to shadow a partition larger than this (EFS partitions are small) */
-+#define RMTFS_MAX_SHADOW		(16 * 1024 * 1024)
++/*
++ * RAM-shadow cap. Most EFS partitions are ~2MiB, but on the comma four the
++ * fsc partition is ~1.5GiB; the modem only uses a tiny cookie area at its
++ * start. We shadow at most this much of a partition: reads beyond the cap
++ * return zeros and writes beyond it are accepted but dropped (logged once
++ * per caller). The rmtfs protocol never reports a size to the modem, so a
++ * capped shadow is invisible at the protocol level.
++ */
++#define RMTFS_SHADOW_CAP		(16 * 1024 * 1024)
 +
 +/* Max iovec entries in one RW_IOVEC (rmtfs_iovec_req.iovec is [255]) */
 +#define RMTFS_MAX_IOVEC			255
@@ -216,6 +230,10 @@ index 000000000..30b2de29d
 +	/* RAM shadow of the backing partition (read-only w.r.t. flash) */
 +	u8 *shadow;
 +	size_t shadow_len;
++
++	/* log-once flags for accesses beyond the capped shadow */
++	bool warned_read_past;
++	bool warned_write_drop;
 +
 +	u32 dev_error;
 +};
@@ -716,11 +734,23 @@ index 000000000..30b2de29d
 +	}
 +
 +	size = bdev_nr_bytes(file_bdev(bdev_file));
-+	if (size <= 0 || size > RMTFS_MAX_SHADOW) {
++	if (size <= 0) {
 +		pr_err("partition '%s' has implausible size %lld, refusing\n",
 +		       part->partlabel, size);
 +		ret = -EFBIG;
 +		goto out_close;
++	}
++
++	/*
++	 * Clamp the shadow: fsc on the comma four is ~1.5GiB but the modem
++	 * only touches a small cookie area at its start. Shadow just the
++	 * head of the partition; accesses beyond the cap are handled in
++	 * rmtfs_shadow_read/write (zeros / dropped).
++	 */
++	if (size > RMTFS_SHADOW_CAP) {
++		pr_info("partition '%s' is %lld bytes, shadowing first %d only\n",
++			part->partlabel, size, RMTFS_SHADOW_CAP);
++		size = RMTFS_SHADOW_CAP;
 +	}
 +
 +	buf = vmalloc(size);
@@ -753,8 +783,9 @@ index 000000000..30b2de29d
 +}
 +
 +/*
-+ * Serve a sector read from the RAM shadow, zero-padding past EOF.
-+ * Mirrors linux-msm/rmtfs storage_pread shadow behaviour.
++ * Serve a sector read from the RAM shadow, zero-padding past its end
++ * (partition EOF or the shadow cap). Mirrors linux-msm/rmtfs storage_pread
++ * shadow behaviour.
 + */
 +static void rmtfs_shadow_read(struct rmtfs_caller *c, u8 *dst, loff_t off,
 +			      size_t len)
@@ -765,8 +796,15 @@ index 000000000..30b2de29d
 +		avail = min_t(size_t, len, c->shadow_len - off);
 +	if (avail)
 +		memcpy(dst, c->shadow + off, avail);
-+	if (avail < len)
++	if (avail < len) {
 +		memset(dst + avail, 0, len - avail);
++		if (!c->warned_read_past) {
++			c->warned_read_past = true;
++			pr_info("caller %u ('%s'): read at %lld beyond shadow (%zu bytes), serving zeros\n",
++				c->id, c->part->path, (long long)off,
++				c->shadow_len);
++		}
++	}
 +}
 +
 +/*
@@ -777,8 +815,19 @@ index 000000000..30b2de29d
 +static int rmtfs_shadow_write(struct rmtfs_caller *c, const u8 *src,
 +			      loff_t off, size_t len)
 +{
-+	if (off < 0 || len > RMTFS_MAX_SHADOW || off > RMTFS_MAX_SHADOW - len)
-+		return -EFBIG;
++	if (off < 0 || len > RMTFS_SHADOW_CAP || off > RMTFS_SHADOW_CAP - len) {
++		/*
++		 * Beyond the shadow cap: accept and drop. The write "succeeds"
++		 * from the modem's point of view but is not retained (it was
++		 * never going to reach flash either way).
++		 */
++		if (!c->warned_write_drop) {
++			c->warned_write_drop = true;
++			pr_info("caller %u ('%s'): write at %lld beyond shadow cap, accepted and dropped\n",
++				c->id, c->part->path, (long long)off);
++		}
++		return 0;
++	}
 +
 +	if (off + len > c->shadow_len) {
 +		size_t newlen = off + len;
@@ -808,6 +857,8 @@ index 000000000..30b2de29d
 +	c->in_use = false;
 +	c->part = NULL;
 +	c->node = 0;
++	c->warned_read_past = false;
++	c->warned_write_drop = false;
 +	c->dev_error = 0;
 +}
 +
@@ -1147,9 +1198,22 @@ index 000000000..30b2de29d
 +};
 +
 +/*
-+ * The modem crash-loops until rmtfs is up and drops all its clients on each
-+ * restart. Release any per-caller state (RAM shadows) when the name service
-+ * resets or a client goes away, so a fresh modem boot starts clean.
++ * Caller lifecycle vs QRTR events (mirrors linux-msm/rmtfs):
++ *
++ * Callers are keyed on (node, caller_id) and must SURVIVE individual client
++ * sockets closing. The modem opens each rmtfs caller from its own transient
++ * QMI socket (fs1 from 0:8, fsc from 0:12, ...), and its other subsystems'
++ * QMI clients on the same node connect/disconnect constantly, so DEL_CLIENT
++ * fires routinely while callers are still live. The userspace daemon treats
++ * both DEL_CLIENT and BYE as no-ops. Releasing callers on DEL_CLIENT freed
++ * slots the modem still held and caused duplicate caller_ids being handed
++ * out (fs1 and fsg both got id 0).
++ *
++ * We release per-node state only on BYE (the whole node is gone, i.e. the
++ * modem stopped/crashed, so its caller_ids are dead) and on net_reset. A
++ * restarting modem re-OPENs everything anyway, and the OPEN handler also
++ * reuses an existing (node, partition) slot, so slots cannot leak across
++ * modem crash-loops.
 + */
 +static void rmtfs_release_node(unsigned int node)
 +{
@@ -1165,21 +1229,18 @@ index 000000000..30b2de29d
 +
 +static void rmtfs_ops_bye(struct qmi_handle *qmi, unsigned int node)
 +{
-+	pr_info("node %u gone, releasing callers\n", node);
++	pr_info("node %u gone, releasing its callers\n", node);
 +	rmtfs_release_node(node);
 +}
 +
 +static void rmtfs_ops_del_client(struct qmi_handle *qmi, unsigned int node,
 +				 unsigned int port)
 +{
-+	int i;
-+
-+	mutex_lock(&rmtfs_lock);
-+	for (i = 0; i < RMTFS_MAX_CALLERS; i++) {
-+		if (rmtfds[i].in_use && rmtfds[i].node == node)
-+			rmtfs_caller_release(&rmtfds[i]);
-+	}
-+	mutex_unlock(&rmtfs_lock);
++	/*
++	 * Deliberate no-op (mirrors userspace rmtfs): a single client socket
++	 * closing does not invalidate the caller_ids of its node.
++	 */
++	pr_debug("del_client %u:%u (ignored)\n", node, port);
 +}
 +
 +static void rmtfs_ops_net_reset(struct qmi_handle *qmi)
