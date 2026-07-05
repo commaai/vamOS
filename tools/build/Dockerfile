@@ -71,6 +71,7 @@ COPY ./kernel/firmware/ath10k/WCN3990/hw1.0 /lib/firmware/ath10k/WCN3990/hw1.0
 COPY ./kernel/firmware/qcom/sdm845 /lib/firmware/qcom/sdm845
 COPY ./kernel/firmware/qca /lib/firmware/qca
 RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sdm845/wlanmdsp.mbn
+RUN ln -sf /lib/firmware/qcom/sdm845/adsp.mdt /lib/firmware/qcom/sdm845/adsp.mbn
 
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
@@ -87,7 +88,7 @@ RUN for svc in \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
-  irsc_util leprop adsp cdsp \
+  irsc_util leprop \
   qrtr-ns rmtfs tqftpserv pd-mapper \
   comma modemmanager bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
