@@ -161,3 +161,7 @@
 &uart3 {
 	status = "okay";
 };
+
+&wifi {
+	qcom,calibration-variant = "comma-mici";
+};
