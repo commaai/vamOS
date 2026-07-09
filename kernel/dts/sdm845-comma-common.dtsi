@@ -2,6 +2,8 @@
 
 #include <dt-bindings/arm/qcom,ids.h>
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 #include "sdm845.dtsi"
 #include "pm8998.dtsi"
 #include "pmi8998.dtsi"
@@ -46,6 +48,16 @@
 		regulator-boot-on;
 
 		vin-supply = <&vph_pwr>;
+	};
+
+	spkr_codec: audio-codec-0 {
+		compatible = "linux,spdif-dit";
+		#sound-dai-cells = <0>;
+	};
+
+	mic_codec: audio-codec-1 {
+		compatible = "linux,spdif-dir";
+		#sound-dai-cells = <0>;
 	};
 };
 
@@ -519,4 +531,74 @@
 	qcom,snoc-host-cap-skip-quirk;
 
 	status = "okay";
+};
+
+&adsp_pas {
+	firmware-name = "qcom/sdm845/adsp.mbn";
+
+	status = "okay";
+};
+
+&q6afedai {
+	dai@18 {
+		reg = <SECONDARY_MI2S_RX>;
+		qcom,sd-lines = <1>;
+	};
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		direction = <Q6ASM_DAI_RX>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		direction = <Q6ASM_DAI_TX>;
+	};
+};
+
+&sound {
+	compatible = "qcom,sdm845-sndcard";
+	pinctrl-names = "default";
+	clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
+	clock-names = "mclk";
+
+	mm1-dai-link {
+		link-name = "MultiMedia1";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		};
+	};
+
+	speaker-dai-link {
+		link-name = "Secondary MI2S Playback";
+		cpu {
+			sound-dai = <&q6afedai SECONDARY_MI2S_RX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&spkr_codec>;
+		};
+	};
+};
+
+&tlmm {
+	sec_mi2s_active: sec-mi2s-active-state {
+		pins = "gpio80", "gpio81", "gpio82", "gpio83";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
 };

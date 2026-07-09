@@ -1,7 +1,5 @@
 /dts-v1/;
 
-#include <dt-bindings/sound/qcom,q6afe.h>
-#include <dt-bindings/sound/qcom,q6asm.h>
 #include "sdm845-comma-common.dtsi"
 
 / {
@@ -14,22 +12,6 @@
 	aliases {
 		hsuart0 = &uart3;
 	};
-
-	spkr_codec: audio-codec-0 {
-		compatible = "linux,spdif-dit";
-		#sound-dai-cells = <0>;
-	};
-
-	mic_codec: audio-codec-1 {
-		compatible = "linux,spdif-dir";
-		#sound-dai-cells = <0>;
-	};
-};
-
-&adsp_pas {
-	firmware-name = "qcom/sdm845/adsp.mbn";
-
-	status = "okay";
 };
 
 &i2c5 {
@@ -75,63 +57,15 @@
 };
 
 &q6afedai {
-	dai@18 {
-		reg = <SECONDARY_MI2S_RX>;
-		qcom,sd-lines = <1>;
-	};
-
 	dai@19 {
 		reg = <SECONDARY_MI2S_TX>;
 		qcom,sd-lines = <0>;
 	};
 };
 
-&q6asmdai {
-	dai@0 {
-		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
-		direction = <Q6ASM_DAI_RX>;
-	};
-
-	dai@1 {
-		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
-		direction = <Q6ASM_DAI_TX>;
-	};
-};
-
 &sound {
-	compatible = "qcom,sdm845-sndcard";
-	pinctrl-0 = <&sec_mi2s_active>;
-	pinctrl-names = "default";
 	model = "comma-mici";
-
-	mm1-dai-link {
-		link-name = "MultiMedia1";
-		cpu {
-			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
-		};
-	};
-
-	mm2-dai-link {
-		link-name = "MultiMedia2";
-		cpu {
-			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
-		};
-	};
-
-	speaker-dai-link {
-		link-name = "Secondary MI2S Playback";
-		cpu {
-			sound-dai = <&q6afedai SECONDARY_MI2S_RX>;
-		};
-
-		platform {
-			sound-dai = <&q6routing>;
-		};
-
-		codec {
-			sound-dai = <&spkr_codec>;
-		};
-	};
+	pinctrl-0 = <&sec_mi2s_active>;
 
 	mic-dai-link {
 		link-name = "Secondary MI2S Capture";
@@ -146,15 +80,6 @@
 		codec {
 			sound-dai = <&mic_codec>;
 		};
-	};
-};
-
-&tlmm {
-	sec_mi2s_active: sec-mi2s-active-state {
-		pins = "gpio80", "gpio81", "gpio82", "gpio83";
-		function = "sec_mi2s";
-		drive-strength = <8>;
-		bias-disable;
 	};
 };
 
