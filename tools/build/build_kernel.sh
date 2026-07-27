@@ -75,7 +75,7 @@ if [ ! -f "$KERNEL_DIR/Makefile" ]; then
   "$DIR/vamos" setup
 fi
 
-KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
+KERNEL_REV="$(git -C "$DIR" rev-parse HEAD:kernel/linux)"
 
 # Compute on host; in-container git fails for worktrees (.git is outside $DIR)
 GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
