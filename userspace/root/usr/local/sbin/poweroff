@@ -26,6 +26,13 @@ for t in /dev/pts/[0-9]* /dev/ttyMSM* /dev/ttyAMA*; do
 done
 wait
 
+if [ "$cmd" = reboot ] && [ "$#" -eq 1 ] && [ "$1" = edl ]; then
+  /usr/local/libexec/reboot-edl
+  status=$?
+  printf 'EDL reboot failed with status %d\n' "$status" >&2
+  exit "$status"
+fi
+
 # Trigger shutdown in a new session (survives sshd-session death)
 setsid /usr/bin/"$cmd" "$@" &
 

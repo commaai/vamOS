@@ -32,6 +32,12 @@ RUN cd /tmp/vamos/irsc_util && \
     gcc -Wall -O2 -o /usr/bin/irsc_util irsc_util.c && \
     rm -rf /tmp/vamos/irsc_util
 
+# Build EDL reboot helper
+COPY ./userspace/reboot_edl/reboot_edl.c /tmp/vamos/reboot_edl.c
+RUN mkdir -p /usr/local/libexec && \
+    gcc -Wall -Wextra -Werror -O2 -o /usr/local/libexec/reboot-edl /tmp/vamos/reboot_edl.c && \
+    rm /tmp/vamos/reboot_edl.c
+
 # Extra packages (nice-to-haves for development)
 RUN xbps-install -y \
   bash-completion \
