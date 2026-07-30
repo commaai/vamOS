@@ -1,0 +1,105 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Andrei Radulescu <andi.radulescu@gmail.com>
+Date: Thu, 30 Jul 2026 16:00:00 +0300
+Subject: [PATCH] firmware: qcom: scm: support rebooting into EDL
+
+Qualcomm firmware accepts emergency download mode 0x01 through the SCM
+boot service. Register a firmware-priority restart handler that programs
+this mode for the exact restart command "edl", then permits PSCI to reset
+the system. Other restart commands remain unchanged.
+
+---
+ drivers/firmware/qcom/qcom_scm.c | 42 ++++++++++++++++++++++++++++++++++++++++
+ drivers/firmware/qcom/qcom_scm.h |  1 +
+ 2 files changed, 43 insertions(+)
+
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index e777b7cb9b12..db4662a9d2ae 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -26,8 +26,10 @@
+ #include <linux/of_platform.h>
+ #include <linux/of_reserved_mem.h>
+ #include <linux/platform_device.h>
++#include <linux/reboot.h>
+ #include <linux/reset-controller.h>
+ #include <linux/sizes.h>
++#include <linux/string.h>
+ #include <linux/types.h>
+ 
+ #include "qcom_scm.h"
+@@ -146,6 +148,11 @@ static const char * const download_mode_name[] = {
+ 
+ static struct qcom_scm *__scm;
+ 
++static bool qcom_scm_is_edl_reboot(const char *cmd)
++{
++	return cmd && !strcmp(cmd, "edl");
++}
++
+ static int qcom_scm_clk_enable(void)
+ {
+ 	int ret;
+@@ -524,6 +531,34 @@ static int __qcom_scm_set_dload_mode(struct device *dev, bool enable)
+ 	return qcom_scm_call_atomic(__scm->dev, &desc, NULL);
+ }
+ 
++static int qcom_scm_set_edl_mode(struct device *dev)
++{
++	const struct qcom_scm_desc desc = {
++		.svc = QCOM_SCM_SVC_BOOT,
++		.cmd = QCOM_SCM_BOOT_SET_DLOAD_MODE,
++		.arginfo = QCOM_SCM_ARGS(2),
++		.args[0] = QCOM_SCM_BOOT_EDL_MODE,
++		.owner = ARM_SMCCC_OWNER_SIP,
++	};
++
++	return qcom_scm_call_atomic(dev, &desc, NULL);
++}
++
++static int qcom_scm_restart(struct sys_off_data *data)
++{
++	struct qcom_scm *scm = data->cb_data;
++	int ret;
++
++	if (!qcom_scm_is_edl_reboot(data->cmd))
++		return NOTIFY_DONE;
++
++	ret = qcom_scm_set_edl_mode(scm->dev);
++	if (ret)
++		dev_err(scm->dev, "failed to set emergency download mode: %d\n", ret);
++
++	return NOTIFY_DONE;
++}
++
+ static int qcom_scm_io_rmw(phys_addr_t addr, unsigned int mask, unsigned int val)
+ {
+ 	unsigned int old;
+@@ -2408,6 +2443,13 @@ static int qcom_scm_probe(struct platform_device *pdev)
+ 					     "Failed to request qcom-scm irq\n");
+ 	}
+ 
++	ret = devm_register_sys_off_handler(scm->dev, SYS_OFF_MODE_RESTART,
++					    SYS_OFF_PRIO_FIRMWARE,
++					    qcom_scm_restart, scm);
++	if (ret)
++		return dev_err_probe(scm->dev, ret,
++				     "failed to register restart handler\n");
++
+ 	/*
+ 	 * Paired with smp_load_acquire() in qcom_scm_is_available().
+ 	 *
+diff --git a/drivers/firmware/qcom/qcom_scm.h b/drivers/firmware/qcom/qcom_scm.h
+index a56c8212cc0c..4a1f81508036 100644
+--- a/drivers/firmware/qcom/qcom_scm.h
++++ b/drivers/firmware/qcom/qcom_scm.h
+@@ -90,6 +90,7 @@ int qcom_scm_shm_bridge_enable(struct device *scm_dev);
+ #define QCOM_SCM_BOOT_TERMINATE_PC	0x02
+ #define QCOM_SCM_BOOT_SDI_CONFIG	0x09
+ #define QCOM_SCM_BOOT_SET_DLOAD_MODE	0x10
++#define QCOM_SCM_BOOT_EDL_MODE		0x01
+ #define QCOM_SCM_BOOT_SET_ADDR_MC	0x11
+ #define QCOM_SCM_BOOT_SET_REMOTE_STATE	0x0a
+ #define QCOM_SCM_FLUSH_FLAG_MASK	0x3
+-- 
+2.47.1
