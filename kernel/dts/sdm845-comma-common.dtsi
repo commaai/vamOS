@@ -671,3 +671,19 @@
 
 	qcom,snoc-host-cap-skip-quirk;
 };
+
+&{/firmware/scm} {
+	qcom,dload-mode = <&tcsr_dload 0x13000>;
+};
+
+&soc {
+	restart@c264000 {
+		compatible = "qcom,pshold";
+		reg = <0 0x0c264000 0 0x4>;
+	};
+
+	tcsr_dload: syscon@1fc0000 {
+		compatible = "qcom,sdm845-tcsr", "syscon";
+		reg = <0 0x01fc0000 0 0x30000>;
+	};
+};
