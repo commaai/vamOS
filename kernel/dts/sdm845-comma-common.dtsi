@@ -437,9 +437,6 @@
 
 	vcc-supply = <&vreg_l20a_2p95>;
 	vcc-max-microamp = <600000>;
-
-	/* HS-G3 is unreliable on SDM845 UFS controllers */
-	limit-hs-gear = <2>;
 };
 
 &ufs_mem_phy {
