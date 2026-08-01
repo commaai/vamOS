@@ -13,7 +13,6 @@ import os
 import zlib
 import ctypes
 import fcntl
-import glob as _glob
 
 SECTOR_SIZE = 4096
 
@@ -39,6 +38,23 @@ AB_DEVICES = ['/dev/sda', '/dev/sde']
 # UFS boot LUN IDs: xbl_a on LUN 1, xbl_b on LUN 2
 BOOT_LUN_A = 1
 BOOT_LUN_B = 2
+
+
+def parse_slot_arg(value):
+  if value == '0':
+    return '_a'
+  if value == '1':
+    return '_b'
+  raise ValueError(f"Invalid slot {value!r}: expected 0 or 1")
+
+
+def boot_lun_for_slot(slot):
+  if slot == '_a':
+    return BOOT_LUN_A
+  if slot == '_b':
+    return BOOT_LUN_B
+  raise ValueError(f"Invalid slot suffix {slot!r}")
+
 
 def get_current_slot():
   with open('/proc/cmdline') as f:
@@ -76,6 +92,39 @@ def _write_gpt(f, header_lba, header, entries):
   f.write(header)
 
 
+def _read_gpt_pair(f):
+  primary = _read_gpt(f, 1)
+  primary_header, _, primary_count, primary_entry_size = primary
+  if primary_header is None:
+    raise RuntimeError("Invalid primary GPT")
+
+  backup_lba = struct.unpack('<Q', primary_header[32:40])[0]
+  backup = _read_gpt(f, backup_lba)
+  backup_header, _, backup_count, backup_entry_size = backup
+  if backup_header is None:
+    raise RuntimeError("Invalid backup GPT")
+  if (primary_count, primary_entry_size) != (backup_count, backup_entry_size):
+    raise RuntimeError("Primary and backup GPT geometry differ")
+
+  return primary, backup_lba, backup
+
+
+def _modify_entries(entries, num_entries, entry_size, slot, modify_fn):
+  modified = False
+  for i in range(num_entries):
+    off = i * entry_size
+    if entries[off:off+16] == b'\x00' * 16:
+      continue
+    name = entries[off+56:off+128].decode('utf-16-le').rstrip('\x00')
+    if name.endswith(slot):
+      attrs = struct.unpack('<Q', entries[off+48:off+56])[0]
+      new_attrs = modify_fn(name, attrs)
+      if new_attrs != attrs:
+        struct.pack_into('<Q', entries, off+48, new_attrs)
+        modified = True
+  return modified
+
+
 def get_gpt_active_slot():
   """Detect active slot from GPT boot partition flags.
   Unlike get_current_slot() (which reads /proc/cmdline and reflects the booted
@@ -106,34 +155,55 @@ def modify_gpt_attributes(device, slot, modify_fn):
   """Read GPT, modify matching partition attributes, write back to both GPTs.
   modify_fn(name, attrs) -> new_attrs"""
   with open(device, 'r+b') as f:
-    primary_header, entries, num_entries, entry_size = _read_gpt(f, 1)
-    if primary_header is None:
-      raise RuntimeError(f"Invalid GPT on {device}")
+    primary, backup_lba, backup = _read_gpt_pair(f)
+    primary_header, primary_entries, num_entries, entry_size = primary
+    backup_header, backup_entries, _, _ = backup
 
-    modified = False
-    for i in range(num_entries):
-      off = i * entry_size
-      if entries[off:off+16] == b'\x00' * 16:
-        continue
-      name = entries[off+56:off+128].decode('utf-16-le').rstrip('\x00')
-      if name.endswith(slot):
-        attrs = struct.unpack('<Q', entries[off+48:off+56])[0]
-        new_attrs = modify_fn(name, attrs)
-        if new_attrs != attrs:
-          struct.pack_into('<Q', entries, off+48, new_attrs)
-          modified = True
+    primary_modified = _modify_entries(
+      primary_entries, num_entries, entry_size, slot, modify_fn)
+    backup_modified = _modify_entries(
+      backup_entries, num_entries, entry_size, slot, modify_fn)
 
-    if not modified:
+    if not primary_modified and not backup_modified:
       return
 
     # Write backup first (safer if power fails), then primary
-    backup_lba = struct.unpack('<Q', primary_header[32:40])[0]
-    backup_header, _, _, _ = _read_gpt(f, backup_lba)
-    if backup_header is not None:
-      _write_gpt(f, backup_lba, backup_header, entries)
-    _write_gpt(f, 1, primary_header, entries)
+    if backup_modified:
+      _write_gpt(f, backup_lba, backup_header, backup_entries)
+    if primary_modified:
+      _write_gpt(f, 1, primary_header, primary_entries)
     f.flush()
     os.fsync(f.fileno())
+
+
+def modify_slot_attributes(slot, modify_fn):
+  for device in AB_DEVICES:
+    modify_gpt_attributes(device, slot, modify_fn)
+
+
+def mark_successful(name, attrs):
+  return (attrs | ATTR_SUCCESS) & ~ATTR_UNBOOTABLE
+
+
+def _swap_entry_guids(entries, num_entries, entry_size):
+  pairs = {}
+  for i in range(num_entries):
+    off = i * entry_size
+    if entries[off:off+16] == b'\x00' * 16:
+      continue
+    name = entries[off+56:off+128].decode('utf-16-le').rstrip('\x00')
+    if name.endswith('_a') or name.endswith('_b'):
+      pairs.setdefault(name[:-2], {})[name[-1]] = off
+
+  modified = False
+  for slots in pairs.values():
+    if 'a' in slots and 'b' in slots:
+      a, b = slots['a'], slots['b']
+      temp = bytes(entries[a:a+16])
+      entries[a:a+16] = entries[b:b+16]
+      entries[b:b+16] = temp
+      modified = True
+  return modified
 
 
 def swap_slot_guids(device):
@@ -141,37 +211,21 @@ def swap_slot_guids(device):
   Matches ABL SwitchPtnSlots() / SwapPtnGuid().
   https://git.codelinaro.org/clo/qcomlt/abl/-/blob/LE.UM.2.3.7/QcomModulePkg/Library/BootLib/PartitionTableUpdate.c#L452-510"""
   with open(device, 'r+b') as f:
-    primary_header, entries, num_entries, entry_size = _read_gpt(f, 1)
-    if primary_header is None:
-      return
+    primary, backup_lba, backup = _read_gpt_pair(f)
+    primary_header, primary_entries, num_entries, entry_size = primary
+    backup_header, backup_entries, _, _ = backup
 
-    pairs = {}
-    for i in range(num_entries):
-      off = i * entry_size
-      if entries[off:off+16] == b'\x00' * 16:
-        continue
-      name = entries[off+56:off+128].decode('utf-16-le').rstrip('\x00')
-      if name.endswith('_a') or name.endswith('_b'):
-        pairs.setdefault(name[:-2], {})[name[-1]] = off
+    primary_modified = _swap_entry_guids(primary_entries, num_entries, entry_size)
+    backup_modified = _swap_entry_guids(backup_entries, num_entries, entry_size)
 
-    modified = False
-    for slots in pairs.values():
-      if 'a' in slots and 'b' in slots:
-        a, b = slots['a'], slots['b']
-        temp = bytes(entries[a:a+16])
-        entries[a:a+16] = entries[b:b+16]
-        entries[b:b+16] = temp
-        modified = True
-
-    if not modified:
+    if not primary_modified and not backup_modified:
       return
 
     # Write backup first (safer if power fails), then primary
-    backup_lba = struct.unpack('<Q', primary_header[32:40])[0]
-    backup_header, _, _, _ = _read_gpt(f, backup_lba)
-    if backup_header is not None:
-      _write_gpt(f, backup_lba, backup_header, entries)
-    _write_gpt(f, 1, primary_header, entries)
+    if backup_modified:
+      _write_gpt(f, backup_lba, backup_header, backup_entries)
+    if primary_modified:
+      _write_gpt(f, 1, primary_header, primary_entries)
     f.flush()
     os.fsync(f.fileno())
 
@@ -209,15 +263,6 @@ def _set_boot_lun_ufs_ioctl(lun_id):
   return True
 
 
-def _set_boot_lun_sysfs(lun_id):
-  """Set boot LUN via sysfs (available on mainline kernels 5.x+)."""
-  for path in _glob.glob('/sys/devices/platform/soc/*/boot_lun_en'):
-    with open(path, 'w') as f:
-      f.write(str(lun_id))
-    return True
-  return False
-
-
 def _set_boot_lun_bsg(lun_id):
   """Set boot LUN via UFS BSG ioctl (mainline kernels with CONFIG_SCSI_UFS_BSG).
   Matches Qualcomm abctl set_boot_lun() in abctl-ufs-bsg.cpp."""
@@ -234,10 +279,10 @@ def _set_boot_lun_bsg(lun_id):
 
   SG_IO = 0x2285
 
-  # Build ufs_bsg_request (40 bytes)
+  # Build ufs_bsg_request (36 bytes)
   # Layout: msgcode(4 LE) | header: dword_0..2(3x4 BE) | query: opcode(1) idn(1)
   #         index(1) selector(1) reserved(2) length(2 BE) value(4 BE) reserved(12)
-  req = bytearray(40)
+  req = bytearray(36)
   struct.pack_into('<I', req, 0, 0x16)          # msgcode = UTP_UPIU_QUERY_REQ
   struct.pack_into('>I', req, 4, 0x16 << 24)    # header.dword_0
   struct.pack_into('>I', req, 8, 0x81 << 16)    # header.dword_1 (func=STD_WRITE)
@@ -246,7 +291,7 @@ def _set_boot_lun_bsg(lun_id):
   req[17] = 0x0                                  # qr.idn = BOOT_LU_EN
   struct.pack_into('>I', req, 24, lun_id)        # qr.value
 
-  rsp = bytearray(44)  # ufs_bsg_reply
+  rsp = bytearray(40)  # ufs_bsg_reply
 
   # Get buffer addresses for sg_io_v4 pointers
   req_c = (ctypes.c_ubyte * len(req)).from_buffer(req)
@@ -256,7 +301,7 @@ def _set_boot_lun_bsg(lun_id):
   sg = bytearray(160)
   struct.pack_into('=i', sg, 0, ord('Q'))                     # guard
   struct.pack_into('=I', sg, 4, 0)                            # protocol (SCSI)
-  struct.pack_into('=I', sg, 8, 1)                            # subprotocol (SCSI_TRANSPORT)
+  struct.pack_into('=I', sg, 8, 2)                            # subprotocol (SCSI_TRANSPORT)
   struct.pack_into('=I', sg, 12, len(req))                    # request_len
   struct.pack_into('=Q', sg, 16, ctypes.addressof(req_c))     # request ptr
   struct.pack_into('=I', sg, 44, len(rsp))                    # max_response_len
@@ -279,17 +324,16 @@ def _set_boot_lun_bsg(lun_id):
 
 def set_boot_lun(lun_id):
   """Set UFS boot LUN (1=slot A, 2=slot B).
-  Tries three methods in order:
+  Tries two methods in order:
   1. Qualcomm UFS_IOCTL_QUERY on SG device (kernel 4.9 with Qualcomm patches)
-  2. sysfs boot_lun_en attribute (mainline kernel 5.x+)
-  3. UFS BSG ioctl (mainline kernel with CONFIG_SCSI_UFS_BSG)"""
+  2. UFS BSG ioctl (mainline kernel with CONFIG_SCSI_UFS_BSG)
+
+  Mainline's attributes/boot_lun_enabled sysfs node is read-only."""
   if _set_boot_lun_ufs_ioctl(lun_id):
-    return
-  if _set_boot_lun_sysfs(lun_id):
     return
   if _set_boot_lun_bsg(lun_id):
     return
-  raise RuntimeError("Cannot set boot LUN: no UFS ioctl, sysfs, or BSG device found")
+  raise RuntimeError("Cannot set boot LUN: no working UFS ioctl or BSG device found")
 
 
 def main():
@@ -307,10 +351,14 @@ def main():
     print(get_current_slot())
 
   elif cmd == '--set_success':
-    modify_gpt_attributes('/dev/sde', get_current_slot(), lambda name, a: a | ATTR_SUCCESS)
+    modify_slot_attributes(get_current_slot(), mark_successful)
 
-  elif cmd == '--set_active' and len(sys.argv) > 2:
-    slot = '_a' if sys.argv[2] == '0' else '_b'
+  elif cmd == '--set_active' and len(sys.argv) == 3:
+    try:
+      slot = parse_slot_arg(sys.argv[2])
+    except ValueError as e:
+      print(e, file=sys.stderr)
+      sys.exit(1)
     other = '_b' if slot == '_a' else '_a'
 
     # Active slot: matches ABL SetActiveSlot() + MarkPtnActive()
@@ -334,20 +382,31 @@ def main():
     # Must read active slot from GPT, not /proc/cmdline — cmdline reflects the
     # booted slot which doesn't change until reboot.
     current = get_gpt_active_slot()
-    if current is not None and current != slot:
+    if current is None:
+      raise RuntimeError("Cannot set active slot: GPT has no active boot slot")
+
+    # Prove that a boot-LUN write works before mutating either GPT. Writing the
+    # current value is idempotent and prevents the known failure mode where
+    # GPT changes succeeded before an unavailable UFS interface was detected.
+    set_boot_lun(boot_lun_for_slot(current))
+
+    if current != slot:
       for dev in AB_DEVICES:
         swap_slot_guids(dev)
 
-    for dev in AB_DEVICES:
-      modify_gpt_attributes(dev, slot, activate)
-      modify_gpt_attributes(dev, other, deactivate)
+    modify_slot_attributes(slot, activate)
+    modify_slot_attributes(other, deactivate)
 
     # Switch UFS boot LUN to match active slot (xbl_a=LUN1, xbl_b=LUN2)
-    set_boot_lun(BOOT_LUN_A if slot == '_a' else BOOT_LUN_B)
+    set_boot_lun(boot_lun_for_slot(slot))
 
-  elif cmd == '--set_unbootable' and len(sys.argv) > 2:
-    slot = '_a' if sys.argv[2] == '0' else '_b'
-    modify_gpt_attributes('/dev/sde', slot, lambda name, a: a | ATTR_UNBOOTABLE)
+  elif cmd == '--set_unbootable' and len(sys.argv) == 3:
+    try:
+      slot = parse_slot_arg(sys.argv[2])
+    except ValueError as e:
+      print(e, file=sys.stderr)
+      sys.exit(1)
+    modify_slot_attributes(slot, lambda name, a: a | ATTR_UNBOOTABLE)
 
   else:
     print(f"Unknown: {cmd}", file=sys.stderr)
