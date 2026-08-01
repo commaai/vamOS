@@ -399,6 +399,9 @@ def main():
 
     # Switch UFS boot LUN to match active slot (xbl_a=LUN1, xbl_b=LUN2)
     set_boot_lun(boot_lun_for_slot(slot))
+    # openpilot's AGNOS updater uses this qbootctl-compatible text as its
+    # success signal before leaving its swap retry loop.
+    print(f"setting xbl{slot} lun as boot lun")
 
   elif cmd == '--set_unbootable' and len(sys.argv) == 3:
     try:
