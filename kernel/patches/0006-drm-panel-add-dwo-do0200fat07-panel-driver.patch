@@ -15,9 +15,9 @@ diff --git a/drivers/gpu/drm/panel/Kconfig b/drivers/gpu/drm/panel/Kconfig
 index 407c5f6a2..e1b9fe7a0 100644
 --- a/drivers/gpu/drm/panel/Kconfig
 +++ b/drivers/gpu/drm/panel/Kconfig
-@@ -105,6 +105,16 @@ config DRM_PANEL_BOE_TV101WUM_LL2
- 	  Say Y here if you want to support for BOE TV101WUM-LL2
- 	  WUXGA PANEL DSI Video Mode panel
+@@ -116,4 +116,14 @@ config DRM_PANEL_CHIPWEALTH_CH13726A
+ 	  Say Y here if you want to enable support for ChipWealth
+ 	  CH13726A-based display panels.
  
 +config DRM_PANEL_DWO_DO0200FAT07
 +   tristate "DWO DO0200FAT07 panel"
@@ -30,20 +30,16 @@ index 407c5f6a2..e1b9fe7a0 100644
 +     panel.
 +
  config DRM_PANEL_EBBG_FT8719
- 	tristate "EBBG FT8719 panel driver"
- 	depends on OF
 diff --git a/drivers/gpu/drm/panel/Makefile b/drivers/gpu/drm/panel/Makefile
 index 3615a761b..22c99d088 100644
 --- a/drivers/gpu/drm/panel/Makefile
 +++ b/drivers/gpu/drm/panel/Makefile
-@@ -9,6 +9,7 @@ obj-$(CONFIG_DRM_PANEL_BOE_TD4320) += panel-boe-td4320.o
- obj-$(CONFIG_DRM_PANEL_BOE_TH101MB31UIG002_28A) += panel-boe-th101mb31ig002-28a.o
- obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_LL2) += panel-boe-tv101wum-ll2.o
+@@ -10,4 +10,5 @@ obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_LL2) += panel-boe-tv101wum-ll2.o
  obj-$(CONFIG_DRM_PANEL_BOE_TV101WUM_NL6) += panel-boe-tv101wum-nl6.o
+ obj-$(CONFIG_DRM_PANEL_CHIPWEALTH_CH13726A) += panel-chipwealth-ch13726a.o
 +obj-$(CONFIG_DRM_PANEL_DWO_DO0200FAT07) += panel-dwo-do0200fat07.o
  obj-$(CONFIG_DRM_PANEL_DSI_CM) += panel-dsi-cm.o
  obj-$(CONFIG_DRM_PANEL_LVDS) += panel-lvds.o
- obj-$(CONFIG_DRM_PANEL_SIMPLE) += panel-simple.o
 diff --git a/drivers/gpu/drm/panel/panel-dwo-do0200fat07.c b/drivers/gpu/drm/panel/panel-dwo-do0200fat07.c
 new file mode 100644
 index 000000000..eee54b45a

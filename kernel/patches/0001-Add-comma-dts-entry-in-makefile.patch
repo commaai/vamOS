@@ -4,16 +4,17 @@ Date: Sat, 14 Mar 2026 18:53:20 +0900
 Subject: [PATCH] Add comma dts entry in makefile
 
 ---
- arch/arm64/boot/dts/qcom/Makefile | 1 +
- 1 file changed, 1 insertion(+)
+ arch/arm64/boot/dts/qcom/Makefile | 2 ++
+  1 file changed, 2 insertions(+)
 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
 index 296688f7c..5f05ce5a1 100644
 --- a/arch/arm64/boot/dts/qcom/Makefile
 +++ b/arch/arm64/boot/dts/qcom/Makefile
-@@ -240,6 +240,8 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sdm632-motorola-ocean.dtb
+@@ -308,7 +308,9 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sdm632-motorola-ocean.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm636-sony-xperia-ganges-mermaid.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm660-xiaomi-lavender.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sdm670-google-bonito-tianma.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sdm670-google-sargo.dtb
 +dtb-$(CONFIG_ARCH_QCOM)	+= sdm845-comma-mici.dtb
 +dtb-$(CONFIG_ARCH_QCOM)	+= sdm845-comma-tizi.dtb
