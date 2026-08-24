@@ -21,6 +21,10 @@
 	};
 };
 
+&lcd3v3 {
+	regulator-always-on;
+};
+
 &i2c5 {
 	touchscreen@17 {
 		compatible = "samsung,s6sy761";
