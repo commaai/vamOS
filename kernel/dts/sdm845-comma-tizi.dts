@@ -21,10 +21,6 @@
 	};
 };
 
-&lcd3v3 {
-	regulator-always-on;
-};
-
 &i2c5 {
 	touchscreen@17 {
 		compatible = "samsung,s6sy761";
@@ -53,6 +49,9 @@
 		compatible = "samsung,ea8074-l590nt06", "samsung,ea8074";
 		reg = <0>;
 		vddio-supply = <&vreg_l14a_1p88>;
+		/* GPIO13 enables the external regulator generating both panel bias rails. */
+		elvdd-supply = <&lcd3v3>;
+		elvss-supply = <&lcd3v3>;
 		reset-gpios = <&tlmm 6 GPIO_ACTIVE_LOW>;
 
 		port {
