@@ -116,9 +116,9 @@ AVAIL_BYTES=$(echo "$DF_LINE" | awk '{print $4}')
 
 # Summary stats
 
-FILE_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type f | wc -l)
-DIR_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type d | wc -l)
-SYMLINK_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type l | wc -l)
+FILE_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type f | awk 'END { print NR }')
+DIR_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type d | awk 'END { print NR }')
+SYMLINK_COUNT=$(exec_container find "$ROOTFS_DIR" -xdev -type l | awk 'END { print NR }')
 
 
 # xbps packages — parse pkgdb plist directly (single XML file with all packages)
