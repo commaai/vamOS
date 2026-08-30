@@ -10,7 +10,7 @@ dependencies = [
 
   # hardware.py
   "dbus-python",
-  # amplifier.py
+  # power_drop_monitor.py
   "smbus2",
 
   # provisioning

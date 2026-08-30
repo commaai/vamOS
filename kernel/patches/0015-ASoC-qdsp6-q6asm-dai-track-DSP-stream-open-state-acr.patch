@@ -1,0 +1,48 @@
+From: Trey Moen <trey@moen.ai>
+Date: Sat, 4 Jul 2026 00:30:00 -0700
+Subject: [PATCH] ASoC: qdsp6: q6asm-dai: track DSP stream open state across
+ prepare failures
+
+q6asm_dai_prepare() only sets prtd->state after the whole open
+sequence, including the media format block command, has succeeded. If
+any step after ASM_STREAM_CMD_OPEN_WRITE/READ fails, the function
+returns with the DSP stream open but prtd->state still
+Q6ASM_STREAM_IDLE. Both the re-prepare cleanup in q6asm_dai_prepare()
+and q6asm_dai_close() gate CMD_CLOSE on prtd->state, so the stream is
+never closed: every subsequent prepare in that boot re-sends
+OPEN_WRITE_V3 on the same session/stream and the DSP NAKs it with
+ADSP_EALREADY (0x9), permanently wedging the frontend until an ADSP
+restart. The failure that started the chain is also only logged at
+info level, so the wedge is all that shows up in dmesg.
+
+Mark the stream open (Q6ASM_STREAM_STOPPED) as soon as the open
+command succeeds so re-prepare and close always issue CMD_CLOSE, and
+raise the format block failure log to error severity.
+---
+ sound/soc/qcom/qdsp6/q6asm-dai.c | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6asm-dai.c b/sound/soc/qcom/qdsp6/q6asm-dai.c
+index b616ce316..824af93d2 100644
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c
+@@ -268,6 +268,8 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
+ 		goto open_err;
+ 	}
+ 
++	prtd->state = Q6ASM_STREAM_STOPPED;
++
+ 	prtd->session_id = q6asm_get_session_id(prtd->audio_client);
+ 	ret = q6routing_stream_open(soc_prtd->dai_link->id, LEGACY_PCM_MODE,
+ 			      prtd->session_id, substream->stream);
+@@ -294,7 +296,7 @@ static int q6asm_dai_prepare(struct snd_soc_component *component,
+ 
+ 	}
+ 	if (ret < 0)
+-		dev_info(dev, "%s: CMD Format block failed\n", __func__);
++		dev_err(dev, "%s: CMD Format block failed\n", __func__);
+ 	else
+ 		prtd->state = Q6ASM_STREAM_RUNNING;
+ 
+-- 
+2.53.0
