@@ -1,5 +1,7 @@
+.cache/
 .ccache/
 /build/
+compile_commands.json
 
 **/.DS_Store
 **/*.tar.xz

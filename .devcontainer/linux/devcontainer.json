@@ -1,0 +1,30 @@
+{
+  "name": "vamos-kernel-dev-linux",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "../.."
+  },
+  "initializeCommand": "bash ./tools/build/prepare_builder_image.sh",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "remoteUser": "${localEnv:USER}",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "xaver.clang-format"
+      ],
+      "settings": {
+        "clangd.path": "/usr/bin/clangd",
+        "clangd.arguments": [
+          "--background-index",
+          "--header-insertion=never"
+        ],
+        "C_Cpp.intelliSenseEngine": "Disabled",
+        "C_Cpp.errorSquiggles": "Disabled",
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
