@@ -1,0 +1,7 @@
+# VAMOS: depends on VIDEO_DEV instead of VIDEO_V4L2 — VIDEO_V4L2 merged into VIDEO_DEV in mainline
+config SPECTRA_CAMERA
+	bool "Qualcomm Technologies, Inc. Spectra camera support"
+	depends on ARCH_QCOM && VIDEO_DEV && I2C
+	help
+	  Qualcomm Spectra camera driver stack including sensor, IFE, and
+	  camera request manager. Ported from comma-kernel (4.14) to mainline.
