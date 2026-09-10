@@ -87,7 +87,7 @@ RUN for svc in \
   avahi-ssh-publish power_monitor power_drop_monitor \
   screen_calibration serial-hostname \
   sound varwatch busybox-ntpd \
-  irsc_util leprop adsp cdsp \
+  irsc_util leprop adsp cdsp panda \
   qrtr-ns rmtfs tqftpserv pd-mapper \
   comma modemmanager bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
