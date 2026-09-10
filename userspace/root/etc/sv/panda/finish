@@ -1,0 +1,3 @@
+#!/bin/sh
+# Temporary solution until openpilot is running (which owns panda bringup).
+sleep 5
