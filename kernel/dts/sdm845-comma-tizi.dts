@@ -1,6 +1,7 @@
 /dts-v1/;
 
 #include "sdm845-comma-common.dtsi"
+#include "sdm845-comma-spectra.dtsi"
 
 / {
 	model = "comma tizi";

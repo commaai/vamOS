@@ -260,7 +260,7 @@ install_dts() {
 
   echo "-- Installing DTS/DTSI files --"
 
-  cp "$COMMON_DTSI" "$dst_dir/"
+  cp "$COMMON_DTSI" "$DIR/kernel/dts/sdm845-comma-spectra.dtsi" "$dst_dir/"
   for dts in "${DTS_FILES[@]}"; do
     cp "$dts" "$dst_dir/"
   done
