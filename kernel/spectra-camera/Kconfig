@@ -1,0 +1,13 @@
+#
+# Qualcomm Spectra camera (downstream CAMSS) — out-of-tree source linked into
+# drivers/media/platform/msm at build time by vamOS. See kernel/spectra-camera/.
+#
+
+config SPECTRA_CAMERA
+	bool "Qualcomm Technologies, Inc. Spectra camera and video capture support"
+	depends on ARCH_QCOM && VIDEO_DEV && I2C
+	help
+	  Enable the downstream Qualcomm "Spectra" camera driver stack
+	  (cam_req_mgr / cam_sync / cam_isp / cam_sensor / CSIPHY / CCI / ISP /
+	  ICP), providing the kernel ABI that openpilot's camerad is written
+	  against. Ported in-tree from the legacy AGNOS 4.9 kernel.
