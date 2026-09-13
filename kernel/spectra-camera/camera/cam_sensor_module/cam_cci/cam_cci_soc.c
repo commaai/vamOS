@@ -187,7 +187,12 @@ void cam_cci_soc_remove(struct platform_device *pdev,
 	struct cci_device *cci_dev)
 {
 	struct cam_hw_soc_info *soc_info = &cci_dev->soc_info;
+	int i;
 
+	of_platform_depopulate(&pdev->dev);
+	for (i = 0; i < MASTER_MAX; i++)
+		if (cci_dev->write_wq[i])
+			destroy_workqueue(cci_dev->write_wq[i]);
 	cam_soc_util_release_platform_resource(soc_info);
 }
 
@@ -342,7 +347,7 @@ int cam_cci_parse_dt_info(struct platform_device *pdev,
 	rc = cam_soc_util_get_dt_properties(soc_info);
 	if (rc < 0) {
 		CAM_ERR(CAM_CCI, "Parsing DT data failed:%d", rc);
-		return -EINVAL;
+		return rc;
 	}
 
 	new_cci_dev->ref_count = 0;
@@ -351,7 +356,7 @@ int cam_cci_parse_dt_info(struct platform_device *pdev,
 		cam_cci_irq, new_cci_dev);
 	if (rc < 0) {
 		CAM_ERR(CAM_CCI, "requesting platform resources failed:%d", rc);
-		return -EINVAL;
+		return rc;
 	}
 	new_cci_dev->v4l2_dev_str.pdev = pdev;
 	cam_cci_init_cci_params(new_cci_dev);

@@ -71,8 +71,10 @@ mdev_fail:
 
 static void cam_media_device_cleanup(void)
 {
-	media_entity_cleanup(&g_dev.video->entity);
+	if (g_dev.video)
+		media_entity_cleanup(&g_dev.video->entity);
 	media_device_unregister(g_dev.v4l2_dev->mdev);
+	media_device_cleanup(g_dev.v4l2_dev->mdev);
 	kfree(g_dev.v4l2_dev->mdev);
 	g_dev.v4l2_dev->mdev = NULL;
 }
@@ -536,21 +538,21 @@ static int cam_video_device_setup(void)
 	 * and every camera subdev defers forever on the camera root device.
 	 */
 	g_dev.video->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	rc = video_register_device(g_dev.video, VFL_TYPE_VIDEO, -1);
-	if (rc)
-		goto v4l2_fail;
-
 	rc = media_entity_pads_init(&g_dev.video->entity, 0, NULL);
 	if (rc)
-		goto entity_fail;
+		goto v4l2_fail;
 
 	g_dev.video->entity.function = CAM_VNODE_DEVICE_TYPE;
 	g_dev.video->entity.name = video_device_node_name(g_dev.video);
 
+	rc = video_register_device(g_dev.video, VFL_TYPE_VIDEO, -1);
+	if (rc)
+		goto entity_fail;
+
 	return rc;
 
 entity_fail:
-	video_unregister_device(g_dev.video);
+	media_entity_cleanup(&g_dev.video->entity);
 v4l2_fail:
 	video_device_release(g_dev.video);
 	g_dev.video = NULL;
@@ -582,15 +584,8 @@ EXPORT_SYMBOL(cam_req_mgr_notify_message);
 void cam_video_device_cleanup(void)
 {
 	video_unregister_device(g_dev.video);
-	video_device_release(g_dev.video);
 	g_dev.video = NULL;
 }
-
-void cam_register_subdev_fops(struct v4l2_file_operations *fops)
-{
-	*fops = v4l2_subdev_fops;
-}
-EXPORT_SYMBOL(cam_register_subdev_fops);
 
 int cam_register_subdev(struct cam_subdev *csd)
 {
@@ -620,6 +615,7 @@ int cam_register_subdev(struct cam_subdev *csd)
 
 	sd = &csd->sd;
 	v4l2_subdev_init(sd, csd->ops);
+	sd->owner = THIS_MODULE;
 	sd->internal_ops = csd->internal_ops;
 	snprintf(sd->name, ARRAY_SIZE(sd->name), csd->name);
 	v4l2_set_subdevdata(sd, csd->token);
@@ -680,11 +676,14 @@ EXPORT_SYMBOL(cam_unregister_subdev);
 static void cam_req_mgr_remove(struct platform_device *pdev)
 {
 	cam_req_mgr_core_device_deinit();
+	kmem_cache_destroy(g_cam_req_mgr_timer_cachep);
+	g_cam_req_mgr_timer_cachep = NULL;
 	cam_req_mgr_util_deinit();
 	cam_media_device_cleanup();
 	cam_video_device_cleanup();
 	cam_v4l2_device_cleanup();
 	mutex_destroy(&g_dev.dev_lock);
+	mutex_destroy(&g_dev.cam_lock);
 	g_dev.state = false;
 	g_dev.subdev_nodes_created = false;
 }
@@ -693,48 +692,6 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 {
 	int rc;
 
-	/*
-	 * 6.18 port / openpilot ABI: camerad opens this video node by the exact
-	 * udev by-path "platform-soc:qcom_cam-req-mgr-video-index0" (spectra.cc).
-	 * udev builds that link from ENV{ID_PATH} (the path_id builtin) +
-	 * "-video-index0" (60-persistent-v4l.rules). For path_id to emit a
-	 * non-empty ID_PATH the device must sit DIRECTLY under the platform bus
-	 * (/devices/platform/<name>) — exactly how cam_sync's statically-registered
-	 * platform_device does, yielding ID_PATH=platform-cam_sync. Our cam-req-mgr
-	 * is a DT device under soc@0, so its sysfs path is the NESTED
-	 * /devices/platform/soc@0/soc:qcom,cam-req-mgr — path_id cannot resolve a
-	 * nested platform parent and ID_PATH comes back EMPTY, so no by-path link is
-	 * created and camerad's open() fails its `video0_fd >= 0` assert. (It only
-	 * appeared to work on some boots by racing a stale link.)
-	 *
-	 * Fix: reparent the device onto the platform bus root (&platform_bus, the
-	 * same parent cam_sync has) with device_move(), THEN rename it to
-	 * "soc:qcom_cam-req-mgr". Now its path is the FLAT
-	 * /devices/platform/soc:qcom_cam-req-mgr and path_id emits
-	 * ID_PATH=platform-soc:qcom_cam-req-mgr, so the by-path link
-	 * "platform-soc:qcom_cam-req-mgr-video-index0" is created deterministically
-	 * every boot — byte-for-byte what camerad opens.
-	 *
-	 * NOTE the UNDERSCORE in "qcom_cam-req-mgr": the udev SYMLINK rule uses
-	 * $env{ID_PATH} VERBATIM (it does NOT sanitize — only ID_PATH_TAG turns ','
-	 * into '_'). path_id copies the kernel sysname straight into ID_PATH, so the
-	 * sysname must already contain the literal string camerad expects. Naming it
-	 * with the DT-style comma "soc:qcom,cam-req-mgr" would yield the link
-	 * "platform-soc:qcom,cam-req-mgr-video-index0" (comma), which camerad does
-	 * NOT open. Verified on-device with `udevadm test-builtin path_id`.
-	 *
-	 * Done before the v4l2/media/video children are created so they inherit the
-	 * corrected path.
-	 */
-	rc = device_move(&pdev->dev, &platform_bus, DPM_ORDER_NONE);
-	if (rc)
-		CAM_ERR(CAM_CRM, "cam-req-mgr device_move to platform bus failed rc=%d",
-			rc);
-
-	rc = device_rename(&pdev->dev, "soc:qcom_cam-req-mgr");
-	if (rc)
-		CAM_ERR(CAM_CRM, "cam-req-mgr device_rename failed rc=%d", rc);
-
 	rc = cam_v4l2_device_setup(&pdev->dev);
 	if (rc)
 		return rc;
@@ -742,10 +699,6 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 	rc = cam_media_device_setup(&pdev->dev);
 	if (rc)
 		goto media_setup_fail;
-
-	rc = cam_video_device_setup();
-	if (rc)
-		goto video_setup_fail;
 
 	g_dev.open_cnt = 0;
 	mutex_init(&g_dev.cam_lock);
@@ -765,17 +718,17 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 		goto req_mgr_core_fail;
 	}
 
-	g_dev.state = true;
-
 	if (g_cam_req_mgr_timer_cachep == NULL) {
 		g_cam_req_mgr_timer_cachep = kmem_cache_create("crm_timer",
 			sizeof(struct cam_req_mgr_timer), 64,
 			SLAB_CONSISTENCY_CHECKS | SLAB_RED_ZONE |
 			SLAB_POISON | SLAB_STORE_USER, NULL);
-		if (!g_cam_req_mgr_timer_cachep)
+		if (!g_cam_req_mgr_timer_cachep) {
 			CAM_ERR(CAM_CRM,
 				"Failed to create kmem_cache for crm_timer");
-		else
+			rc = -ENOMEM;
+			goto timer_setup_fail;
+		} else
 			/*
 			 * 6.18 port (2.A): struct kmem_cache is opaque in
 			 * mainline (the private ->name member lived in the
@@ -785,15 +738,23 @@ static int cam_req_mgr_probe(struct platform_device *pdev)
 			CAM_DBG(CAM_CRM, "Name : crm_timer");
 	}
 
+	/* Publish only after every state used by open and close is initialized. */
+	rc = cam_video_device_setup();
+	if (rc)
+		goto video_setup_fail;
+	g_dev.state = true;
 	return rc;
 
+video_setup_fail:
+	kmem_cache_destroy(g_cam_req_mgr_timer_cachep);
+	g_cam_req_mgr_timer_cachep = NULL;
+timer_setup_fail:
+	cam_req_mgr_core_device_deinit();
 req_mgr_core_fail:
 	cam_req_mgr_util_deinit();
 req_mgr_util_fail:
 	mutex_destroy(&g_dev.dev_lock);
 	mutex_destroy(&g_dev.cam_lock);
-	cam_video_device_cleanup();
-video_setup_fail:
 	cam_media_device_cleanup();
 media_setup_fail:
 	cam_v4l2_device_cleanup();
@@ -856,23 +817,20 @@ create_fail:
 	return rc;
 }
 
-static int __init cam_req_mgr_init(void)
+int cam_req_mgr_init(void)
 {
 	return platform_driver_register(&cam_req_mgr_driver);
 }
 
-static int __init cam_req_mgr_late_init(void)
+int cam_req_mgr_late_init(void)
 {
 	return cam_dev_mgr_create_subdev_nodes();
 }
 
-static void __exit cam_req_mgr_exit(void)
+void cam_req_mgr_exit(void)
 {
 	platform_driver_unregister(&cam_req_mgr_driver);
 }
 
-module_init(cam_req_mgr_init);
-late_initcall(cam_req_mgr_late_init);
-module_exit(cam_req_mgr_exit);
 MODULE_DESCRIPTION("Camera Request Manager");
 MODULE_LICENSE("GPL v2");

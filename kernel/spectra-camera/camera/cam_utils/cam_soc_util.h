@@ -674,4 +674,5 @@ uint32_t cam_soc_util_get_soc_id(void);
  * @return           HW id
  */
 uint32_t cam_soc_util_get_hw_revision_node(struct cam_hw_soc_info *soc_info);
+int cam_soc_util_get_gpio(struct device_node *node, int index);
 #endif /* _CAM_SOC_UTIL_H_ */

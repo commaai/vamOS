@@ -257,6 +257,8 @@ void cam_tasklet_deinit(void    **tasklet_info)
 {
 	struct cam_tasklet_info *tasklet = *tasklet_info;
 
+	if (!tasklet)
+		return;
 	if (atomic_read(&tasklet->tasklet_active)) {
 		atomic_set(&tasklet->tasklet_active, 0);
 		tasklet_kill(&tasklet->tasklet);
@@ -329,4 +331,3 @@ static void cam_tasklet_action(unsigned long data)
 		cam_tasklet_put_cmd(tasklet_info, (void **)(&tasklet_cmd));
 	}
 }
-

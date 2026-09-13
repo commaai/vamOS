@@ -269,19 +269,14 @@ static const struct v4l2_subdev_internal_ops cci_subdev_intern_ops;
 
 static struct v4l2_file_operations cci_v4l2_subdev_fops;
 
-static long cam_cci_subdev_do_ioctl(
-	struct file *file, unsigned int cmd, void *arg)
+static long cam_cci_subdev_fops_ioctl(struct file *file, unsigned int cmd,
+	unsigned long arg)
 {
 	struct video_device *vdev = video_devdata(file);
 	struct v4l2_subdev *sd = vdev_to_v4l2_subdev(vdev);
 
+	/* CCI controls contain kernel pointers and are only submitted in-kernel. */
 	return cam_cci_subdev_ioctl(sd, cmd, NULL);
-}
-
-static long cam_cci_subdev_fops_ioctl(struct file *file, unsigned int cmd,
-	unsigned long arg)
-{
-	return video_usercopy(file, cmd, arg, cam_cci_subdev_do_ioctl);
 }
 
 #ifdef CONFIG_COMPAT
@@ -339,19 +334,12 @@ static int cam_cci_platform_probe(struct platform_device *pdev)
 	rc = cam_register_subdev(&(new_cci_dev->v4l2_dev_str));
 	if (rc < 0) {
 		CAM_ERR(CAM_CCI, "Fail with cam_register_subdev");
-		goto cci_no_resource;
+		goto cci_release_resources;
 	}
 
 	platform_set_drvdata(pdev, &(new_cci_dev->v4l2_dev_str.sd));
 	v4l2_set_subdevdata(&new_cci_dev->v4l2_dev_str.sd, new_cci_dev);
 	g_cci_subdev = &new_cci_dev->v4l2_dev_str.sd;
-
-	cam_register_subdev_fops(&cci_v4l2_subdev_fops);
-	cci_v4l2_subdev_fops.unlocked_ioctl = cam_cci_subdev_fops_ioctl;
-#ifdef CONFIG_COMPAT
-	cci_v4l2_subdev_fops.compat_ioctl32 =
-		cam_cci_subdev_fops_compat_ioctl;
-#endif
 
 	cpas_parms.cam_cpas_client_cb = NULL;
 	cpas_parms.cell_index = 0;
@@ -376,6 +364,9 @@ cci_unregister_subdev:
 	 * dereferences -> use-after-free panic. Unregister before freeing.
 	 */
 	cam_unregister_subdev(&(new_cci_dev->v4l2_dev_str));
+	g_cci_subdev = NULL;
+cci_release_resources:
+	cam_cci_soc_remove(pdev, new_cci_dev);
 cci_no_resource:
 	kfree(new_cci_dev);
 	return rc;
@@ -388,8 +379,10 @@ static void cam_cci_device_remove(struct platform_device *pdev)
 		v4l2_get_subdevdata(subdev);
 
 	cam_cpas_unregister_client(cci_dev->cpas_handle);
+	cam_unregister_subdev(&cci_dev->v4l2_dev_str);
+	g_cci_subdev = NULL;
 	cam_cci_soc_remove(pdev, cci_dev);
-	devm_kfree(&pdev->dev, cci_dev);
+	kfree(cci_dev);
 }
 
 static const struct of_device_id cam_cci_dt_match[] = {
@@ -420,28 +413,31 @@ static int cam_cci_assign_fops(void)
 			"Invalid args sd node: %pK", sd);
 		return -EINVAL;
 	}
+	cci_v4l2_subdev_fops = *sd->devnode->fops;
+	cci_v4l2_subdev_fops.owner = THIS_MODULE;
+	cci_v4l2_subdev_fops.unlocked_ioctl = cam_cci_subdev_fops_ioctl;
+#ifdef CONFIG_COMPAT
+	cci_v4l2_subdev_fops.compat_ioctl32 = cam_cci_subdev_fops_compat_ioctl;
+#endif
 	sd->devnode->fops = &cci_v4l2_subdev_fops;
 
 	return 0;
 }
 
-static int __init cam_cci_late_init(void)
+int cam_cci_late_init(void)
 {
 	return cam_cci_assign_fops();
 }
 
-static int __init cam_cci_init_module(void)
+int cam_cci_init_module(void)
 {
 	return platform_driver_register(&cci_driver);
 }
 
-static void __exit cam_cci_exit_module(void)
+void cam_cci_exit_module(void)
 {
 	platform_driver_unregister(&cci_driver);
 }
 
-module_init(cam_cci_init_module);
-late_initcall(cam_cci_late_init);
-module_exit(cam_cci_exit_module);
 MODULE_DESCRIPTION("MSM CCI driver");
 MODULE_LICENSE("GPL v2");

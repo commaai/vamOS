@@ -935,7 +935,7 @@ int cam_hw_cdm_probe(struct platform_device *pdev)
 	cdm_core->iommu_hdl.secure = -1;
 
 	cdm_core->work_queue = alloc_workqueue(cdm_core->name,
-		WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI,
+		WQ_PERCPU | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI,
 		CAM_CDM_INFLIGHT_WORKS);
 
 	rc = cam_soc_util_request_platform_resource(&cdm_hw->soc_info,
@@ -1100,11 +1100,16 @@ void cam_hw_cdm_remove(struct platform_device *pdev)
 		return;
 	}
 
-	rc = cam_hw_cdm_deinit(cdm_hw, NULL, 0);
-	if (rc) {
-		CAM_ERR(CAM_CDM, "Deinit failed for hw");
-		return;
+	if (cdm_hw->hw_state == CAM_HW_STATE_POWER_UP) {
+		rc = cam_hw_cdm_deinit(cdm_hw, NULL, 0);
+		if (rc) {
+			CAM_ERR(CAM_CDM, "Deinit failed for hw");
+			return;
+		}
 	}
+
+	cam_cdm_intf_deregister_hw_cdm(cdm_hw_intf,
+		cdm_hw->soc_info.soc_private, CAM_HW_CDM, cdm_core->index);
 
 	rc = cam_cpas_unregister_client(cdm_core->cpas_handle);
 	if (rc) {
@@ -1118,10 +1123,10 @@ void cam_hw_cdm_remove(struct platform_device *pdev)
 	flush_workqueue(cdm_core->work_queue);
 	destroy_workqueue(cdm_core->work_queue);
 
-	if (cam_smmu_destroy_handle(cdm_core->iommu_hdl.non_secure))
-		CAM_ERR(CAM_CDM, "Release iommu secure hdl failed");
 	cam_smmu_unset_client_page_fault_handler(
 		cdm_core->iommu_hdl.non_secure, cdm_hw);
+	if (cam_smmu_destroy_handle(cdm_core->iommu_hdl.non_secure))
+		CAM_ERR(CAM_CDM, "Release iommu secure hdl failed");
 
 	mutex_destroy(&cdm_hw->hw_mutex);
 	kfree(cdm_hw->soc_info.soc_private);
@@ -1141,17 +1146,15 @@ static struct platform_driver cam_hw_cdm_driver = {
 	},
 };
 
-static int __init cam_hw_cdm_init_module(void)
+int cam_hw_cdm_init_module(void)
 {
 	return platform_driver_register(&cam_hw_cdm_driver);
 }
 
-static void __exit cam_hw_cdm_exit_module(void)
+void cam_hw_cdm_exit_module(void)
 {
 	platform_driver_unregister(&cam_hw_cdm_driver);
 }
 
-module_init(cam_hw_cdm_init_module);
-module_exit(cam_hw_cdm_exit_module);
 MODULE_DESCRIPTION("MSM Camera HW CDM driver");
 MODULE_LICENSE("GPL v2");

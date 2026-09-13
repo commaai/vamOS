@@ -17,7 +17,6 @@
 #include <linux/clk.h>
 #include <linux/io.h>
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include <linux/of_platform.h>
 #include <linux/module.h>
 #include <linux/irqreturn.h>
@@ -294,14 +293,7 @@ struct cci_write_async {
 
 irqreturn_t cam_cci_irq(int irq_num, void *data);
 
-#ifdef CONFIG_SPECTRA_CAMERA
 extern struct v4l2_subdev *cam_cci_get_subdev(void);
-#else
-static inline struct v4l2_subdev *cam_cci_get_subdev(void)
-{
-	return NULL;
-}
-#endif
 
 #define VIDIOC_MSM_CCI_CFG \
 	_IOWR('V', BASE_VIDIOC_PRIVATE + 23, struct cam_cci_ctrl *)

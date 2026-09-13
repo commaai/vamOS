@@ -450,10 +450,10 @@ int cam_cdm_intf_deregister_hw_cdm(struct cam_hw_intf *hw,
 	if ((type == CAM_VIRTUAL_CDM) &&
 		(hw == cdm_mgr.nodes[CAM_SW_CDM_INDEX].device) &&
 		(index == CAM_SW_CDM_INDEX)) {
-		mutex_lock(&cdm_mgr.nodes[cdm_mgr.cdm_count].lock);
+		mutex_lock(&cdm_mgr.nodes[CAM_SW_CDM_INDEX].lock);
 		cdm_mgr.nodes[CAM_SW_CDM_INDEX].device = NULL;
 		cdm_mgr.nodes[CAM_SW_CDM_INDEX].data = NULL;
-		mutex_unlock(&cdm_mgr.nodes[cdm_mgr.cdm_count].lock);
+		mutex_unlock(&cdm_mgr.nodes[CAM_SW_CDM_INDEX].lock);
 		rc = 0;
 	} else if ((type == CAM_HW_CDM) &&
 		(hw == cdm_mgr.nodes[index].device)) {
@@ -514,18 +514,19 @@ static int cam_cdm_intf_probe(struct platform_device *pdev)
 
 static void cam_cdm_intf_remove(struct platform_device *pdev)
 {
-	int i;
+	int i, rc;
 
 	if (get_cdm_mgr_refcount()) {
 		CAM_ERR(CAM_CDM, "CDM intf mgr get refcount failed");
 		return;
 	}
 
-	if (cam_virtual_cdm_remove(pdev)) {
-		CAM_ERR(CAM_CDM, "Virtual CDM remove failed");
-		goto end;
-	}
+	rc = cam_virtual_cdm_remove(pdev);
 	put_cdm_mgr_refcount();
+	if (rc) {
+		CAM_ERR(CAM_CDM, "Virtual CDM remove failed");
+		return;
+	}
 
 	mutex_lock(&cam_cdm_mgr_lock);
 	if (cdm_mgr.refcount != 0) {
@@ -538,15 +539,17 @@ static void cam_cdm_intf_remove(struct platform_device *pdev)
 		if (cdm_mgr.nodes[i].device || cdm_mgr.nodes[i].data ||
 			(cdm_mgr.nodes[i].refcount != 0)) {
 			CAM_ERR(CAM_CDM, "Valid node present in index=%d", i);
-			mutex_unlock(&cam_cdm_mgr_lock);
 			goto end;
 		}
+	}
+	for (i = 0; i < CAM_CDM_INTF_MGR_MAX_SUPPORTED_CDM; i++) {
 		mutex_destroy(&cdm_mgr.nodes[i].lock);
 		cdm_mgr.nodes[i].device = NULL;
 		cdm_mgr.nodes[i].data = NULL;
 		cdm_mgr.nodes[i].refcount = 0;
 	}
 	cdm_mgr.probe_done = false;
+	cdm_mgr.cdm_count = 0;
 
 end:
 	mutex_unlock(&cam_cdm_mgr_lock);
@@ -563,17 +566,15 @@ static struct platform_driver cam_cdm_intf_driver = {
 	},
 };
 
-static int __init cam_cdm_intf_init_module(void)
+int cam_cdm_intf_init_module(void)
 {
 	return platform_driver_register(&cam_cdm_intf_driver);
 }
 
-static void __exit cam_cdm_intf_exit_module(void)
+void cam_cdm_intf_exit_module(void)
 {
 	platform_driver_unregister(&cam_cdm_intf_driver);
 }
 
-module_init(cam_cdm_intf_init_module);
-module_exit(cam_cdm_intf_exit_module);
 MODULE_DESCRIPTION("MSM Camera CDM Intf driver");
 MODULE_LICENSE("GPL v2");

@@ -288,7 +288,7 @@ int cam_virtual_cdm_probe(struct platform_device *pdev)
 	memcpy(cdm_core->name, CAM_CDM_VIRTUAL_NAME,
 		sizeof(CAM_CDM_VIRTUAL_NAME));
 	cdm_core->work_queue = alloc_workqueue(cdm_core->name,
-		WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI,
+		WQ_PERCPU | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI,
 		CAM_CDM_INFLIGHT_WORKS);
 	cdm_core->ops = NULL;
 

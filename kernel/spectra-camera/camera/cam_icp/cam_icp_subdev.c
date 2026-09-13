@@ -225,30 +225,13 @@ probe_fail:
 static void cam_icp_remove(struct platform_device *pdev)
 {
 	int i;
-	struct v4l2_subdev *sd;
-	struct cam_subdev *subdev;
-
-	if (!pdev) {
-		CAM_ERR(CAM_ICP, "pdev is NULL");
-		return;
-	}
-
-	sd = platform_get_drvdata(pdev);
-	if (!sd) {
-		CAM_ERR(CAM_ICP, "V4l2 subdev is NULL");
-		return;
-	}
-
-	subdev = v4l2_get_subdevdata(sd);
-	if (!subdev) {
-		CAM_ERR(CAM_ICP, "cam subdev is NULL");
-		return;
-	}
+	struct cam_hw_mgr_intf *hw_mgr_intf = g_icp_dev.ctx[0].hw_mgr_intf;
 
 	for (i = 0; i < CAM_ICP_CTX_MAX; i++)
 		cam_icp_context_deinit(&g_icp_dev.ctx_icp[i]);
-	cam_node_deinit(g_icp_dev.node);
+	cam_icp_hw_mgr_deinit(g_icp_dev.sd.token);
 	cam_subdev_remove(&g_icp_dev.sd);
+	kfree(hw_mgr_intf);
 	mutex_destroy(&g_icp_dev.icp_lock);
 }
 
@@ -263,16 +246,14 @@ static struct platform_driver cam_icp_driver = {
 	},
 };
 
-static int __init cam_icp_init_module(void)
+int cam_icp_init_module(void)
 {
 	return platform_driver_register(&cam_icp_driver);
 }
 
-static void __exit cam_icp_exit_module(void)
+void cam_icp_exit_module(void)
 {
 	platform_driver_unregister(&cam_icp_driver);
 }
-module_init(cam_icp_init_module);
-module_exit(cam_icp_exit_module);
 MODULE_DESCRIPTION("MSM ICP driver");
 MODULE_LICENSE("GPL v2");

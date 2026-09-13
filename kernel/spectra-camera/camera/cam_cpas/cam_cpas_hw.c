@@ -1558,7 +1558,7 @@ int cam_cpas_hw_probe(struct platform_device *pdev,
 	cpas_hw_intf->hw_ops.process_cmd = cam_cpas_hw_process_cmd;
 
 	cpas_core->work_queue = alloc_workqueue("cam-cpas",
-		WQ_SYSFS | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI, CAM_CPAS_INFLIGHT_WORKS);
+		WQ_PERCPU | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI, CAM_CPAS_INFLIGHT_WORKS);
 	if (!cpas_core->work_queue) {
 		rc = -ENOMEM;
 		goto release_mem;

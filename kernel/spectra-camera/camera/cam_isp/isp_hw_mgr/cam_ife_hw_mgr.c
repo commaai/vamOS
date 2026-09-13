@@ -4366,6 +4366,24 @@ err:
 	return -ENOMEM;
 }
 
+void cam_ife_hw_mgr_deinit(void *token)
+{
+	int i;
+
+	cam_smmu_unset_client_page_fault_handler(
+		g_ife_hw_mgr.mgr_common.img_iommu_hdl, token);
+	debugfs_remove_recursive(g_ife_hw_mgr.debug_cfg.dentry);
+	cam_req_mgr_workq_destroy(&g_ife_hw_mgr.workq);
+	for (i = 0; i < CAM_CTX_MAX; i++) {
+		cam_tasklet_deinit(&g_ife_hw_mgr.mgr_common.tasklet_pool[i]);
+		kfree(g_ife_hw_mgr.ctx_pool[i].cdm_cmd);
+	}
+	cam_smmu_ops(g_ife_hw_mgr.mgr_common.img_iommu_hdl, CAM_SMMU_DETACH);
+	cam_smmu_destroy_handle(g_ife_hw_mgr.mgr_common.img_iommu_hdl);
+	cam_smmu_destroy_handle(g_ife_hw_mgr.mgr_common.img_iommu_hdl_secure);
+	mutex_destroy(&g_ife_hw_mgr.ctx_mutex);
+}
+
 int cam_ife_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf, int *iommu_hdl)
 {
 	int rc = -EFAULT;
@@ -4441,20 +4459,20 @@ int cam_ife_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf, int *iommu_hdl)
 	 *  Also, we have to release them once we have the
 	 *  deinit support
 	 */
-	if (cam_smmu_get_handle("ife",
-		&g_ife_hw_mgr.mgr_common.img_iommu_hdl)) {
+	rc = cam_smmu_get_handle("ife", &g_ife_hw_mgr.mgr_common.img_iommu_hdl);
+	if (rc) {
 		CAM_ERR(CAM_ISP, "Can not get iommu handle");
-		return -EINVAL;
+		return rc;
 	}
 
-	if (cam_smmu_ops(g_ife_hw_mgr.mgr_common.img_iommu_hdl,
-		CAM_SMMU_ATTACH)) {
+	rc = cam_smmu_ops(g_ife_hw_mgr.mgr_common.img_iommu_hdl, CAM_SMMU_ATTACH);
+	if (rc) {
 		CAM_ERR(CAM_ISP, "Attach iommu handle failed.");
 		goto attach_fail;
 	}
 
-	if (cam_smmu_get_handle("cam-secure",
-		&g_ife_hw_mgr.mgr_common.img_iommu_hdl_secure)) {
+	rc = cam_smmu_get_handle("cam-secure", &g_ife_hw_mgr.mgr_common.img_iommu_hdl_secure);
+	if (rc) {
 		CAM_ERR(CAM_ISP, "Failed to get secure iommu handle");
 		goto secure_fail;
 	}

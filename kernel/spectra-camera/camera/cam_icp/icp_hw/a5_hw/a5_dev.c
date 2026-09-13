@@ -200,6 +200,22 @@ a5_dev_alloc_failure:
 	return rc;
 }
 
+static void cam_a5_remove(struct platform_device *pdev)
+{
+	struct cam_hw_intf *intf = platform_get_drvdata(pdev);
+	struct cam_hw_info *hw = intf->hw_priv;
+	struct cam_a5_device_core_info *core = hw->core_info;
+
+	if (core->cpas_start)
+		cam_a5_deinit_hw(hw, NULL, 0);
+	cam_cpas_unregister_client(core->cpas_handle);
+	cam_soc_util_release_platform_resource(&hw->soc_info);
+	mutex_destroy(&hw->hw_mutex);
+	kfree(core);
+	kfree(hw);
+	kfree(intf);
+}
+
 static const struct of_device_id cam_a5_dt_match[] = {
 	{
 		.compatible = "qcom,cam-a5",
@@ -211,6 +227,7 @@ MODULE_DEVICE_TABLE(of, cam_a5_dt_match);
 
 static struct platform_driver cam_a5_driver = {
 	.probe = cam_a5_probe,
+	.remove = cam_a5_remove,
 	.driver = {
 		.name = "cam-a5",
 		.owner = THIS_MODULE,
@@ -219,17 +236,15 @@ static struct platform_driver cam_a5_driver = {
 	},
 };
 
-static int __init cam_a5_init_module(void)
+int cam_a5_init_module(void)
 {
 	return platform_driver_register(&cam_a5_driver);
 }
 
-static void __exit cam_a5_exit_module(void)
+void cam_a5_exit_module(void)
 {
 	platform_driver_unregister(&cam_a5_driver);
 }
 
-module_init(cam_a5_init_module);
-module_exit(cam_a5_exit_module);
 MODULE_DESCRIPTION("CAM A5 driver");
 MODULE_LICENSE("GPL v2");

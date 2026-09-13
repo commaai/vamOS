@@ -36,17 +36,15 @@ static struct platform_driver cam_vfe170_driver = {
 	},
 };
 
-static int __init cam_vfe170_init_module(void)
+int cam_vfe170_init_module(void)
 {
 	return platform_driver_register(&cam_vfe170_driver);
 }
 
-static void __exit cam_vfe170_exit_module(void)
+void cam_vfe170_exit_module(void)
 {
 	platform_driver_unregister(&cam_vfe170_driver);
 }
 
-module_init(cam_vfe170_init_module);
-module_exit(cam_vfe170_exit_module);
 MODULE_DESCRIPTION("CAM VFE170 driver");
 MODULE_LICENSE("GPL v2");

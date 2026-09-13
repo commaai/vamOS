@@ -24,6 +24,7 @@
 #include "cam_debug_util.h"
 #include "cam_res_mgr_api.h"
 #include "cam_res_mgr_private.h"
+#include "cam_soc_util.h"
 
 static struct cam_res_mgr *cam_res;
 
@@ -629,13 +630,14 @@ EXPORT_SYMBOL(cam_res_mgr_shared_clk_config);
 static int cam_res_mgr_parse_dt(struct device *dev)
 {
 	int rc = 0;
+	int i;
 	struct device_node *of_node = NULL;
 	struct cam_res_mgr_dt *dt = &cam_res->dt;
 
 	of_node = dev->of_node;
 
-	dt->num_shared_gpio = of_property_count_u32_elems(of_node,
-		"shared-gpios");
+	dt->num_shared_gpio = of_count_phandle_with_args(of_node,
+		"gpios", "#gpio-cells");
 
 	if (dt->num_shared_gpio > MAX_SHARED_GPIO_SIZE ||
 		dt->num_shared_gpio <= 0) {
@@ -648,11 +650,11 @@ static int cam_res_mgr_parse_dt(struct device *dev)
 		return -EINVAL;
 	}
 
-	rc = of_property_read_u32_array(of_node, "shared-gpios",
-		dt->shared_gpio, dt->num_shared_gpio);
-	if (rc) {
-		CAM_ERR(CAM_RES, "Get shared gpio array failed.");
-		return -EINVAL;
+	for (i = 0; i < dt->num_shared_gpio; i++) {
+		rc = cam_soc_util_get_gpio(of_node, i);
+		if (rc < 0)
+			return rc;
+		dt->shared_gpio[i] = rc;
 	}
 
 	dt->pinctrl_info.pinctrl = devm_pinctrl_get(dev);
@@ -685,7 +687,7 @@ static int cam_res_mgr_parse_dt(struct device *dev)
 
 	devm_pinctrl_put(dt->pinctrl_info.pinctrl);
 
-	return rc;
+	return 0;
 }
 
 static int cam_res_mgr_probe(struct platform_device *pdev)
@@ -745,17 +747,15 @@ static struct platform_driver cam_res_mgr_driver = {
 	},
 };
 
-static int __init cam_res_mgr_init(void)
+int cam_res_mgr_init(void)
 {
 	return platform_driver_register(&cam_res_mgr_driver);
 }
 
-static void __exit cam_res_mgr_exit(void)
+void cam_res_mgr_exit(void)
 {
 	platform_driver_unregister(&cam_res_mgr_driver);
 }
 
-module_init(cam_res_mgr_init);
-module_exit(cam_res_mgr_exit);
 MODULE_DESCRIPTION("Camera resource manager driver");
 MODULE_LICENSE("GPL v2");

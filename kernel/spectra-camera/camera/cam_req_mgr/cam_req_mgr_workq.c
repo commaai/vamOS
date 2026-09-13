@@ -181,7 +181,7 @@ int cam_req_mgr_workq_create(char *name, int32_t num_tasks,
 	struct cam_req_mgr_core_workq **workq, enum crm_workq_context in_irq,
 	int flags)
 {
-	int32_t i, wq_flags = 0, max_active_tasks = 0;
+	int32_t i, wq_flags = WQ_PERCPU, max_active_tasks = 0;
 	struct crm_workq_task  *task;
 	struct cam_req_mgr_core_workq *crm_workq = NULL;
 	char buf[128] = "crm_workq-";

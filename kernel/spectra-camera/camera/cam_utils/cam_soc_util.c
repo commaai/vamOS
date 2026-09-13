@@ -14,7 +14,7 @@
 #include <linux/clk.h>
 #include <linux/slab.h>
 #include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/gpio/driver.h>
 #include <linux/pinctrl/consumer.h>
 #include "cam_compat_qcom.h"
 #include "cam_soc_util.h"
@@ -479,7 +479,7 @@ int cam_soc_util_set_src_clk_rate(struct cam_hw_soc_info *soc_info,
 
 int cam_soc_util_clk_put(struct clk **clk)
 {
-	if (!(*clk)) {
+	if (!clk || IS_ERR_OR_NULL(*clk)) {
 		CAM_ERR(CAM_UTIL, "Invalid params clk");
 		return -EINVAL;
 	}
@@ -939,6 +939,45 @@ free_val_array:
 	return rc;
 }
 
+struct cam_gpio_lookup {
+	struct of_phandle_args spec;
+	int offset;
+};
+
+static int cam_gpio_match(struct gpio_chip *chip, const void *data)
+{
+	struct cam_gpio_lookup *lookup = (struct cam_gpio_lookup *)data;
+
+	if (!device_match_of_node(gpio_device_to_device(chip->gpiodev),
+				  lookup->spec.np))
+		return 0;
+	if (!chip->of_xlate || chip->of_gpio_n_cells != lookup->spec.args_count)
+		lookup->offset = -EINVAL;
+	else
+		lookup->offset = chip->of_xlate(chip, &lookup->spec, NULL);
+	return 1;
+}
+
+int cam_soc_util_get_gpio(struct device_node *node, int index)
+{
+	struct cam_gpio_lookup lookup;
+	struct gpio_device *gdev;
+	int rc;
+
+	rc = of_parse_phandle_with_args_map(node, "gpios", "gpio", index,
+					  &lookup.spec);
+	if (rc)
+		return rc;
+	gdev = gpio_device_find(&lookup, cam_gpio_match);
+	of_node_put(lookup.spec.np);
+	if (!gdev)
+		return -EPROBE_DEFER;
+	rc = lookup.offset < 0 ? lookup.offset :
+		gpio_device_get_base(gdev) + lookup.offset;
+	gpio_device_put(gdev);
+	return rc;
+}
+
 static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 {
 	int32_t rc = 0, i = 0;
@@ -976,7 +1015,10 @@ static int cam_soc_util_get_gpio_info(struct cam_hw_soc_info *soc_info)
 		goto free_gpio_conf;
 
 	for (i = 0; i < gpio_array_size; i++) {
-		gpio_array[i] = of_get_named_gpio(of_node, "gpios", i);
+		rc = cam_soc_util_get_gpio(of_node, i);
+		if (rc < 0)
+			goto free_gpio_array;
+		gpio_array[i] = rc;
 		CAM_DBG(CAM_UTIL, "gpio_array[%d] = %d", i, gpio_array[i]);
 	}
 
@@ -1581,6 +1623,9 @@ int cam_soc_util_release_platform_resource(struct cam_hw_soc_info *soc_info)
 		return -EINVAL;
 	}
 
+	if (soc_info->irq_line)
+		devm_free_irq(soc_info->dev, soc_info->irq_line, soc_info->irq_data);
+
 	for (i = soc_info->num_clk - 1; i >= 0; i--) {
 		clk_put(soc_info->clk[i]);
 		soc_info->clk[i] = NULL;
@@ -1597,12 +1642,6 @@ int cam_soc_util_release_platform_resource(struct cam_hw_soc_info *soc_info)
 		iounmap(soc_info->reg_map[i].mem_base);
 		soc_info->reg_map[i].mem_base = NULL;
 		soc_info->reg_map[i].size = 0;
-	}
-
-	if (soc_info->irq_line) {
-		disable_irq(soc_info->irq_line);
-		devm_free_irq(soc_info->dev,
-			soc_info->irq_line, soc_info->irq_data);
 	}
 
 	if (soc_info->pinctrl_info.pinctrl)
@@ -1716,4 +1755,3 @@ int cam_soc_util_reg_dump(struct cam_hw_soc_info *soc_info,
 
 	return 0;
 }
-

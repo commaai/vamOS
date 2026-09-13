@@ -541,7 +541,7 @@ static struct spi_driver cam_eeprom_spi_driver = {
 	.probe = cam_eeprom_spi_driver_probe,
 	.remove = cam_eeprom_spi_driver_remove,
 };
-static int __init cam_eeprom_driver_init(void)
+int cam_eeprom_driver_init(void)
 {
 	int rc = 0;
 
@@ -555,19 +555,22 @@ static int __init cam_eeprom_driver_init(void)
 	rc = spi_register_driver(&cam_eeprom_spi_driver);
 	if (rc < 0) {
 		CAM_ERR(CAM_EEPROM, "spi_register_driver failed rc = %d", rc);
+		platform_driver_unregister(&cam_eeprom_platform_driver);
 		return rc;
 	}
 
 	rc = i2c_add_driver(&cam_eeprom_i2c_driver);
 	if (rc < 0) {
 		CAM_ERR(CAM_EEPROM, "i2c_add_driver failed rc = %d", rc);
+		spi_unregister_driver(&cam_eeprom_spi_driver);
+		platform_driver_unregister(&cam_eeprom_platform_driver);
 		return rc;
 	}
 
 	return rc;
 }
 
-static void __exit cam_eeprom_driver_exit(void)
+void cam_eeprom_driver_exit(void)
 {
 	/*for tof camera Begin*/
 	cam_eeprom_free_list_head(LIST_HEAD_ALL);
@@ -578,7 +581,5 @@ static void __exit cam_eeprom_driver_exit(void)
 	i2c_del_driver(&cam_eeprom_i2c_driver);
 }
 
-module_init(cam_eeprom_driver_init);
-module_exit(cam_eeprom_driver_exit);
 MODULE_DESCRIPTION("CAM EEPROM driver");
 MODULE_LICENSE("GPL v2");

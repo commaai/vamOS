@@ -16,7 +16,6 @@
 #include <linux/kernel.h>
 #include <linux/regulator/consumer.h>
 #include <linux/gpio.h>
-#include <linux/of_gpio.h>
 #include <linux/of.h>
 #include <cam_sensor_cmn_header.h>
 #include <cam_req_mgr_util.h>

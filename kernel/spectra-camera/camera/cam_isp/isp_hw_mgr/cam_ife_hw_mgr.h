@@ -209,6 +209,7 @@ struct cam_ife_hw_mgr {
  *
  */
 int cam_ife_hw_mgr_init(struct cam_hw_mgr_intf *hw_mgr_intf, int *iommu_hdl);
+void cam_ife_hw_mgr_deinit(void *token);
 
 /**
  * cam_ife_mgr_do_tasklet_buf_done()

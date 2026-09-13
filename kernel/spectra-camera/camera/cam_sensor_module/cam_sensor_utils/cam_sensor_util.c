@@ -17,7 +17,7 @@
  * single-integer GPIO API and devm_pinctrl_get/pinctrl_lookup_state/etc.
  */
 #include <linux/gpio.h>
-#include <linux/of_gpio.h>
+#include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
 #include "cam_sensor_util.h"
 #include <cam_mem_mgr.h>

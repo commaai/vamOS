@@ -218,6 +218,7 @@ static void cam_sensor_platform_remove(struct platform_device *pdev)
 	}
 
 	soc_info = &s_ctrl->soc_info;
+	cam_unregister_subdev(&s_ctrl->v4l2_dev_str);
 	for (i = 0; i < soc_info->num_clk; i++)
 		devm_clk_put(soc_info->dev, soc_info->clk[i]);
 
@@ -352,7 +353,7 @@ static struct i2c_driver cam_sensor_driver_i2c = {
 	},
 };
 
-static int __init cam_sensor_driver_init(void)
+int cam_sensor_driver_init(void)
 {
 	int32_t rc = 0;
 
@@ -364,19 +365,19 @@ static int __init cam_sensor_driver_init(void)
 	}
 
 	rc = i2c_add_driver(&cam_sensor_driver_i2c);
-	if (rc)
+	if (rc) {
 		CAM_ERR(CAM_SENSOR, "i2c_add_driver failed rc = %d", rc);
+		platform_driver_unregister(&cam_sensor_platform_driver);
+	}
 
 	return rc;
 }
 
-static void __exit cam_sensor_driver_exit(void)
+void cam_sensor_driver_exit(void)
 {
 	platform_driver_unregister(&cam_sensor_platform_driver);
 	i2c_del_driver(&cam_sensor_driver_i2c);
 }
 
-module_init(cam_sensor_driver_init);
-module_exit(cam_sensor_driver_exit);
 MODULE_DESCRIPTION("cam_sensor_driver");
 MODULE_LICENSE("GPL v2");

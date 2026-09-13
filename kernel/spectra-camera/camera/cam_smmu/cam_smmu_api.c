@@ -15,6 +15,8 @@
 #include <linux/dma-direction.h>
 #include <linux/of_platform.h>
 #include <linux/of_reserved_mem.h>
+#include <linux/of_address.h>
+#include <linux/io.h>
 #include <linux/platform_device.h>
 #include <linux/iommu.h>
 #include <linux/slab.h>
@@ -78,6 +80,7 @@ struct firmware_alloc_info {
 	struct device *fw_dev;
 	void *fw_kva;
 	dma_addr_t fw_dma_hdl;
+	struct resource memory;
 };
 
 struct firmware_alloc_info icp_fw;
@@ -722,7 +725,7 @@ static int cam_smmu_create_add_handle_in_table(char *name,
 	int handle;
 
 	/* create handle and add in the iommu hardware table */
-	for (i = 0; i < iommu_cb_set.cb_num; i++) {
+	for (i = 0; i < iommu_cb_set.cb_init_count; i++) {
 		if (!strcmp(iommu_cb_set.cb_info[i].name, name)) {
 			mutex_lock(&iommu_cb_set.cb_info[i].lock);
 			if (iommu_cb_set.cb_info[i].handle != HANDLE_INIT) {
@@ -760,6 +763,8 @@ static int cam_smmu_create_add_handle_in_table(char *name,
 		}
 	}
 
+	if (iommu_cb_set.cb_init_count != iommu_cb_set.cb_num)
+		return -EPROBE_DEFER;
 	CAM_ERR(CAM_SMMU, "Error: Cannot find name %s or all handle exist",
 		name);
 	cam_smmu_print_table();
@@ -1209,10 +1214,12 @@ int cam_smmu_alloc_firmware(int32_t smmu_hdl,
 	firmware_start = iommu_cb_set.cb_info[idx].firmware_info.iova_start;
 	CAM_DBG(CAM_SMMU, "Firmware area len from DT = %zu", firmware_len);
 
-	icp_fw.fw_kva = dma_alloc_coherent(icp_fw.fw_dev,
-		firmware_len,
-		&icp_fw.fw_dma_hdl,
-		GFP_KERNEL);
+	if (!icp_fw.fw_dev || firmware_len > resource_size(&icp_fw.memory)) {
+		rc = -ENOSPC;
+		goto unlock_and_end;
+	}
+	icp_fw.fw_dma_hdl = icp_fw.memory.start;
+	icp_fw.fw_kva = memremap(icp_fw.memory.start, firmware_len, MEMREMAP_WC);
 	if (!icp_fw.fw_kva) {
 		CAM_ERR(CAM_SMMU, "FW memory alloc failed");
 		rc = -ENOMEM;
@@ -1222,6 +1229,7 @@ int cam_smmu_alloc_firmware(int32_t smmu_hdl,
 			icp_fw.fw_kva, (void *)icp_fw.fw_dma_hdl);
 	}
 
+	memset_io(icp_fw.fw_kva, 0, firmware_len);
 	domain = iommu_cb_set.cb_info[idx].domain;
 	rc = iommu_map(domain,
 		firmware_start,
@@ -1245,10 +1253,9 @@ int cam_smmu_alloc_firmware(int32_t smmu_hdl,
 	return rc;
 
 alloc_fail:
-	dma_free_coherent(icp_fw.fw_dev,
-		firmware_len,
-		icp_fw.fw_kva,
-		icp_fw.fw_dma_hdl);
+	memunmap(icp_fw.fw_kva);
+	icp_fw.fw_kva = NULL;
+	icp_fw.fw_dma_hdl = 0;
 unlock_and_end:
 	mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 end:
@@ -1308,10 +1315,7 @@ int cam_smmu_dealloc_firmware(int32_t smmu_hdl)
 		rc = -EINVAL;
 	}
 
-	dma_free_coherent(icp_fw.fw_dev,
-		firmware_len,
-		icp_fw.fw_kva,
-		icp_fw.fw_dma_hdl);
+	memunmap(icp_fw.fw_kva);
 
 	icp_fw.fw_kva = 0;
 	icp_fw.fw_dma_hdl = 0;
@@ -3202,7 +3206,7 @@ int cam_smmu_destroy_handle(int handle)
 		cam_smmu_clean_kernel_buffer_list(idx);
 	}
 
-	if (&iommu_cb_set.cb_info[idx].is_secure) {
+	if (iommu_cb_set.cb_info[idx].is_secure) {
 		if (iommu_cb_set.cb_info[idx].secure_count == 0) {
 			mutex_unlock(&iommu_cb_set.cb_info[idx].lock);
 			return -EPERM;
@@ -3228,7 +3232,8 @@ EXPORT_SYMBOL(cam_smmu_destroy_handle);
 static void cam_smmu_deinit_cb(struct cam_context_bank_info *cb)
 {
 	if (cb->domain) {
-		iommu_detach_device(cb->domain, cb->dev);
+		if (cb->state == CAM_SMMU_ATTACH)
+			iommu_detach_device(cb->domain, cb->dev);
 		iommu_domain_free(cb->domain);
 		cb->domain = NULL;
 	}
@@ -3238,7 +3243,7 @@ static void cam_smmu_deinit_cb(struct cam_context_bank_info *cb)
 		cb->io_mem_pool = NULL;
 	}
 
-	if (cb->shared_support) {
+	if (cb->shared_mem_pool) {
 		gen_pool_destroy(cb->shared_mem_pool);
 		cb->shared_mem_pool = NULL;
 	}
@@ -3256,7 +3261,9 @@ static void cam_smmu_release_cb(struct platform_device *pdev)
 	for (i = 0; i < iommu_cb_set.cb_num; i++)
 		cam_smmu_deinit_cb(&iommu_cb_set.cb_info[i]);
 
+	cam_smmu_reset_iommu_table(CAM_SMMU_TABLE_DEINIT);
 	devm_kfree(&pdev->dev, iommu_cb_set.cb_info);
+	iommu_cb_set.cb_info = NULL;
 	iommu_cb_set.cb_num = 0;
 }
 
@@ -3644,8 +3651,6 @@ static int cam_smmu_probe(struct platform_device *pdev)
 		rc = cam_populate_smmu_context_banks(dev, CAM_ARM_SMMU);
 		if (rc < 0) {
 			CAM_ERR(CAM_SMMU, "Error: populating context banks");
-			cam_smmu_release_cb(pdev);
-			return -ENOMEM;
 		}
 		return rc;
 	}
@@ -3659,39 +3664,39 @@ static int cam_smmu_probe(struct platform_device *pdev)
 	}
 
 	if (of_device_is_compatible(dev->of_node, "qcom,msm-cam-smmu-fw-dev")) {
-		icp_fw.fw_dev = &pdev->dev;
-		icp_fw.fw_kva = NULL;
-		icp_fw.fw_dma_hdl = 0;
+		struct device_node *memory;
 
 		/*
-		 * Bind the camera_mem carveout (memory-region phandle) as this
-		 * device's coherent DMA pool so dma_alloc_coherent(fw_dev) in
-		 * cam_smmu_alloc_firmware() returns a write-combine, PA-identity
-		 * buffer from that fixed region — the legacy 4.9 "removed-dma-pool"
-		 * semantics the A5 FW download depends on. Legacy relied on the 4.9
-		 * platform core auto-attaching every memory-region; mainline 6.18
-		 * only auto-attaches "restricted-dma-pool", so a "shared-dma-pool"
-		 * per-device coherent region must be initialised explicitly here.
-		 * Without this, dma_alloc_coherent falls back to the default pool
-		 * and the A5 boots from the wrong/uncommitted pages -> watchdog.
+		 * The boot DT already reserves camera_mem as no-map. An overlay
+		 * cannot initialize a boot-time reserved DMA pool. Claim that
+		 * existing region and map the single A5 firmware allocation WC,
+		 * preserving the physical address used by the firmware SMMU map.
 		 */
-		rc = of_reserved_mem_device_init(&pdev->dev);
+		memory = of_parse_phandle(dev->of_node, "memory-region", 0);
+		if (!memory)
+			return -EINVAL;
+		rc = of_address_to_resource(memory, 0, &icp_fw.memory);
+		if (!of_property_read_bool(memory, "no-map") ||
+		    of_property_read_bool(memory, "reusable"))
+			rc = -EINVAL;
+		of_node_put(memory);
 		if (rc)
-			CAM_ERR(CAM_SMMU,
-				"FW reserved-mem init failed rc=%d (camera_mem must be shared-dma-pool)",
-				rc);
-		return rc;
+			return rc;
+		if (!devm_request_mem_region(dev, icp_fw.memory.start,
+				resource_size(&icp_fw.memory), dev_name(dev)))
+			return -EBUSY;
+		icp_fw.fw_dev = dev;
+		return 0;
 	}
 
+	INIT_WORK(&iommu_cb_set.smmu_work, cam_smmu_page_fault_work);
+	mutex_init(&iommu_cb_set.payload_list_lock);
+	INIT_LIST_HEAD(&iommu_cb_set.payload_list);
 	/* probe through all the subdevices */
 	rc = of_platform_populate(pdev->dev.of_node, msm_cam_smmu_dt_match,
 				NULL, &pdev->dev);
 	if (rc < 0) {
 		CAM_ERR(CAM_SMMU, "Error: populating devices");
-	} else {
-		INIT_WORK(&iommu_cb_set.smmu_work, cam_smmu_page_fault_work);
-		mutex_init(&iommu_cb_set.payload_list_lock);
-		INIT_LIST_HEAD(&iommu_cb_set.payload_list);
 	}
 
 	return rc;
@@ -3700,10 +3705,16 @@ static int cam_smmu_probe(struct platform_device *pdev)
 /* 6.18 port: platform_driver .remove became void-returning. */
 static void cam_smmu_remove(struct platform_device *pdev)
 {
-	/* release all the context banks and memory allocated */
-	cam_smmu_reset_iommu_table(CAM_SMMU_TABLE_DEINIT);
-	if (of_device_is_compatible(pdev->dev.of_node, "qcom,msm-cam-smmu"))
+	if (of_device_is_compatible(pdev->dev.of_node, "qcom,msm-cam-smmu")) {
+		cancel_work_sync(&iommu_cb_set.smmu_work);
 		cam_smmu_release_cb(pdev);
+		of_platform_depopulate(&pdev->dev);
+		mutex_destroy(&iommu_cb_set.payload_list_lock);
+	} else if (icp_fw.fw_dev == &pdev->dev) {
+		if (icp_fw.fw_kva)
+			memunmap(icp_fw.fw_kva);
+		memset(&icp_fw, 0, sizeof(icp_fw));
+	}
 }
 
 static struct platform_driver cam_smmu_driver = {
@@ -3717,17 +3728,15 @@ static struct platform_driver cam_smmu_driver = {
 	},
 };
 
-static int __init cam_smmu_init_module(void)
+int cam_smmu_init_module(void)
 {
 	return platform_driver_register(&cam_smmu_driver);
 }
 
-static void __exit cam_smmu_exit_module(void)
+void cam_smmu_exit_module(void)
 {
 	platform_driver_unregister(&cam_smmu_driver);
 }
 
-module_init(cam_smmu_init_module);
-module_exit(cam_smmu_exit_module);
 MODULE_DESCRIPTION("MSM Camera SMMU driver");
 MODULE_LICENSE("GPL v2");

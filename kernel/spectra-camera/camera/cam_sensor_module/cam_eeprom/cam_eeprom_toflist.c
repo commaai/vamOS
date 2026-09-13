@@ -2,7 +2,12 @@
 
 /*for tof camera Begin*/
 
-struct cam_eeprom_list_head cam_eeprom_list_head;
+struct cam_eeprom_list_head cam_eeprom_list_head = {
+	.list_head_init = LIST_HEAD_INIT(cam_eeprom_list_head.list_head_init),
+	.list_head_config = LIST_HEAD_INIT(cam_eeprom_list_head.list_head_config),
+	.list_head_streamon = LIST_HEAD_INIT(cam_eeprom_list_head.list_head_streamon),
+	.list_head_streamoff = LIST_HEAD_INIT(cam_eeprom_list_head.list_head_streamoff),
+};
 
 int transmit_sensor_reg_setting_get(struct list_head *reg_settings
 		,enum EEPROM_DATA_OP_T type)

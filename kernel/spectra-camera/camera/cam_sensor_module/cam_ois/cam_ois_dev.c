@@ -380,7 +380,7 @@ static struct i2c_driver cam_ois_i2c_driver = {
 static struct cam_ois_registered_driver_t registered_driver = {
 	0, 0};
 
-static int __init cam_ois_driver_init(void)
+int cam_ois_driver_init(void)
 {
 	int rc = 0;
 
@@ -396,6 +396,8 @@ static int __init cam_ois_driver_init(void)
 	rc = i2c_add_driver(&cam_ois_i2c_driver);
 	if (rc) {
 		CAM_ERR(CAM_OIS, "i2c_add_driver failed rc = %d", rc);
+		platform_driver_unregister(&cam_ois_platform_driver);
+		registered_driver.platform_driver = 0;
 		return rc;
 	}
 
@@ -403,7 +405,7 @@ static int __init cam_ois_driver_init(void)
 	return rc;
 }
 
-static void __exit cam_ois_driver_exit(void)
+void cam_ois_driver_exit(void)
 {
 	if (registered_driver.platform_driver)
 		platform_driver_unregister(&cam_ois_platform_driver);
@@ -412,7 +414,5 @@ static void __exit cam_ois_driver_exit(void)
 		i2c_del_driver(&cam_ois_i2c_driver);
 }
 
-module_init(cam_ois_driver_init);
-module_exit(cam_ois_driver_exit);
 MODULE_DESCRIPTION("CAM OIS driver");
 MODULE_LICENSE("GPL v2");

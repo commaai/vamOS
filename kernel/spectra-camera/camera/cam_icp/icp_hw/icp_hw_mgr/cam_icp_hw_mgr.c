@@ -4655,6 +4655,33 @@ static int cam_icp_mgr_cmd(void *hw_mgr_priv, void *cmd_args)
 	return rc;
 }
 
+void cam_icp_hw_mgr_deinit(void *token)
+{
+	int i;
+
+	cam_smmu_unset_client_page_fault_handler(icp_hw_mgr.iommu_hdl, token);
+	debugfs_remove_recursive(icp_hw_mgr.dentry);
+	for (i = 0; i < CAM_ICP_CTX_MAX; i++)
+		cam_icp_ctx_timer_stop(&icp_hw_mgr.ctx_data[i]);
+	cam_icp_device_timer_stop(&icp_hw_mgr);
+	cam_icp_mgr_hw_close(&icp_hw_mgr, NULL);
+	cam_req_mgr_workq_destroy(&icp_hw_mgr.timer_work);
+	cam_req_mgr_workq_destroy(&icp_hw_mgr.msg_work);
+	cam_req_mgr_workq_destroy(&icp_hw_mgr.cmd_work);
+	kfree(icp_hw_mgr.timer_work_data);
+	kfree(icp_hw_mgr.msg_work_data);
+	kfree(icp_hw_mgr.cmd_work_data);
+	cam_smmu_ops(icp_hw_mgr.iommu_hdl, CAM_SMMU_DETACH);
+	cam_smmu_destroy_handle(icp_hw_mgr.iommu_hdl);
+	cam_smmu_destroy_handle(icp_hw_mgr.iommu_sec_hdl);
+	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_BPS]);
+	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_IPE]);
+	kfree(icp_hw_mgr.devices[CAM_ICP_DEV_A5]);
+	for (i = 0; i < CAM_ICP_CTX_MAX; i++)
+		mutex_destroy(&icp_hw_mgr.ctx_data[i].ctx_mutex);
+	mutex_destroy(&icp_hw_mgr.hw_mgr_mutex);
+}
+
 int cam_icp_hw_mgr_init(struct device_node *of_node, uint64_t *hw_mgr_hdl,
 	int *iommu_hdl)
 {

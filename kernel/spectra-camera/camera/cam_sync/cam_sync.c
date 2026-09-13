@@ -917,7 +917,6 @@ register_fail:
 
 static void cam_sync_media_controller_cleanup(struct sync_device *sync_dev)
 {
-	media_entity_cleanup(&sync_dev->vdev->entity);
 	media_device_unregister(sync_dev->v4l2_dev.mdev);
 	media_device_cleanup(sync_dev->v4l2_dev.mdev);
 	kfree(sync_dev->v4l2_dev.mdev);
@@ -1006,11 +1005,6 @@ static int cam_sync_probe(struct platform_device *pdev)
 	 * fix as the cam-req-mgr node.
 	 */
 	sync_dev->vdev->device_caps = V4L2_CAP_VIDEO_CAPTURE | V4L2_CAP_STREAMING;
-	rc = video_register_device(sync_dev->vdev,
-		VFL_TYPE_VIDEO, -1);
-	if (rc < 0)
-		goto v4l2_fail;
-
 	cam_sync_init_entity(sync_dev);
 	video_set_drvdata(sync_dev->vdev, sync_dev);
 	memset(&sync_dev->sync_table, 0, sizeof(sync_dev->sync_table));
@@ -1024,7 +1018,7 @@ static int cam_sync_probe(struct platform_device *pdev)
 	set_bit(0, sync_dev->bitmap);
 
 	sync_dev->work_queue = alloc_workqueue(CAM_SYNC_WORKQUEUE_NAME,
-		WQ_HIGHPRI | WQ_SYSFS, 1);
+		WQ_PERCPU | WQ_HIGHPRI | WQ_SYSFS, 1);
 
 	if (!sync_dev->work_queue) {
 		CAM_ERR(CAM_SYNC,
@@ -1036,9 +1030,18 @@ static int cam_sync_probe(struct platform_device *pdev)
 	trigger_cb_without_switch = false;
 	cam_sync_create_debugfs();
 
+	/* Userspace can open and close the node as soon as it is published. */
+	rc = video_register_device(sync_dev->vdev, VFL_TYPE_VIDEO, -1);
+	if (rc < 0) {
+		debugfs_remove_recursive(sync_dev->dentry);
+		destroy_workqueue(sync_dev->work_queue);
+		goto v4l2_fail;
+	}
+
 	return rc;
 
 v4l2_fail:
+	media_entity_cleanup(&sync_dev->vdev->entity);
 	v4l2_device_unregister(sync_dev->vdev->v4l2_dev);
 register_fail:
 	cam_sync_media_controller_cleanup(sync_dev);
@@ -1047,24 +1050,24 @@ mcinit_fail:
 vdev_fail:
 	mutex_destroy(&sync_dev->table_lock);
 	kfree(sync_dev);
+	sync_dev = NULL;
 	return rc;
 }
 
 static void cam_sync_remove(struct platform_device *pdev)
 {
-	v4l2_device_unregister(sync_dev->vdev->v4l2_dev);
+	destroy_workqueue(sync_dev->work_queue);
+	media_entity_cleanup(&sync_dev->vdev->entity);
+	video_unregister_device(sync_dev->vdev);
+	v4l2_device_unregister(&sync_dev->v4l2_dev);
 	cam_sync_media_controller_cleanup(sync_dev);
-	video_device_release(sync_dev->vdev);
 	debugfs_remove_recursive(sync_dev->dentry);
 	sync_dev->dentry = NULL;
 	kfree(sync_dev);
 	sync_dev = NULL;
 }
 
-static struct platform_device cam_sync_device = {
-	.name = "cam_sync",
-	.id = -1,
-};
+static struct platform_device *cam_sync_device;
 
 static struct platform_driver cam_sync_driver = {
 	.probe = cam_sync_probe,
@@ -1076,29 +1079,25 @@ static struct platform_driver cam_sync_driver = {
 	},
 };
 
-static int __init cam_sync_init(void)
+int cam_sync_init(void)
 {
 	int rc;
 
-	rc = platform_device_register(&cam_sync_device);
+	cam_sync_device = platform_device_register_simple("cam_sync", -1, NULL, 0);
+	if (IS_ERR(cam_sync_device))
+		return PTR_ERR(cam_sync_device);
+
+	rc = platform_driver_register(&cam_sync_driver);
 	if (rc)
-		return -ENODEV;
-
-	return platform_driver_register(&cam_sync_driver);
+		platform_device_unregister(cam_sync_device);
+	return rc;
 }
 
-static void __exit cam_sync_exit(void)
+void cam_sync_exit(void)
 {
-	int idx;
-
-	for (idx = 0; idx < CAM_SYNC_MAX_OBJS; idx++)
-		spin_lock_init(&sync_dev->row_spinlocks[idx]);
 	platform_driver_unregister(&cam_sync_driver);
-	platform_device_unregister(&cam_sync_device);
-	kfree(sync_dev);
+	platform_device_unregister(cam_sync_device);
 }
 
-module_init(cam_sync_init);
-module_exit(cam_sync_exit);
 MODULE_DESCRIPTION("Camera sync driver");
 MODULE_LICENSE("GPL v2");

@@ -183,6 +183,22 @@ int cam_bps_probe(struct platform_device *pdev)
 	return rc;
 }
 
+static void cam_bps_remove(struct platform_device *pdev)
+{
+	struct cam_hw_intf *intf = platform_get_drvdata(pdev);
+	struct cam_hw_info *hw = intf->hw_priv;
+	struct cam_bps_device_core_info *core = hw->core_info;
+
+	if (core->cpas_start)
+		cam_bps_deinit_hw(hw, NULL, 0);
+	cam_cpas_unregister_client(core->cpas_handle);
+	cam_soc_util_release_platform_resource(&hw->soc_info);
+	mutex_destroy(&hw->hw_mutex);
+	kfree(core);
+	kfree(hw);
+	kfree(intf);
+}
+
 static const struct of_device_id cam_bps_dt_match[] = {
 	{
 		.compatible = "qcom,cam-bps",
@@ -194,6 +210,7 @@ MODULE_DEVICE_TABLE(of, cam_bps_dt_match);
 
 static struct platform_driver cam_bps_driver = {
 	.probe = cam_bps_probe,
+	.remove = cam_bps_remove,
 	.driver = {
 		.name = "cam-bps",
 		.owner = THIS_MODULE,
@@ -202,17 +219,15 @@ static struct platform_driver cam_bps_driver = {
 	},
 };
 
-static int __init cam_bps_init_module(void)
+int cam_bps_init_module(void)
 {
 	return platform_driver_register(&cam_bps_driver);
 }
 
-static void __exit cam_bps_exit_module(void)
+void cam_bps_exit_module(void)
 {
 	platform_driver_unregister(&cam_bps_driver);
 }
 
-module_init(cam_bps_init_module);
-module_exit(cam_bps_exit_module);
 MODULE_DESCRIPTION("CAM BPS driver");
 MODULE_LICENSE("GPL v2");

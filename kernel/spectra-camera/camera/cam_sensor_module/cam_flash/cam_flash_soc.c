@@ -11,7 +11,6 @@
  */
 
 #include <linux/of.h>
-#include <linux/of_gpio.h>
 #include "cam_flash_soc.h"
 #include "cam_res_mgr_api.h"
 
