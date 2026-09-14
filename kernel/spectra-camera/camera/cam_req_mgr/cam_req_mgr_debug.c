@@ -15,6 +15,7 @@
 #define MAX_SESS_INFO_LINE_BUFF_LEN 256
 
 static char sess_info_buffer[MAX_SESS_INFO_LINE_BUFF_LEN];
+static struct dentry *debugfs_root;
 
 static int cam_req_mgr_debug_set_bubble_recovery(void *data, u64 val)
 {
@@ -119,12 +120,11 @@ static const struct file_operations session_info = {
 
 int cam_req_mgr_debug_register(struct cam_req_mgr_core_device *core_dev)
 {
-	struct dentry *debugfs_root;
 	char dirname[32] = {0};
 
 	snprintf(dirname, sizeof(dirname), "cam_req_mgr");
 	debugfs_root = debugfs_create_dir(dirname, NULL);
-	if (!debugfs_root)
+	if (IS_ERR_OR_NULL(debugfs_root))
 		return -ENOMEM;
 
 	if (!debugfs_create_file("sessions_info", 0644,
@@ -136,4 +136,10 @@ int cam_req_mgr_debug_register(struct cam_req_mgr_core_device *core_dev)
 		return -ENOMEM;
 
 	return 0;
+}
+
+void cam_req_mgr_debug_unregister(void)
+{
+	debugfs_remove_recursive(debugfs_root);
+	debugfs_root = NULL;
 }

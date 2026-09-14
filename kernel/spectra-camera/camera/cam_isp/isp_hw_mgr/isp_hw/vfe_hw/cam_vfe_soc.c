@@ -10,6 +10,7 @@
  * GNU General Public License for more details.
  */
 
+#include <linux/err.h>
 #include <linux/slab.h>
 #include "cam_cpas_api.h"
 #include "cam_vfe_soc.h"
@@ -164,10 +165,12 @@ int cam_vfe_deinit_soc_resources(struct cam_hw_soc_info *soc_info)
 		CAM_ERR(CAM_ISP,
 			"Error! Release platform resources failed rc=%d", rc);
 
-	rc = cam_soc_util_clk_put(&soc_private->dsp_clk);
-	if (rc < 0)
-		CAM_ERR(CAM_ISP,
-			"Error Put dsp clk failed rc=%d", rc);
+	if (!IS_ERR_OR_NULL(soc_private->dsp_clk)) {
+		rc = cam_soc_util_clk_put(&soc_private->dsp_clk);
+		if (rc < 0)
+			CAM_ERR(CAM_ISP,
+				"Error Put dsp clk failed rc=%d", rc);
+	}
 
 	kfree(soc_private);
 

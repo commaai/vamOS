@@ -17,5 +17,6 @@
 #include "cam_req_mgr_core.h"
 
 int cam_req_mgr_debug_register(struct cam_req_mgr_core_device *core_dev);
+void cam_req_mgr_debug_unregister(void);
 
 #endif

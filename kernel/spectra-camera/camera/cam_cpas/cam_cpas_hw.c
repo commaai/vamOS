@@ -275,7 +275,7 @@ static int cam_cpas_util_axi_setup(struct cam_cpas *cpas_core,
 
 	INIT_LIST_HEAD(&cpas_core->axi_ports_list_head);
 
-	axi_port_list_node = of_find_node_by_name(soc_info->pdev->dev.of_node,
+	axi_port_list_node = of_get_child_by_name(soc_info->pdev->dev.of_node,
 		"qcom,axi-port-list");
 	if (!axi_port_list_node) {
 		CAM_ERR(CAM_CPAS, "Node qcom,axi-port-list not found.");
@@ -290,7 +290,7 @@ static int cam_cpas_util_axi_setup(struct cam_cpas *cpas_core,
 			rc = -ENOMEM;
 			goto error_previous_axi_cleanup;
 		}
-		axi_port->axi_port_node = axi_port_node;
+		axi_port->axi_port_node = of_node_get(axi_port_node);
 
 		rc = of_property_read_string_index(axi_port_node,
 			"qcom,axi-port-name", 0,
@@ -301,7 +301,7 @@ static int cam_cpas_util_axi_setup(struct cam_cpas *cpas_core,
 			goto port_name_fail;
 		}
 
-		axi_port_mnoc_node = of_find_node_by_name(axi_port_node,
+		axi_port_mnoc_node = of_get_child_by_name(axi_port_node,
 			"qcom,axi-port-mnoc");
 		if (!axi_port_mnoc_node) {
 			CAM_ERR(CAM_CPAS, "Node qcom,axi-port-mnoc not found.");
@@ -316,7 +316,7 @@ static int cam_cpas_util_axi_setup(struct cam_cpas *cpas_core,
 			goto mnoc_register_fail;
 
 		if (soc_private->axi_camnoc_based) {
-			axi_port_camnoc_node = of_find_node_by_name(
+			axi_port_camnoc_node = of_get_child_by_name(
 				axi_port_node, "qcom,axi-port-camnoc");
 			if (!axi_port_camnoc_node) {
 				CAM_ERR(CAM_CPAS,
@@ -352,6 +352,7 @@ port_name_fail:
 	of_node_put(axi_port->axi_port_node);
 	kfree(axi_port);
 error_previous_axi_cleanup:
+	of_node_put(axi_port_node);
 	cam_cpas_util_axi_cleanup(cpas_core, soc_info);
 	return rc;
 }
