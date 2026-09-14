@@ -834,13 +834,15 @@ int cam_sensor_util_request_gpio_table(
 				gpio_tbl[i].gpio, gpio_tbl[i].label,
 				gpio_tbl[i].flags, rc);
 			if (rc) {
-				/*
-				 * After GPIO request fails, contine to
-				 * apply new gpios, outout a error message
-				 * for driver bringup debug
-				 */
 				CAM_ERR(CAM_SENSOR, "gpio %d:%s request fails",
 					gpio_tbl[i].gpio, gpio_tbl[i].label);
+				while (i--) {
+					if (cam_sensor_gpio_is_mclk(&gpio_tbl[i]))
+						continue;
+					cam_res_mgr_gpio_free_arry(soc_info->dev,
+						&gpio_tbl[i], 1);
+				}
+				return rc;
 			}
 		}
 	} else {
@@ -1554,8 +1556,9 @@ static int cam_config_mclk_reg(struct cam_sensor_power_ctrl_t *ctrl,
 int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		struct cam_hw_soc_info *soc_info)
 {
-	int rc = 0, index = 0, no_gpio = 0, ret = 0, num_vreg, j = 0, i = 0;
+	int rc = 0, index = 0, ret = 0, num_vreg, j = 0, i = 0;
 	int32_t vreg_idx = -1;
+	bool gpio_requested = false;
 	struct cam_sensor_power_setting *power_setting = NULL;
 	struct msm_camera_gpio_num_info *gpio_num_info = NULL;
 
@@ -1592,12 +1595,6 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		ctrl->cam_pinctrl_status = 0;
 	}
 
-	if (cam_res_mgr_shared_pinctrl_init()) {
-		CAM_ERR(CAM_SENSOR,
-			"Failed to init shared pinctrl");
-		return -EINVAL;
-	}
-
 	/*
 	 * Select the sensor pinctrl (mclk -> cam_mclk function, etc.) BEFORE
 	 * requesting the GPIO table. The mclk pin is a clock output muxed via
@@ -1623,16 +1620,19 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 		CAM_ERR(CAM_SENSOR, "vamos-dbg cam_pinctrl_status=0 SKIP select");
 	}
 
-	ret = cam_res_mgr_shared_pinctrl_select_state(true);
-	CAM_ERR(CAM_SENSOR, "vamos-dbg shared_pinctrl_select(true) ret=%d", ret);
-	if (ret)
-		CAM_ERR(CAM_SENSOR,
-			"Cannot set shared pin to active state");
-
 	rc = cam_sensor_util_request_gpio_table(soc_info, 1);
 	CAM_ERR(CAM_SENSOR, "vamos-dbg request_gpio_table(1) rc=%d", rc);
 	if (rc < 0)
-		no_gpio = rc;
+		goto power_up_failed;
+	gpio_requested = true;
+	rc = cam_res_mgr_shared_pinctrl_init();
+	if (rc) {
+		CAM_ERR(CAM_SENSOR, "Failed to init shared pinctrl");
+		goto power_up_failed;
+	}
+	ret = cam_res_mgr_shared_pinctrl_select_state(true);
+	if (ret)
+		CAM_ERR(CAM_SENSOR, "Cannot set shared pin to active state");
 
 	CAM_DBG(CAM_SENSOR, "power setting size: %d", ctrl->power_setting_size);
 
@@ -1731,10 +1731,6 @@ int cam_sensor_core_power_up(struct cam_sensor_power_ctrl_t *ctrl,
 			///ALTEK_TAG_HwMiniISP<<<
 
 
-			if (no_gpio) {
-				CAM_ERR(CAM_SENSOR, "request gpio failed");
-				return no_gpio;
-			}
 			if (!gpio_num_info) {
 				CAM_ERR(CAM_SENSOR, "Invalid gpio_num_info");
 				goto power_up_failed;
@@ -1932,8 +1928,10 @@ power_up_failed:
 			ctrl->pinctrl_info.gpio_state_suspend);
 		if (ret)
 			CAM_ERR(CAM_SENSOR, "cannot set pin to suspend state");
-		cam_res_mgr_shared_pinctrl_select_state(false);
 		devm_pinctrl_put(ctrl->pinctrl_info.pinctrl);
+	}
+	if (gpio_requested) {
+		cam_res_mgr_shared_pinctrl_select_state(false);
 		cam_res_mgr_shared_pinctrl_put();
 	}
 
@@ -1942,7 +1940,8 @@ power_up_failed:
 
 	ctrl->cam_pinctrl_status = 0;
 
-	cam_sensor_util_request_gpio_table(soc_info, 0);
+	if (gpio_requested)
+		cam_sensor_util_request_gpio_table(soc_info, 0);
 
 	return rc;
 }
