@@ -15,11 +15,11 @@ nodes after registration, and unregisters components in reverse order.
 
 Use the complete kernel build output for the running image, including its
 configuration, generated headers and `Module.symvers`. For the retained ARM64
-bring-up container, `/linux/out` is Linux 7.2 with the camera device tree from
-vamOS `b6f2735b1470a35d1bd89ea42a760d122a5746cc`:
+bring-up container, `/linux/out` is Linux 7.2 with the camera device tree and
+shared-GPIO configuration from vamOS `4ec4055e8b2ba709f6e528d982ea8b62539ea0b5`:
 
 ```sh
-make -C /linux O=out ARCH=arm64 LOCALVERSION=-vamos-b6f2735 \
+make -C /linux O=out ARCH=arm64 LOCALVERSION=-vamos-4ec4055 \
   M=/repo/kernel/spectra-camera MO=/repo/build/spectra-module -j8 modules
 ```
 
@@ -35,13 +35,22 @@ manager path without changing the platform device's parent during probe.
 
 ## Bring-up status
 
-The Linux 7.2 module builds. Earlier revisions loaded the camera device nodes,
-but load/unload testing exposed lifetime faults. Revision 14 also corrects CDM
-lock/refcount cleanup and the request-manager runtime-PM parent mismatch. The
-CDM control-flow regression and udev syntax checks pass locally.
+Revision 18, built from the driver source at `941b0c8`, passes stationary
+three-camera capture on comma tizi with `7.2.0-vamos-4ec4055`. All three streams
+deliver hardware-processed NV12 at 20 Hz. Separate module unload and reload
+after capture succeed, followed by another successful three-camera session.
 
-Revision 14 has not been loaded on hardware. Device connectivity was lost
-during the previous revision's combined load/unload/reload command; the exact
-failing step is unknown. All three camera streams, DMA-BUF frame consumption by
-tinygrad, and stable restarts remain acceptance requirements. Preserve kernel
-logs on the host and record each module operation separately when continuing.
+The reload hang was traced to CPAS device-tree reference ownership. The current
+driver also balances optional clock and debugfs cleanup and unwinds failed
+sensor GPIO acquisition. The kernel configuration disables automatic shared
+GPIO ownership because Spectra manages sharing of its physical GPIOs itself.
+
+Real camera DMA-BUFs pass tinygrad eager/JIT byte checks and driving-model
+inference. The tested MSM allocation lookup fix reduces live model inference
+from a median 82.7 ms to 29.5 ms. Evidence and reproduction commands are retained
+in `/Volumes/Stuff/openpilot-extra/vamos-camera-bringup-2026-09-13/ACCEPTANCE.md`.
+
+BPS/IPE clock RCG warnings still occur during camera startup, and legacy
+teardown diagnostics remain. Successful bench capture does not establish
+long-duration reliability or public-road safety. Preserve kernel logs on the
+host and record each module operation separately when continuing.
