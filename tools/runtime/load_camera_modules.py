@@ -51,6 +51,7 @@ def run(bundle, check_only):
   rule_source = bundle / '90-vamos-camera.rules'
   require(hashlib.sha256(rule_source.read_bytes()).hexdigest() == manifest['udev_rules_sha256'], 'udev rule hash mismatch')
   rule_target = Path('/run/udev/rules.d/90-vamos-camera.rules')
+  request_manager = Path('/dev/v4l/by-path/platform-soc:qcom_cam-req-mgr-video-index0')
   firmware_path = Path('/sys/module/firmware_class/parameters/path')
   wanted_path = manifest['firmware_search_path']
   if check_only:
@@ -76,14 +77,17 @@ def run(bundle, check_only):
       subprocess.run(['insmod', str(bundle / 'modules' / module['file'])], check=True)
       verify_loaded(module)
       require(Path('/proc/sys/kernel/tainted').read_text().strip() in ('0', '4096'), 'new kernel fault while loading modules')
-    for subsystem in ('dma_heap', 'video4linux'):
-      subprocess.run(['udevadm', 'trigger', '--action=change', '--subsystem-match=' + subsystem], check=True)
+    subprocess.run(['udevadm', 'trigger', '--action=change', '--subsystem-match=dma_heap'], check=True)
+    # Generic V4L probing opens private Spectra controls outside camerad's lifecycle.
+    if not request_manager.exists():
+      subprocess.run(['udevadm', 'trigger', '--action=change', '--subsystem-match=video4linux',
+                      '--attr-match=name=cam-req-mgr'], check=True)
     subprocess.run(['udevadm', 'settle', '--timeout=15'], check=True)
 
   nodes = video_nodes()
   require(sum(name.startswith(('cam-', 'cam_')) for name in nodes.values()) == 16, f'camera nodes missing: {nodes}')
   require('qcom-venus-encoder' in nodes.values() and 'qcom-venus-decoder' in nodes.values(), f'codec nodes missing: {nodes}')
-  require(Path('/dev/v4l/by-path/platform-soc:qcom_cam-req-mgr-video-index0').exists(), 'request-manager alias missing')
+  require(request_manager.exists(), 'request-manager alias missing')
   require(Path('/sys/firmware/devicetree/base/soc@0/video-codec@aa00000/firmware-name').read_bytes() == b'venus.mdt\0',
           'Venus device tree selects different firmware')
   heap = Path('/dev/dma_heap/system').stat()
