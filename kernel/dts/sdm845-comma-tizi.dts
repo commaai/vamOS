@@ -68,6 +68,11 @@
 	data-lanes = <0 1 2 3>;
 };
 
+&venus {
+	status = "okay";
+	firmware-name = "venus.mdt";
+};
+
 &wifi {
 	qcom,calibration-variant = "comma-tizi";
 };

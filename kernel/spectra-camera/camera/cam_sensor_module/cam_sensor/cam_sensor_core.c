@@ -624,9 +624,11 @@ void cam_sensor_shutdown(struct cam_sensor_ctrl_t *s_ctrl)
 	if (s_ctrl->sensor_state >= CAM_SENSOR_ACQUIRE)
 		cam_sensor_power_down(s_ctrl);
 
-	rc = cam_destroy_device_hdl(s_ctrl->bridge_intf.device_hdl);
-	if (rc < 0)
-		CAM_ERR(CAM_SENSOR, " failed destroying dhdl");
+	if (s_ctrl->bridge_intf.device_hdl >= 0) {
+		rc = cam_destroy_device_hdl(s_ctrl->bridge_intf.device_hdl);
+		if (rc < 0)
+			CAM_ERR(CAM_SENSOR, " failed destroying dhdl");
+	}
 	s_ctrl->bridge_intf.device_hdl = -1;
 	s_ctrl->bridge_intf.link_hdl = -1;
 	s_ctrl->bridge_intf.session_hdl = -1;

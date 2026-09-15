@@ -1512,6 +1512,26 @@ static int cam_jpeg_mgr_cmd(void *hw_mgr_priv, void *cmd_args)
 	return rc;
 }
 
+void cam_jpeg_hw_mgr_deinit(void *token)
+{
+	int i;
+
+	if (token)
+		cam_smmu_unset_client_page_fault_handler(
+			g_jpeg_hw_mgr.iommu_hdl, token);
+	cam_req_mgr_workq_destroy(&g_jpeg_hw_mgr.work_process_frame);
+	cam_req_mgr_workq_destroy(&g_jpeg_hw_mgr.work_process_irq_cb);
+	kfree(g_jpeg_hw_mgr.process_frame_work_data);
+	kfree(g_jpeg_hw_mgr.process_irq_cb_work_data);
+	cam_smmu_ops(g_jpeg_hw_mgr.iommu_hdl, CAM_SMMU_DETACH);
+	cam_smmu_destroy_handle(g_jpeg_hw_mgr.iommu_hdl);
+	kfree(g_jpeg_hw_mgr.devices[CAM_JPEG_DEV_ENC]);
+	kfree(g_jpeg_hw_mgr.devices[CAM_JPEG_DEV_DMA]);
+	for (i = 0; i < CAM_JPEG_CTX_MAX; i++)
+		mutex_destroy(&g_jpeg_hw_mgr.ctx_data[i].ctx_mutex);
+	mutex_destroy(&g_jpeg_hw_mgr.hw_mgr_mutex);
+}
+
 int cam_jpeg_hw_mgr_init(struct device_node *of_node, uint64_t *hw_mgr_hdl,
 	int *iommu_hdl)
 {

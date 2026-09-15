@@ -1,0 +1,12 @@
+/dts-v1/;
+/plugin/;
+
+/ {
+	fragment@0 {
+		target-path = "/soc@0/video-codec@aa00000";
+		__overlay__ {
+			status = "okay";
+			firmware-name = "venus.mdt";
+		};
+	};
+};

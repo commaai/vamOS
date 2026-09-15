@@ -13,6 +13,7 @@
 #include <linux/module.h>
 #include <linux/slab.h>
 #include <linux/platform_device.h>
+#include <linux/dma-mapping.h>
 #include <media/v4l2-fh.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-event.h>
@@ -159,7 +160,7 @@ static int cam_req_mgr_open(struct file *filep)
 	g_dev.cam_eventq = filep->private_data;
 	spin_unlock_bh(&g_dev.cam_eventq_lock);
 
-	rc = cam_mem_mgr_init();
+	rc = cam_mem_mgr_init(g_dev.v4l2_dev->dev);
 	if (rc) {
 		CAM_ERR(CAM_CRM, "mem mgr init failed");
 		goto mem_mgr_init_fail;
@@ -691,6 +692,10 @@ static void cam_req_mgr_remove(struct platform_device *pdev)
 static int cam_req_mgr_probe(struct platform_device *pdev)
 {
 	int rc;
+
+	rc = dma_set_mask_and_coherent(&pdev->dev, DMA_BIT_MASK(64));
+	if (rc)
+		return rc;
 
 	rc = cam_v4l2_device_setup(&pdev->dev);
 	if (rc)

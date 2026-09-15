@@ -112,9 +112,11 @@ static void cam_jpeg_dev_remove(struct platform_device *pdev)
 				i, rc);
 	}
 
+	cam_jpeg_hw_mgr_deinit(g_jpeg_dev.sd.token);
 	rc = cam_subdev_remove(&g_jpeg_dev.sd);
 	if (rc)
 		CAM_ERR(CAM_JPEG, "Unregister failed %d", rc);
+	mutex_destroy(&g_jpeg_dev.jpeg_mutex);
 }
 
 static int cam_jpeg_dev_probe(struct platform_device *pdev)
@@ -173,6 +175,7 @@ ctx_init_fail:
 	for (--i; i >= 0; i--)
 		if (cam_jpeg_context_deinit(&g_jpeg_dev.ctx_jpeg[i]))
 			CAM_ERR(CAM_JPEG, "deinit fail %d %d", i, rc);
+	cam_jpeg_hw_mgr_deinit(NULL);
 unregister:
 	if (cam_subdev_remove(&g_jpeg_dev.sd))
 		CAM_ERR(CAM_JPEG, "remove fail %d", rc);

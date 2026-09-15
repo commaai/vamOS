@@ -2934,7 +2934,8 @@ int cam_isp_context_deinit(struct cam_isp_context *ctx)
 	if (ctx->base)
 		cam_context_deinit(ctx->base);
 
-	if (ctx->substate_activated != CAM_ISP_CTX_ACTIVATED_SOF)
+	if (ctx->substate_activated != CAM_ISP_CTX_ACTIVATED_SOF &&
+		ctx->substate_activated != CAM_ISP_CTX_ACTIVATED_HALT)
 		CAM_ERR(CAM_ISP, "ISP context substate is invalid");
 
 	memset(ctx, 0, sizeof(*ctx));

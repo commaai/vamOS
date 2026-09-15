@@ -247,16 +247,16 @@ static void cam_cci_init_clk_params(struct cci_device *cci_dev)
 	for (count = 0; count < I2C_MAX_MODES; count++) {
 
 		if (count == I2C_STANDARD_MODE)
-			src_node = of_find_node_by_name(of_node,
+			src_node = of_get_child_by_name(of_node,
 				"qcom,i2c_standard_mode");
 		else if (count == I2C_FAST_MODE)
-			src_node = of_find_node_by_name(of_node,
+			src_node = of_get_child_by_name(of_node,
 				"qcom,i2c_fast_mode");
 		else if (count == I2C_FAST_PLUS_MODE)
-			src_node = of_find_node_by_name(of_node,
+			src_node = of_get_child_by_name(of_node,
 				"qcom,i2c_fast_plus_mode");
 		else
-			src_node = of_find_node_by_name(of_node,
+			src_node = of_get_child_by_name(of_node,
 				"qcom,i2c_custom_mode");
 
 		rc = of_property_read_u32(src_node, "hw-thigh", &val);

@@ -272,11 +272,14 @@ int cam_vfe_init_hw(void *hw_priv, void *init_hw_args, uint32_t arg_size)
 		goto deinint_vfe_res;
 	}
 
-	rc = core_info->vfe_bus->hw_ops.init(core_info->vfe_bus->bus_priv,
-		NULL, 0);
-	if (rc) {
-		CAM_ERR(CAM_ISP, "Bus HW init Failed rc=%d", rc);
-		goto deinint_vfe_res;
+	/* The probe reset has no acquired resource or interrupt tasklet. */
+	if (isp_res) {
+		rc = core_info->vfe_bus->hw_ops.init(
+			core_info->vfe_bus->bus_priv, NULL, 0);
+		if (rc) {
+			CAM_ERR(CAM_ISP, "Bus HW init Failed rc=%d", rc);
+			goto deinint_vfe_res;
+		}
 	}
 
 	vfe_hw->hw_state = CAM_HW_STATE_POWER_UP;

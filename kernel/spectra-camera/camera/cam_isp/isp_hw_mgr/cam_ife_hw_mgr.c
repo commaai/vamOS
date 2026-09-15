@@ -2239,6 +2239,7 @@ static int cam_ife_mgr_start_hw(void *hw_mgr_priv, void *start_hw_args)
 		CAM_ERR(CAM_ISP, "Init failed");
 		goto err;
 	}
+	ctx->init_done = true;
 
 start_only:
 
@@ -2321,7 +2322,6 @@ start_only:
 		}
 	}
 
-	ctx->init_done = true;
 	/* Start IFE root node: do nothing */
 	CAM_DBG(CAM_ISP, "Start success for ctx id:%d", ctx->ctx_index);
 

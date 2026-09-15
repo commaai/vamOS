@@ -332,7 +332,7 @@ static struct page *cam_mem_alloc_largest_available(unsigned long size,
 {
 	struct page *page;
 	unsigned int i;
-	static const gfp_t gfp = GFP_KERNEL | __GFP_ZERO | __GFP_NOWARN;
+	static const gfp_t gfp = GFP_KERNEL | __GFP_ZERO | __GFP_NOWARN | __GFP_COMP;
 
 	for (i = 0; i < ARRAY_SIZE(cam_mem_orders); i++) {
 		if (size < (PAGE_SIZE << cam_mem_orders[i]))
@@ -350,9 +350,8 @@ static struct page *cam_mem_alloc_largest_available(unsigned long size,
 /*
  * Allocate a page-backed buffer and export it as a dma_buf. Mainline
  * replacement for ion_alloc()/ion_share_dma_buf(). @flags carries the
- * CAM_MEM_FLAG_* intent; cached vs uncached is handled by the importer's dma
- * mapping direction (dma_map_sgtable) on attach, mirroring the legacy ION
- * cached/uncached system-heap behaviour for the non-secure path.
+ * CAM_MEM_FLAG_* intent. Uncached allocations are prepared before exposing
+ * write-combine aliases; attachments use normal DMA API mapping.
  */
 static struct dma_buf *cam_mem_util_buffer_alloc(size_t len, unsigned int flags)
 {
@@ -399,6 +398,14 @@ static struct dma_buf *cam_mem_util_buffer_alloc(size_t len, unsigned int flags)
 		sg_set_page(sg, page, page_size(page), 0);
 		sg = sg_next(sg);
 		list_del(&page->lru);
+	}
+
+	if (!(flags & CAM_MEM_FLAG_CACHE)) {
+		/* Complete cached page zeroing before exposing write-combine aliases. */
+		ret = dma_map_sgtable(tbl.dev, table, DMA_TO_DEVICE, 0);
+		if (ret)
+			goto free_pages;
+		dma_unmap_sgtable(tbl.dev, table, DMA_TO_DEVICE, 0);
 	}
 
 	exp_info.exp_name = "cam_mem_mgr";
@@ -478,7 +485,7 @@ static int cam_mem_util_get_dma_dir(uint32_t flags)
 	return rc;
 }
 
-int cam_mem_mgr_init(void)
+int cam_mem_mgr_init(struct device *dev)
 {
 	int i;
 	int bitmap_size;
@@ -500,6 +507,7 @@ int cam_mem_mgr_init(void)
 		tbl.bufq[i].buf_handle = -1;
 	}
 	mutex_init(&tbl.m_lock);
+	tbl.dev = dev;
 	atomic_set(&cam_mem_mgr_state, CAM_MEM_MGR_INITIALIZED);
 	return 0;
 }
@@ -545,14 +553,20 @@ int cam_mem_get_io_buf(int32_t buf_handle, int32_t mmu_handle,
 	}
 
 	idx = CAM_MEM_MGR_GET_HDL_IDX(buf_handle);
-	if (idx >= CAM_MEM_BUFQ_MAX || idx <= 0)
+	if (idx >= CAM_MEM_BUFQ_MAX || idx <= 0) {
+		CAM_ERR(CAM_MEM, "io buf %x invalid index %d", buf_handle, idx);
 		return -EINVAL;
+	}
 
-	if (!tbl.bufq[idx].active)
+	if (!tbl.bufq[idx].active) {
+		CAM_ERR(CAM_MEM, "io buf %x inactive index %d", buf_handle, idx);
 		return -EINVAL;
+	}
 
 	mutex_lock(&tbl.bufq[idx].q_lock);
 	if (buf_handle != tbl.bufq[idx].buf_handle) {
+		CAM_ERR(CAM_MEM, "io buf %x index %d holds %x",
+			buf_handle, idx, tbl.bufq[idx].buf_handle);
 		rc = -EINVAL;
 		goto handle_mismatch;
 	}
@@ -1208,6 +1222,7 @@ void cam_mem_mgr_deinit(void)
 	bitmap_zero(tbl.bitmap, tbl.bits);
 	kfree(tbl.bitmap);
 	tbl.bitmap = NULL;
+	tbl.dev = NULL;
 	mutex_unlock(&tbl.m_lock);
 	mutex_destroy(&tbl.m_lock);
 }

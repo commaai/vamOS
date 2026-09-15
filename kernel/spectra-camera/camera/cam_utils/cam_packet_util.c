@@ -191,7 +191,10 @@ int cam_packet_util_process_patches(struct cam_packet *packet,
 		rc = cam_mem_get_io_buf(patch_desc[i].src_buf_hdl,
 			hdl, &iova_addr, &src_buf_size);
 		if (rc < 0) {
-			CAM_ERR(CAM_UTIL, "unable to get src buf address");
+			CAM_ERR(CAM_UTIL,
+				"patch %d/%u src=%x dst=%x mmu=%x failed: %d",
+				i, packet->num_patches, patch_desc[i].src_buf_hdl,
+				patch_desc[i].dst_buf_hdl, hdl, rc);
 			return rc;
 		}
 		src_buf_iova_addr = (uint32_t *)iova_addr;

@@ -220,21 +220,20 @@ static int cam_soc_util_create_clk_lvl_debugfs(
 	strlcat(debugfs_dir_name, "clk_dir_", sizeof(debugfs_dir_name));
 	strlcat(debugfs_dir_name, soc_info->dev_name, sizeof(debugfs_dir_name));
 
-	dentry = soc_info->dentry;
 	dentry = debugfs_create_dir(debugfs_dir_name, NULL);
-	if (!dentry) {
+	if (IS_ERR_OR_NULL(dentry)) {
 		CAM_ERR(CAM_UTIL, "failed to create debug directory");
 		return -ENOMEM;
 	}
 
-	if (!debugfs_create_file("clk_lvl_options", 0444,
-		dentry, soc_info, &cam_soc_util_clk_lvl_options)) {
+	if (IS_ERR_OR_NULL(debugfs_create_file("clk_lvl_options", 0444,
+		dentry, soc_info, &cam_soc_util_clk_lvl_options))) {
 		CAM_ERR(CAM_UTIL, "failed to create clk_lvl_options");
 		goto err;
 	}
 
-	if (!debugfs_create_file("clk_lvl_control", 0644,
-		dentry, soc_info, &cam_soc_util_clk_lvl_control)) {
+	if (IS_ERR_OR_NULL(debugfs_create_file("clk_lvl_control", 0644,
+		dentry, soc_info, &cam_soc_util_clk_lvl_control))) {
 		CAM_ERR(CAM_UTIL, "failed to create clk_lvl_control");
 		goto err;
 	}
@@ -242,6 +241,7 @@ static int cam_soc_util_create_clk_lvl_debugfs(
 	CAM_DBG(CAM_UTIL, "clk lvl debugfs for %s successfully created",
 		soc_info->dev_name);
 
+	soc_info->dentry = dentry;
 	return 0;
 
 err:

@@ -2853,6 +2853,7 @@ static int cam_vfe_bus_init_hw(void *hw_priv,
 {
 	struct cam_vfe_bus_ver2_priv    *bus_priv = hw_priv;
 	uint32_t                         top_irq_reg_mask[2] = {0};
+	int                              irq_handle;
 
 	if (!bus_priv) {
 		CAM_ERR(CAM_ISP, "Invalid args");
@@ -2861,7 +2862,7 @@ static int cam_vfe_bus_init_hw(void *hw_priv,
 
 	top_irq_reg_mask[0] = (1 << 9);
 
-	bus_priv->irq_handle = cam_irq_controller_subscribe_irq(
+	irq_handle = cam_irq_controller_subscribe_irq(
 		bus_priv->common_data.vfe_irq_controller,
 		CAM_IRQ_PRIORITY_2,
 		top_irq_reg_mask,
@@ -2871,12 +2872,13 @@ static int cam_vfe_bus_init_hw(void *hw_priv,
 		NULL,
 		NULL);
 
-	if (bus_priv->irq_handle <= 0) {
+	if (irq_handle <= 0) {
 		CAM_ERR(CAM_ISP, "Failed to subscribe BUS IRQ");
 		return -EFAULT;
 	}
+	bus_priv->irq_handle = irq_handle;
 
-	bus_priv->error_irq_handle = cam_irq_controller_subscribe_irq(
+	irq_handle = cam_irq_controller_subscribe_irq(
 		bus_priv->common_data.bus_irq_controller,
 		CAM_IRQ_PRIORITY_0,
 		bus_error_irq_mask,
@@ -2886,10 +2888,15 @@ static int cam_vfe_bus_init_hw(void *hw_priv,
 		bus_priv->tasklet_info,
 		&tasklet_bh_api);
 
-	if (bus_priv->irq_handle <= 0) {
-		CAM_ERR(CAM_ISP, "Failed to subscribe BUS IRQ");
+	if (irq_handle <= 0) {
+		CAM_ERR(CAM_ISP, "Failed to subscribe BUS error IRQ");
+		cam_irq_controller_unsubscribe_irq(
+			bus_priv->common_data.vfe_irq_controller,
+			bus_priv->irq_handle);
+		bus_priv->irq_handle = 0;
 		return -EFAULT;
 	}
+	bus_priv->error_irq_handle = irq_handle;
 
 	/*Set Debug Registers*/
 	cam_io_w_mb(CAM_VFE_BUS_SET_DEBUG_REG, bus_priv->common_data.mem_base +

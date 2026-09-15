@@ -77,12 +77,14 @@ struct cam_mem_buf_queue {
 /**
  * struct cam_mem_table
  *
+ * @dev: DMA device used to prepare uncached allocations
  * @m_lock: mutex lock for table
  * @bitmap: bitmap of the mem mgr utility
  * @bits: max bits of the utility
  * @bufq: array of buffers
  */
 struct cam_mem_table {
+	struct device *dev;
 	struct mutex m_lock;
 	void *bitmap;
 	size_t bits;
@@ -127,10 +129,11 @@ int cam_mem_mgr_cache_ops(struct cam_mem_cache_ops_cmd *cmd);
 
 /**
  * @brief: Initializes the memory manager
+ * @dev: Request-manager DMA device
  *
  * @return Status of operation. Negative in case of error. Zero otherwise.
  */
-int cam_mem_mgr_init(void);
+int cam_mem_mgr_init(struct device *dev);
 
 /**
  * @brief:  Tears down the memory manager
