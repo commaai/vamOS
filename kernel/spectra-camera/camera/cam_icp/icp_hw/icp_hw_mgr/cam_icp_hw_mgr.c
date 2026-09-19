@@ -1510,8 +1510,12 @@ static int cam_icp_mgr_process_msg_frame_process(uint32_t *msg_ptr)
 
 	ioconfig_ack = (struct hfi_msg_ipebps_async_ack *)msg_ptr;
 	if (ioconfig_ack->err_type != HFI_ERR_SYS_NONE) {
-		CAM_ERR(CAM_ICP, "failed with error : %u",
-		ioconfig_ack->err_type);
+		if (ioconfig_ack->err_type == CAMERAICP_EABORTED)
+			CAM_WARN(CAM_ICP, "request %llu aborted",
+				(unsigned long long)ioconfig_ack->user_data2);
+		else
+			CAM_ERR(CAM_ICP, "failed with error : %u",
+				ioconfig_ack->err_type);
 		return -EIO;
 	}
 

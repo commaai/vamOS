@@ -44,6 +44,9 @@
 #define HFI_ERR_SYS_CMDFAILED           (HFI_COMMON_BASE + 0x5)
 #define HFI_ERR_SYS_CMDSIZE             (HFI_COMMON_BASE + 0x6)
 
+/* General frame process errors */
+#define CAMERAICP_EABORTED              10
+
 /* System Level Event types */
 #define HFI_EVENT_SYS_ERROR             (HFI_COMMON_BASE + 0x1)
 #define HFI_EVENT_ICP_ERROR             (HFI_COMMON_BASE + 0x2)
