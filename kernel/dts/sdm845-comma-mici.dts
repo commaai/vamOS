@@ -60,6 +60,10 @@
 	status = "okay";
 };
 
+&vreg_l8a_1p2 {
+	regulator-always-on;
+};
+
 &wifi {
 	qcom,calibration-variant = "comma-mici";
 };
