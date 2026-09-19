@@ -78,6 +78,7 @@ fi
 KERNEL_REV="$(git -C "$KERNEL_DIR" rev-parse HEAD)"
 
 # Compute on host; in-container git fails for worktrees (.git is outside $DIR)
+SOURCE_REV="$(git -C "$DIR" rev-parse HEAD)"
 GIT_REV="$(git -C "$DIR" rev-parse --short HEAD)"
 
 # Build docker container
@@ -191,7 +192,31 @@ build_kernel() {
   done
 
   echo "-- Building kernel with $(nproc) cores --"
-  make -j$(nproc) "${make_args[@]}" Image.gz "${dtb_targets[@]}"
+  make -j$(nproc) "${make_args[@]}" Image.gz "${dtb_targets[@]}" modules
+
+  # Build external Spectra against the same complete Module.symvers and config.
+  local spectra_out="$TMP_DIR/spectra-module"
+  local module_root="$TMP_DIR/kernel-rootfs"
+  local kernel_release
+  kernel_release="$(make -s "${make_args[@]}" kernelrelease)"
+  rm -rf "$spectra_out" "$module_root"
+  make -j$(nproc) "${make_args[@]}" M="$DIR/kernel/spectra-camera" MO="$spectra_out" modules
+  make "${make_args[@]}" INSTALL_MOD_PATH="$module_root" DEPMOD=true modules_install
+  make "${make_args[@]}" M="$DIR/kernel/spectra-camera" MO="$spectra_out" \
+    INSTALL_MOD_PATH="$module_root" DEPMOD=true modules_install
+  rm -f "$module_root/lib/modules/$kernel_release/build" "$module_root/lib/modules/$kernel_release/source"
+  depmod -b "$module_root" "$kernel_release"
+  # Void uses /lib -> usr/lib; archive the real directory, not the symlink.
+  mkdir -p "$module_root/usr/lib"
+  mv "$module_root/lib/modules" "$module_root/usr/lib/"
+  rmdir "$module_root/lib"
+  # Userspace includes <media/cam_*.h> from this driver's matching ABI.
+  mkdir -p "$module_root/usr/include/media"
+  cp "$DIR/kernel/spectra-camera/uapi/media/"*.h "$module_root/usr/include/media/"
+  mkdir -p "$OUT_DIR"
+  tar -C "$module_root" -cf "$OUT_DIR/kernel-rootfs.tar" .
+  printf '%s\n' "$kernel_release" > "$OUT_DIR/kernel-release"
+  printf '%s\n' "$SOURCE_REV" > "$OUT_DIR/kernel-source-revision"
 
   # Assemble Image.gz-dtb
   mkdir -p "$TMP_DIR"
@@ -229,6 +254,7 @@ build_kernel() {
   rm -f $BOOT_IMG.nonsecure $BOOT_IMG.sha256 $BOOT_IMG.sig $BOOT_IMG.sig.padded
 
   mv $BOOT_IMG "$OUT_DIR/"
+  (cd "$OUT_DIR" && sha256sum boot.img kernel-rootfs.tar kernel-release kernel-source-revision > kernel-artifacts.sha256)
   echo "-- Done! boot.img: $OUT_DIR/boot.img --"
   ls -lh "$OUT_DIR/boot.img"
 }
@@ -282,6 +308,7 @@ TMP_DIR='$TMP_DIR'
 OUT_DIR='$OUT_DIR'
 BOOT_IMG='$BOOT_IMG'
 GIT_REV='$GIT_REV'
+SOURCE_REV='$SOURCE_REV'
 
 DTS_FILES=(
   '${DTS_FILES[0]}'

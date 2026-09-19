@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -e
+set -eo pipefail
 
 VOID_ROOTFS_URL="https://repo-default.voidlinux.org/live/current/void-aarch64-ROOTFS-20250202.tar.xz"
 VOID_ROOTFS_SHA256="01a30f17ae06d4d5b322cd579ca971bc479e02cc284ec1e5a4255bea6bac3ce6"
@@ -16,6 +16,20 @@ OUTPUT_DIR="$DIR/build"
 ROOTFS_DIR="$BUILD_DIR/void-rootfs"
 ROOTFS_IMAGE="$BUILD_DIR/system.img"
 OUT_IMAGE="$OUTPUT_DIR/system.img"
+
+# The boot image and rootfs modules must come from the same kernel build.
+for artifact in boot.img kernel-rootfs.tar kernel-release kernel-source-revision kernel-artifacts.sha256; do
+  if [ ! -s "$OUTPUT_DIR/$artifact" ]; then
+    echo "Missing kernel artifact: $OUTPUT_DIR/$artifact; run ./vamos build kernel first" >&2
+    exit 1
+  fi
+done
+(cd "$OUTPUT_DIR" && shasum -a 256 -c kernel-artifacts.sha256)
+if [ "$(cat "$OUTPUT_DIR/kernel-source-revision")" != "$(git -C "$DIR" rev-parse HEAD)" ]; then
+  echo "Kernel artifacts belong to a different vamOS revision; rebuild the kernel" >&2
+  exit 1
+fi
+KERNEL_RELEASE="$(cat "$OUTPUT_DIR/kernel-release")"
 
 # the partition is 10G, but openpilot's updater didn't always handle the full size
 # Increased from 4500M to 6G for Python packages
@@ -91,6 +105,7 @@ echo "Building and extracting vamos docker image"
 docker buildx build -f tools/build/Dockerfile --platform=linux/arm64 \
   --output "type=tar,dest=-" \
   --provenance=false \
+  --build-arg KERNEL_RELEASE="$KERNEL_RELEASE" \
   --build-arg VOID_ROOTFS="${VOID_ROOTFS_FILE#"$DIR/"}" \
   "$DIR" | docker exec -i "$MOUNT_CONTAINER_ID" tar -xf - -C "$ROOTFS_DIR"
 echo "Build and extraction complete"
@@ -100,7 +115,7 @@ echo "Removing .dockerenv file"
 exec_as_root rm -f "$ROOTFS_DIR/.dockerenv"
 
 echo "Setting network stuff"
-GIT_HASH=${GIT_HASH:-$(git --git-dir="$DIR/.git" rev-parse HEAD)}
+GIT_HASH=${GIT_HASH:-$(git -C "$DIR" rev-parse HEAD)}
 DATETIME=$(date '+%Y-%m-%dT%H:%M:%S')
 exec_as_root sh -c "
   set -e

@@ -18,6 +18,7 @@ RUN apk add --no-cache \
     flex \
     git \
     libcap \
+    kmod \
     linux-headers \
     lz4-dev \
     openssl \

@@ -1,6 +1,7 @@
 .ccache
 build
 !build/downloads
+!build/kernel-rootfs.tar
 firmware
 kernel
 !kernel/firmware

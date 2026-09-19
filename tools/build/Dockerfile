@@ -77,6 +77,17 @@ RUN ln -sf /lib/firmware/ath10k/WCN3990/hw1.0/wlanmdsp.mbn /lib/firmware/qcom/sd
 # Root filesystem overlay — all userspace files at their final paths
 COPY ./userspace/root/ /
 
+# Install modules and camera headers produced with the matching boot image.
+ARG KERNEL_RELEASE
+ADD ./build/kernel-rootfs.tar /
+RUN test -n "$KERNEL_RELEASE" && \
+    test -s "/lib/modules/$KERNEL_RELEASE/modules.dep" && \
+    test -s /usr/include/media/cam_req_mgr.h && \
+    for module in spectra_camera mc videodev camcc_sdm845 venus_core venus_enc venus_dec; do \
+      test "$(modinfo -k "$KERNEL_RELEASE" -F vermagic "$module" | cut -d ' ' -f 1)" = "$KERNEL_RELEASE" || exit 1; \
+    done && \
+    depmod -a "$KERNEL_RELEASE"
+
 # Fix ownership on home directory (overlay COPY runs as root)
 RUN chown -R comma:comma /home/comma
 # Void's default .bashrc doesn't source .bash_aliases

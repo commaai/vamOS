@@ -38,12 +38,36 @@ jobs:
           path: build/boot.img
           if-no-files-found: error
 
+      - name: upload kernel modules and headers
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-rootfs
+          path: |
+            build/kernel-rootfs.tar
+            build/kernel-release
+            build/kernel-source-revision
+            build/kernel-artifacts.sha256
+          if-no-files-found: error
+
   build-system:
+    needs: build-kernel
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
           lfs: true
+
+      - name: download boot.img
+        uses: actions/download-artifact@v4
+        with:
+          name: boot.img
+          path: build/
+
+      - name: download kernel modules and headers
+        uses: actions/download-artifact@v4
+        with:
+          name: kernel-rootfs
+          path: build/
 
       - name: build system image
         run: ./vamos build system
