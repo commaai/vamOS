@@ -1100,7 +1100,7 @@ int cam_sensor_power(struct v4l2_subdev *sd, int on)
 
 int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 {
-	int rc;
+	int rc, release_rc;
 	struct cam_sensor_power_ctrl_t *power_info;
 	struct cam_camera_slave_info *slave_info;
 	struct cam_hw_soc_info *soc_info =
@@ -1119,6 +1119,15 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 		return -EINVAL;
 	}
 
+	/* The CCI parent must mux MCLK before the timed sensor power sequence. */
+	if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+		rc = camera_io_init(&s_ctrl->io_master_info);
+		if (rc < 0) {
+			CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
+			return rc;
+		}
+	}
+
 	if (s_ctrl->bob_pwm_switch) {
 		rc = cam_sensor_bob_pwm_mode_switch(soc_info,
 			s_ctrl->bob_reg_index, true);
@@ -1132,12 +1141,20 @@ int cam_sensor_power_up(struct cam_sensor_ctrl_t *s_ctrl)
 	rc = cam_sensor_core_power_up(power_info, soc_info);
 	if (rc < 0) {
 		CAM_ERR(CAM_SENSOR, "power up the core is failed:%d", rc);
+		if (s_ctrl->io_master_info.master_type == CCI_MASTER) {
+			release_rc = camera_io_release(&s_ctrl->io_master_info);
+			if (release_rc)
+				CAM_ERR(CAM_SENSOR,
+					"cci_release failed: rc: %d", release_rc);
+		}
 		return rc;
 	}
 
-	rc = camera_io_init(&(s_ctrl->io_master_info));
-	if (rc < 0)
-		CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
+	if (s_ctrl->io_master_info.master_type != CCI_MASTER) {
+		rc = camera_io_init(&(s_ctrl->io_master_info));
+		if (rc < 0)
+			CAM_ERR(CAM_SENSOR, "cci_init failed: rc: %d", rc);
+	}
 
 	return rc;
 }
