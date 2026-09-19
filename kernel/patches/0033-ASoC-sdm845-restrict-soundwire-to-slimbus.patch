@@ -1,0 +1,84 @@
+Subject: [PATCH] ASoC: sdm845: restrict SoundWire callbacks to SLIMbus DAIs
+
+SECONDARY_MI2S_TX is 19 in the Q6DSP DAI namespace, the same numeric value
+as LPASS_CDC_DMA_TX3 in the DSP-bypass namespace. The shared SoundWire
+helper recognizes both. Calling it unconditionally routes secondary MI2S
+capture into SoundWire and dereferences the SPDIF capture codec's missing
+DAI operations on comma four.
+
+Dispatch SoundWire operations only for this machine's SLIMbus DAIs,
+matching its existing DAI initialization and hw_params handling. Accept
+secondary MI2S capture in hw_params along with playback.
+---
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -214,6 +214,7 @@
+ 		break;
+ 	case QUATERNARY_MI2S_RX:
+ 	case SECONDARY_MI2S_RX:
++	case SECONDARY_MI2S_TX:
+ 	case TERTIARY_MI2S_RX:
+ 	case TERTIARY_MI2S_TX:
+ 		break;
+@@ -424,13 +425,13 @@
+ 		}
+ 		break;
+ 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
+-		break;
++		return qcom_snd_sdw_startup(substream);
+ 
+ 	default:
+ 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
+ 		break;
+ 	}
+-	return qcom_snd_sdw_startup(substream);
++	return 0;
+ }
+ 
+ static void  sdm845_snd_shutdown(struct snd_pcm_substream *substream)
+@@ -480,6 +481,8 @@
+ 		}
+ 		break;
+ 	case SLIMBUS_0_RX...SLIMBUS_6_TX:
++		qcom_snd_sdw_shutdown(substream);
++		break;
+ 	case QUATERNARY_MI2S_RX:
+ 		break;
+ 
+@@ -487,8 +490,6 @@
+ 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
+ 		break;
+ 	}
+-
+-	qcom_snd_sdw_shutdown(substream);
+ }
+ 
+ static int sdm845_snd_prepare(struct snd_pcm_substream *substream)
+@@ -497,7 +498,12 @@
+ 	struct sdm845_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 
+-	return qcom_snd_sdw_prepare(substream, &data->stream_prepared[cpu_dai->id]);
++	switch (cpu_dai->id) {
++	case SLIMBUS_0_RX...SLIMBUS_6_TX:
++		return qcom_snd_sdw_prepare(substream, &data->stream_prepared[cpu_dai->id]);
++	default:
++		return 0;
++	}
+ }
+ 
+ static int sdm845_snd_hw_free(struct snd_pcm_substream *substream)
+@@ -506,7 +512,12 @@
+ 	struct sdm845_snd_data *data = snd_soc_card_get_drvdata(rtd->card);
+ 	struct snd_soc_dai *cpu_dai = snd_soc_rtd_to_cpu(rtd, 0);
+ 
+-	return qcom_snd_sdw_hw_free(substream, &data->stream_prepared[cpu_dai->id]);
++	switch (cpu_dai->id) {
++	case SLIMBUS_0_RX...SLIMBUS_6_TX:
++		return qcom_snd_sdw_hw_free(substream, &data->stream_prepared[cpu_dai->id]);
++	default:
++		return 0;
++	}
+ }
+ 
+ static const struct snd_soc_ops sdm845_be_ops = {
