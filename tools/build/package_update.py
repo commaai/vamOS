@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Package boot and system images for openpilot's A/B OS updater."""
+"""Package boot and raw ext4 system images for openpilot's A/B OS updater."""
 import argparse
 import hashlib
 import json
 import lzma
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[2]
-IMAGES = (("boot", "boot.img"), ("system", "system.erofs.img"))
+IMAGES = (("boot", "boot.img"), ("system", "tmp-system/system.img"))
 
 
 def package_update(build_dir, output_dir, images_url):
@@ -20,7 +19,7 @@ def package_update(build_dir, output_dir, images_url):
   for name, filename in IMAGES:
     digest = hashlib.sha256()
     size = 0
-    archive = filename + ".xz"
+    archive = Path(filename).name + ".xz"
     with (build_dir / filename).open("rb") as source, lzma.open(output_dir / archive, "wb") as destination:
       while data := source.read(1024 * 1024):
         digest.update(data)
