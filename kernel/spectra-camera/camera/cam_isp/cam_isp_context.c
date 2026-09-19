@@ -1432,6 +1432,8 @@ static int __cam_isp_ctx_flush_req_in_top_state(
 		rc = __cam_isp_ctx_flush_req(ctx, &ctx->active_req_list,
 		flush_req);
 		ctx_isp->active_req_cnt = 0;
+		/* No request remains applied when the hardware restarts. */
+		ctx_isp->substate_activated = CAM_ISP_CTX_ACTIVATED_SOF;
 		spin_unlock_bh(&ctx->lock);
 
 		/* Start hw */
