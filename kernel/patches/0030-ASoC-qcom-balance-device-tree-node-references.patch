@@ -1,0 +1,88 @@
+Subject: [PATCH] ASoC: qcom: balance device tree node references
+
+Release failed DAI lookup references and owned CPU, platform and codec
+references at card teardown. Frontend platform aliases own no extra
+reference. Release the temporary Q6ASM IOMMU lookup reference as well.
+This removes the node leaks observed during live audio overlay removal.
+---
+--- a/sound/soc/soc-core.c
++++ b/sound/soc/soc-core.c
+@@ -3506,7 +3506,11 @@
+ 	if (ret)
+ 		return ret;
+ 
+-	return snd_soc_get_dlc(args, dlc);
++	ret = snd_soc_get_dlc(args, dlc);
++	if (ret)
++		of_node_put(args->np);
++
++	return ret;
+ }
+ EXPORT_SYMBOL_GPL(snd_soc_of_get_dlc);
+ 
+--- a/sound/soc/qcom/common.c
++++ b/sound/soc/qcom/common.c
+@@ -23,6 +23,16 @@
+ 	SND_SOC_DAPM_SPK("DP7 Jack", NULL),
+ };
+ 
++static void qcom_snd_put_of_node(void *data)
++{
++	of_node_put(data);
++}
++
++static void qcom_snd_put_codecs(void *data)
++{
++	snd_soc_of_put_dai_link_codecs(data);
++}
++
+ int qcom_snd_parse_of(struct snd_soc_card *card)
+ {
+ 	struct device *dev = card->dev;
+@@ -114,6 +124,10 @@
+ 			return ret;
+ 		}
+ 
++		ret = devm_add_action_or_reset(dev, qcom_snd_put_of_node, args.np);
++		if (ret)
++			return ret;
++
+ 		link->id = args.args[0];
+ 
+ 		if (link->id >= LPASS_MAX_PORT) {
+@@ -129,6 +143,10 @@
+ 				dev_err(card->dev, "%s: platform dai not found\n", link->name);
+ 				return -EINVAL;
+ 			}
++			ret = devm_add_action_or_reset(dev, qcom_snd_put_of_node,
++						       link->platforms->of_node);
++			if (ret)
++				return ret;
+ 		} else {
+ 			link->platforms->of_node = link->cpus->of_node;
+ 		}
+@@ -140,6 +158,10 @@
+ 					      "%s: codec dai not found\n", link->name);
+ 				return ret;
+ 			}
++
++			ret = devm_add_action_or_reset(dev, qcom_snd_put_codecs, link);
++			if (ret)
++				return ret;
+ 
+ 			if (platform) {
+ 				/* DPCM backend */
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c
+@@ -1311,8 +1311,10 @@
+ 	rc = of_parse_phandle_with_fixed_args(node, "iommus", 1, 0, &args);
+ 	if (rc < 0)
+ 		pdata->sid = -1;
+-	else
++	else {
+ 		pdata->sid = args.args[0] & SID_MASK_DEFAULT;
++		of_node_put(args.np);
++	}
+ 
+ 	dev_set_drvdata(dev, pdata);
+ 
