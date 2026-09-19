@@ -336,6 +336,12 @@ def set_boot_lun(lun_id):
   raise RuntimeError("Cannot set boot LUN: no working UFS ioctl or BSG device found")
 
 
+def require_root():
+  # UFS BSG requires CAP_SYS_RAWIO, even when the caller can open the device.
+  if os.geteuid() != 0:
+    os.execv('/usr/bin/sudo', ['sudo', '-n', '--', '/usr/bin/abctl', *sys.argv[1:]])
+
+
 def main():
   if len(sys.argv) < 2:
     print("Usage: abctl <command>")
@@ -351,6 +357,7 @@ def main():
     print(get_current_slot())
 
   elif cmd == '--set_success':
+    require_root()
     modify_slot_attributes(get_current_slot(), mark_successful)
 
   elif cmd == '--set_active' and len(sys.argv) == 3:
@@ -359,6 +366,7 @@ def main():
     except ValueError as e:
       print(e, file=sys.stderr)
       sys.exit(1)
+    require_root()
     other = '_b' if slot == '_a' else '_a'
 
     # Active slot: matches ABL SetActiveSlot() + MarkPtnActive()
@@ -409,6 +417,7 @@ def main():
     except ValueError as e:
       print(e, file=sys.stderr)
       sys.exit(1)
+    require_root()
     modify_slot_attributes(slot, lambda name, a: a | ATTR_UNBOOTABLE)
 
   else:
