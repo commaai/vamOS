@@ -804,6 +804,21 @@ end:
 }
 
 
+static int __cam_isp_ctx_buf_done_in_sof(struct cam_isp_context *ctx_isp,
+	void *evt_data)
+{
+	if (!list_empty(&ctx_isp->base->active_req_list) ||
+		ctx_isp->active_req_cnt) {
+		CAM_ERR(CAM_ISP, "Buffer done in SOF with active requests");
+		__cam_isp_ctx_dump_state_monitor_array(ctx_isp);
+		return -EINVAL;
+	}
+
+	/* Full flush can restart output before a new request is active. */
+	return __cam_isp_ctx_handle_buf_done_in_activated_state(ctx_isp,
+		evt_data, 0);
+}
+
 static int __cam_isp_ctx_buf_done_in_applied(struct cam_isp_context *ctx_isp,
 	void *evt_data)
 {
@@ -1108,7 +1123,7 @@ static struct cam_isp_ctx_irq_ops
 			__cam_isp_ctx_reg_upd_in_sof,
 			__cam_isp_ctx_notify_sof_in_actived_state,
 			__cam_isp_ctx_notify_eof_in_actived_state,
-			NULL,
+			__cam_isp_ctx_buf_done_in_sof,
 		},
 	},
 	/* APPLIED */
@@ -1859,7 +1874,7 @@ static struct cam_isp_ctx_irq_ops
 			__cam_isp_ctx_reg_upd_in_sof,
 			NULL,
 			NULL,
-			NULL,
+			__cam_isp_ctx_buf_done_in_sof,
 		},
 	},
 	/* APPLIED */
