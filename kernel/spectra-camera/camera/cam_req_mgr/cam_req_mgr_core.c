@@ -1506,6 +1506,7 @@ int cam_req_mgr_process_flush_req(void *priv, void *data)
 	struct cam_req_mgr_flush_info       *flush_info = NULL;
 	struct cam_req_mgr_core_link        *link = NULL;
 	struct cam_req_mgr_req_queue        *in_q = NULL;
+	struct cam_req_mgr_req_tbl          *tbl = NULL;
 	struct cam_req_mgr_slot             *slot = NULL;
 	struct cam_req_mgr_connected_device *device = NULL;
 	struct cam_req_mgr_flush_request     flush_req;
@@ -1539,6 +1540,14 @@ int cam_req_mgr_process_flush_req(void *priv, void *data)
 		}
 		in_q->wr_idx = 0;
 		in_q->rd_idx = 0;
+		/* Reused slots must wait for the new requests' device packets. */
+		for (tbl = link->req.l_tbl; tbl; tbl = tbl->next) {
+			for (i = 0; i < tbl->num_slots; i++) {
+				tbl->slot[i].req_ready_map = 0;
+				tbl->slot[i].state = CRM_REQ_STATE_EMPTY;
+				tbl->slot[i].inject_delay = 0;
+			}
+		}
 	} else if (flush_info->flush_type ==
 		CAM_REQ_MGR_FLUSH_TYPE_CANCEL_REQ) {
 		idx = __cam_req_mgr_find_slot_for_req(in_q, flush_info->req_id);
