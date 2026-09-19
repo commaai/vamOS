@@ -1406,10 +1406,12 @@ static int __cam_isp_ctx_flush_req_in_top_state(
 	spin_unlock_bh(&ctx->lock);
 
 	if (flush_req->type == CAM_REQ_MGR_FLUSH_TYPE_ALL) {
+		/* Userspace may requeue requests whose SOF events it never received. */
 		/* if active and wait list are empty, return */
 		spin_lock_bh(&ctx->lock);
 		if ((list_empty(&ctx->wait_req_list)) &&
 			(list_empty(&ctx->active_req_list))) {
+			ctx_isp->reported_req_id = 0;
 			spin_unlock_bh(&ctx->lock);
 			CAM_DBG(CAM_ISP, "active and wait list are empty");
 			goto end;
@@ -1432,6 +1434,7 @@ static int __cam_isp_ctx_flush_req_in_top_state(
 		rc = __cam_isp_ctx_flush_req(ctx, &ctx->active_req_list,
 		flush_req);
 		ctx_isp->active_req_cnt = 0;
+		ctx_isp->reported_req_id = 0;
 		/* No request remains applied when the hardware restarts. */
 		ctx_isp->substate_activated = CAM_ISP_CTX_ACTIVATED_SOF;
 		spin_unlock_bh(&ctx->lock);
