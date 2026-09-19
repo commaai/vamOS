@@ -2,6 +2,9 @@
 
 #include "sdm845-comma-common.dtsi"
 #include "sdm845-comma-spectra.dtsi"
+#include <dt-bindings/clock/qcom,rpmh.h>
+#include <dt-bindings/sound/qcom,q6afe.h>
+#include <dt-bindings/sound/qcom,q6asm.h>
 
 / {
 	model = "comma tizi";
@@ -9,6 +12,16 @@
 	qcom,msm-id = <QCOM_ID_SDA845 0x20001>, <QCOM_ID_SDM845 0x20001>,
 		      <QCOM_ID_SDM845 0x20000>, <348 0x20001>;
 	qcom,board-id = <0x21 0>;
+
+	spkr_codec: audio-codec-0 {
+		compatible = "linux,spdif-dit";
+		#sound-dai-cells = <0>;
+	};
+
+	mic_codec: audio-codec-1 {
+		compatible = "linux,spdif-dir";
+		#sound-dai-cells = <0>;
+	};
 
 	tp3v3: tp3v3 {
 		status = "okay";
@@ -20,6 +33,10 @@
 		enable-active-high;
 		regulator-boot-on;
 	};
+};
+
+&adsp_pas {
+	status = "okay";
 };
 
 &i2c5 {
@@ -66,6 +83,95 @@
 &mdss_dsi0_out {
 	remote-endpoint = <&panel_in>;
 	data-lanes = <0 1 2 3>;
+};
+
+&q6afedai {
+	dai@12 {
+		reg = <SECONDARY_MI2S_RX>;
+		qcom,sd-lines = <0>;
+	};
+
+	dai@15 {
+		reg = <TERTIARY_MI2S_TX>;
+		qcom,sd-lines = <0 1>;
+	};
+};
+
+&q6asmdai {
+	dai@0 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		direction = <Q6ASM_DAI_RX>;
+	};
+
+	dai@1 {
+		reg = <MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		direction = <Q6ASM_DAI_TX>;
+	};
+};
+
+&sound {
+	compatible = "qcom,sdm845-sndcard";
+	model = "comma-tizi";
+	pinctrl-names = "default";
+	pinctrl-0 = <&sec_mi2s_active &ter_mi2s_active>;
+	clocks = <&rpmhcc RPMH_LN_BB_CLK2>;
+	clock-names = "mclk";
+
+	mm1-dai-link {
+		link-name = "MultiMedia1";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA1>;
+		};
+	};
+
+	mm2-dai-link {
+		link-name = "MultiMedia2";
+		cpu {
+			sound-dai = <&q6asmdai MSM_FRONTEND_DAI_MULTIMEDIA2>;
+		};
+	};
+
+	speaker-dai-link {
+		link-name = "Secondary MI2S Playback";
+		cpu {
+			sound-dai = <&q6afedai SECONDARY_MI2S_RX>;
+		};
+		platform {
+			sound-dai = <&q6routing>;
+		};
+		codec {
+			sound-dai = <&spkr_codec>;
+		};
+	};
+
+	mic-dai-link {
+		link-name = "Tertiary MI2S Capture";
+		cpu {
+			sound-dai = <&q6afedai TERTIARY_MI2S_TX>;
+		};
+		platform {
+			sound-dai = <&q6routing>;
+		};
+		codec {
+			sound-dai = <&mic_codec>;
+		};
+	};
+};
+
+&tlmm {
+	sec_mi2s_active: sec-mi2s-active-state {
+		pins = "gpio80", "gpio81", "gpio82", "gpio83";
+		function = "sec_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
+
+	ter_mi2s_active: ter-mi2s-active-state {
+		pins = "gpio75", "gpio76", "gpio77", "gpio78";
+		function = "ter_mi2s";
+		drive-strength = <8>;
+		bias-disable;
+	};
 };
 
 &venus {
