@@ -99,7 +99,7 @@ int cam_cci_init(struct v4l2_subdev *sd,
 	/* Enable Regulators and IRQ*/
 	rc = cam_soc_util_enable_platform_resource(soc_info, true,
 		CAM_LOWSVS_VOTE, true);
-	CAM_ERR(CAM_CCI, "vamos-dbg cci enable_platform_resource rc=%d", rc);
+	CAM_DBG(CAM_CCI, "vamos-dbg cci enable_platform_resource rc=%d", rc);
 	if (rc < 0) {
 		CAM_ERR(CAM_CCI, "request platform resources failed rc=%d", rc);
 		goto platform_enable_failed;
