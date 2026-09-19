@@ -25,7 +25,7 @@ dependencies = [
   "flaky",
 
   # GUIs
-  "raylib @ https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-e84707bd68b5b30a17bf8701263cda9d009a906b/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl",
+  "raylib @ https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-7.2-649d19c33175fdb7800e3ccbe988f140e659cfce/raylib-6.0.0.0-cp312-cp312-linux_aarch64.whl",
 ]
 
 [tool.uv]

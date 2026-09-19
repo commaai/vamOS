@@ -1136,13 +1136,13 @@ wheels = [
 
 [[package]]
 name = "raylib"
-version = "5.5.0.2"
-source = { url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-e84707bd68b5b30a17bf8701263cda9d009a906b/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" }
+version = "6.0.0.0"
+source = { url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-7.2-649d19c33175fdb7800e3ccbe988f140e659cfce/raylib-6.0.0.0-cp312-cp312-linux_aarch64.whl" }
 dependencies = [
     { name = "cffi", marker = "sys_platform == 'linux'" },
 ]
 wheels = [
-    { url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-e84707bd68b5b30a17bf8701263cda9d009a906b/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl", hash = "sha256:fea16bc45cd4a409d6af6c1f79e3626f96726a6f247c1fcf393d1bbdc6a1a612" },
+    { url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-7.2-649d19c33175fdb7800e3ccbe988f140e659cfce/raylib-6.0.0.0-cp312-cp312-linux_aarch64.whl", hash = "sha256:086454c34a915d4151e27ce728c81ffc4aecbe602fa215c00e53dc3ecc5a5712" },
 ]
 
 [package.metadata]
@@ -1410,7 +1410,7 @@ requires-dist = [
     { name = "paramiko" },
     { name = "py-spy" },
     { name = "pyusb" },
-    { name = "raylib", url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-e84707bd68b5b30a17bf8701263cda9d009a906b/raylib-5.5.0.2-cp312-cp312-linux_aarch64.whl" },
+    { name = "raylib", url = "https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-7.2-649d19c33175fdb7800e3ccbe988f140e659cfce/raylib-6.0.0.0-cp312-cp312-linux_aarch64.whl" },
     { name = "smbus2" },
     { name = "spidev2" },
 ]
