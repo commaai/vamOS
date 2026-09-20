@@ -7,6 +7,12 @@ used by openpilot's Spectra camerad. The source was imported unchanged from
 and the subsequent pinctrl ownership fix. The donor subtree is
 `30f4024a9f37811e6c361dbd2451170f071c80c2`.
 
+`uapi/media` holds the headers `tools/build/build_kernel.sh` installs to
+`/usr/include/media`, so they are stored as `headers_install` output: no `__user`
+annotations, `inline` spelled `__inline__`. Besides the driver's own ABI it
+carries `msm_camsensor_sdk.h` and `msm_media_info.h`, which camerad's sensors and
+loggerd's encoder include.
+
 The external `Kbuild` combines the donor objects into `spectra_camera.ko`.
 `spectra_module.c` registers components in dependency order, publishes subdevice
 nodes after registration, and unregisters components in reverse order.
