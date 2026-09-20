@@ -43,8 +43,11 @@ case "${1:-}" in
   profile)
     shift
     exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
+  sync)
+    shift
+    exec "$DIR/tools/sync/openpilot.sh" "$@" ;;
   *)
-    echo "Usage: vamos <setup|build|flash|profile>"
+    echo "Usage: vamos <setup|build|flash|profile|sync>"
     echo ""
     echo "  setup              Initialize submodules and udev rules"
     echo "  build kernel       Build the kernel (output/boot.img)"
@@ -55,5 +58,6 @@ case "${1:-}" in
     echo "  flash gpt          Flash GPT partition tables to device via EDL"
     echo "  flash all          Flash gpt + firmware + kernel + system"
     echo "  profile [diff]     Profile rootfs or diff two profiles"
+    echo "  sync [ref]         Sync openpilot's dependency list and relock"
     exit 1 ;;
 esac
