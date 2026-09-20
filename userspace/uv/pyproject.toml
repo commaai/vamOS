@@ -6,7 +6,16 @@ requires-python = ">=3.12.3, <3.13"
 description = ""
 dependencies = [
   "openpilot",
-  "openpilot[testing]",
+  "openpilot[testing,submodules]",
+  "msgq-ipc",
+  "opendbc",
+  "pandacan",
+  "rednose",
+  "teleoprtc",
+  "tinygrad",
+
+  # SConstruct imports it, openpilot only declares it in its tools extra
+  "comma-deps-ncurses",
 
   # hardware.py
   "dbus-python",
@@ -24,12 +33,21 @@ dependencies = [
   "spidev2",
   "flaky",
 
-  # GUIs
+  # GUIs, replaces openpilot's comma-deps-raylib: built against mainline DRM
   "raylib @ https://github.com/dorapilot/raylib-python-cffi/releases/download/liberation-day-7.2-649d19c33175fdb7800e3ccbe988f140e659cfce/raylib-6.0.0.0-cp312-cp312-linux_aarch64.whl",
 ]
 
 [tool.uv]
+override-dependencies = ["comma-deps-raylib ; sys_platform == 'never'"]
 environments = ["python_version >= '3.12' and python_version < '3.13' and sys_platform == 'linux'"]
 
 [tool.uv.sources]
 openpilot = { path = "openpilot" }
+# openpilot's submodules, for their dependencies. the code comes from
+# /data/openpilot via PYTHONPATH on device.
+msgq-ipc = { git = "https://github.com/dorapilot/msgq.git", rev = "liberation-day-7.2" }
+opendbc = { git = "https://github.com/commaai/opendbc.git", rev = "master" }
+pandacan = { git = "https://github.com/commaai/panda.git", rev = "master" }
+rednose = { git = "https://github.com/commaai/rednose.git", rev = "master" }
+teleoprtc = { git = "https://github.com/commaai/teleoprtc.git", rev = "master" }
+tinygrad = { git = "https://github.com/dorapilot/tinygrad.git", rev = "liberation-day-7.2" }
