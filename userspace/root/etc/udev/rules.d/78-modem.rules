@@ -15,7 +15,9 @@ SUBSYSTEM=="tty",ATTRS{idVendor}=="2c7c",ATTRS{idProduct}=="6007",ENV{ID_USB_INT
 SUBSYSTEM=="tty",ATTRS{idVendor}=="2c7c",ATTRS{idProduct}=="6007",ENV{ID_USB_INTERFACE_NUM}=="01",ENV{ID_MM_DEVICE_IGNORE}="1"
 SUBSYSTEM=="tty",ATTRS{idVendor}=="2c7c",ATTRS{idProduct}=="6007",ENV{ID_USB_INTERFACE_NUM}=="02",SYMLINK+="modem_at0",ENV{ID_MM_PORT_IGNORE}="1"
 SUBSYSTEM=="tty",ATTRS{idVendor}=="2c7c",ATTRS{idProduct}=="6007",ENV{ID_USB_INTERFACE_NUM}=="03",SYMLINK+="modem_at1",ENV{ID_MM_PORT_TYPE_AT_PRIMARY}="1"
-ACTION=="add",SUBSYSTEM=="usb",ATTR{idVendor}=="2c7c",ATTR{idProduct}=="6007",RUN+="/bin/sh -c 'echo -n $kernel:1.4 > /sys/bus/usb/drivers/cdc_ether/unbind'"
+# the ECM data port is unused, openpilot's modem.py dials over pppd. unbind on the
+# net device, which only shows up once cdc_ether has claimed the interface
+ACTION=="add",SUBSYSTEM=="net",ATTRS{idVendor}=="2c7c",ATTRS{idProduct}=="6007",RUN+="/bin/sh -c 'echo -n $(basename $(readlink -f /sys%p/device)) > /sys/bus/usb/drivers/cdc_ether/unbind'"
 
 # C16
 KERNEL=="ttyACM1",ENV{ID_MM_DEVICE_IGNORE}="1"

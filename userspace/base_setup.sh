@@ -101,8 +101,6 @@ xbps-install -y \
   zlib-devel \
   libqmi \
   libqmi-devel \
-  ModemManager \
-  ModemManager-devel \
   cronie \
   alacritty-terminfo \
   contour-terminfo \

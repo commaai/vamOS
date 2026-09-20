@@ -102,7 +102,7 @@ RUN for svc in \
   sound varwatch busybox-ntpd \
   irsc_util leprop adsp cdsp \
   qrtr-ns rmtfs tqftpserv pd-mapper \
-  comma modemmanager bluetoothd magic \
+  comma bluetoothd magic \
   ssh-param-watcher ncm-param-watcher dnsmasq \
   rsyslogd nftables cnss_daemon polkitd \
   sshd agetty-ttyMSM0 agetty-ttyAMA0; do \
