@@ -1,0 +1,59 @@
+Subject: wifi: ath10k: fix status of bundled mgmt tx completions
+
+ath10k_wmi_event_mgmt_tx_bundle_compl() takes the completion status of
+each report from desc_ids[i] instead of status[i]. Any non-zero status
+is handled as "not acked", so a bundled report is marked as acked if
+and only if its descriptor id is 0, whatever status the firmware
+returned.
+
+The bundle handler read status[i] when it was added in
+commit cc123fac978f ("ath10k: Handle bundled tx completion for
+management frames"). The commit named in the Fixes tag replaced it
+with desc_ids[i].
+
+Seen on WCN3990 in station mode with a WPA3-SAE AP. This firmware
+advertises mgmt-tx-by-reference and completes some management frames
+in bundles. A debug build printed status[] for each bundled report and
+could switch between the old and the fixed line. A sniffer watched the
+AP channel. The firmware status[] matched the capture in all 39
+bundled reports (15 with the old line, 24 with the fixed one): the 30
+frames with status[] 1 were never seen on that channel, and the 9
+frames with status[] 0 were acked.
+
+With the old line, 6 of the 15 reports gave mac80211 the wrong ack
+result:
+
+ - 4 frames that were never seen on the air were reported as acked.
+   Each report arrived after mac80211 had already timed out the
+   authentication, so they had no visible effect in these runs.
+ - 2 SAE commit frames that were acked on the air were reported as not
+   acked. They were the second and third of three tries. mac80211 gave
+   up on the authentication 239 us after the last report, although the
+   AP's SAE replies came about 5 to 8 ms later, so that connection
+   attempt failed.
+
+Take the status from status[i].
+
+Tested-on: WCN3990 hw1.0 SNOC WLAN.HL.2.0.c10-00459-QCAHLSWMTPLZ-1
+
+Fixes: 4b816f170b1f ("ath10k: add support for ack rssi value of management tx packets")
+Cc: stable@vger.kernel.org
+Assisted-by: LLM sparse
+Link: https://lore.kernel.org/r/20260927-ath10k-bundle-status-v1-1-a1eea048ada9@nagashi.ma
+---
+ drivers/net/wireless/ath/ath10k/wmi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/net/wireless/ath/ath10k/wmi.c b/drivers/net/wireless/ath/ath10k/wmi.c
+index e57588c19c80..67be6e8171cd 100644
+--- a/drivers/net/wireless/ath/ath10k/wmi.c
++++ b/drivers/net/wireless/ath/ath10k/wmi.c
+@@ -2512,7 +2512,7 @@ int ath10k_wmi_event_mgmt_tx_bundle_compl(struct ath10k *ar, struct sk_buff *skb
+ 	for (i = 0; i < num_reports; i++) {
+ 		memset(&param, 0, sizeof(struct mgmt_tx_compl_params));
+ 		param.desc_id = __le32_to_cpu(arg.desc_ids[i]);
+-		param.status = __le32_to_cpu(arg.desc_ids[i]);
++		param.status = __le32_to_cpu(arg.status[i]);
+ 
+ 		if (test_bit(WMI_SERVICE_TX_DATA_ACK_RSSI, ar->wmi.svc_map))
+ 			param.ack_rssi = __le32_to_cpu(arg.ack_rssi[i]);
