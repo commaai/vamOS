@@ -1,2 +1,8 @@
 #!/bin/sh
+# mici has no INA231
+if grep -q mici /sys/firmware/devicetree/base/model; then
+  # Keep runit from repeatedly restarting a skipped service.
+  exec sleep infinity
+fi
+
 exec /usr/local/venv/bin/python -u /usr/comma/power_drop_monitor.py
