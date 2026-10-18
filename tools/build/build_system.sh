@@ -80,7 +80,7 @@ exec_as_user mkfs.ext4 "$ROOTFS_IMAGE" &> /dev/null
 # Mount filesystem
 echo "Mounting empty filesystem"
 exec_as_root mkdir -p "$ROOTFS_DIR"
-exec_as_root mount "$ROOTFS_IMAGE" "$ROOTFS_DIR"
+exec_as_root mount -t ext4 "$ROOTFS_IMAGE" "$ROOTFS_DIR"
 
 # Also unmount filesystem (overwrite previous trap)
 trap "exec_as_root umount -l $ROOTFS_DIR &> /dev/null || true; \
