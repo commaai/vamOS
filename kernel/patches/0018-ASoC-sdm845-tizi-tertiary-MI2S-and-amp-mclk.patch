@@ -1,0 +1,99 @@
+Subject: [PATCH] ASoC: sdm845: support the comma tizi audio path
+
+Three additions for the comma tizi (comma 3X) speaker/mic on mainline:
+
+1. Tertiary MI2S clocking: the tizi mic is on Tertiary MI2S TX. The
+   machine driver only clocked pri/sec/quat MI2S, so tertiary hit the
+   default case ("invalid dai id 0x15") and its bit clock was never
+   enabled -> capture failed with -EIO. Add tertiary cases mirroring
+   secondary, enabling TER_MI2S_IBIT.
+
+2. Amp reference clock: the MAX98089 speaker amp derives its DAI PLLs
+   and DMIC clock from a 19.2 MHz MCLK. Grab an optional "mclk" from
+   the sound card node (LN_BB_CLK2) and keep it enabled.
+
+3. LPASS OSR clock (12.288 MHz) out on the sec MI2S MCLK pad (gpio79)
+   while secondary MI2S is in use; the downstream dts routes it to the
+   amp's MCLK pin. Harmless on boards that don't mux gpio79.
+
+diff --git a/sound/soc/qcom/sdm845.c b/sound/soc/qcom/sdm845.c
+--- a/sound/soc/qcom/sdm845.c
++++ b/sound/soc/qcom/sdm845.c
+@@ -4,6 +4,7 @@
+  */
+ 
+ #include <dt-bindings/sound/qcom,q6afe.h>
++#include <linux/clk.h>
+ #include <linux/module.h>
+ #include <linux/platform_device.h>
+ #include <sound/core.h>
+@@ -39,6 +40,7 @@
+ 	struct snd_soc_card *card;
+ 	uint32_t pri_mi2s_clk_count;
+ 	uint32_t sec_mi2s_clk_count;
++	uint32_t tert_mi2s_clk_count;
+ 	uint32_t quat_tdm_clk_count;
+ 	struct sdw_stream_runtime *sruntime[AFE_PORT_MAX];
+ };
+@@ -220,6 +222,8 @@
+ 		break;
+ 	case QUATERNARY_MI2S_RX:
+ 	case SECONDARY_MI2S_RX:
++	case TERTIARY_MI2S_RX:
++	case TERTIARY_MI2S_TX:
+ 		break;
+ 	default:
+ 		pr_err("%s: invalid dai id 0x%x\n", __func__, cpu_dai->id);
+@@ -368,6 +372,17 @@
+ 			snd_soc_dai_set_sysclk(cpu_dai,
+ 				Q6AFE_LPASS_CLK_ID_SEC_MI2S_IBIT,
+ 				MI2S_BCLK_RATE,	SNDRV_PCM_STREAM_CAPTURE);
++		}
++		snd_soc_dai_set_fmt(cpu_dai, fmt);
++		snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
++		break;
++	case TERTIARY_MI2S_RX:
++	case TERTIARY_MI2S_TX:
++		codec_dai_fmt |= SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_I2S;
++		if (++(data->tert_mi2s_clk_count) == 1) {
++			snd_soc_dai_set_sysclk(cpu_dai,
++				Q6AFE_LPASS_CLK_ID_TER_MI2S_IBIT,
++				MI2S_BCLK_RATE,	SNDRV_PCM_STREAM_CAPTURE);
+ 		}
+ 		snd_soc_dai_set_fmt(cpu_dai, fmt);
+ 		snd_soc_dai_set_fmt(codec_dai, codec_dai_fmt);
+@@ -451,6 +466,15 @@
+ 			snd_soc_dai_set_sysclk(cpu_dai,
+ 				Q6AFE_LPASS_CLK_ID_SEC_MI2S_IBIT,
+ 				0, SNDRV_PCM_STREAM_CAPTURE);
++		}
++		break;
++
++	case TERTIARY_MI2S_RX:
++	case TERTIARY_MI2S_TX:
++		if (--(data->tert_mi2s_clk_count) == 0) {
++			snd_soc_dai_set_sysclk(cpu_dai,
++				Q6AFE_LPASS_CLK_ID_TER_MI2S_IBIT,
++				0, SNDRV_PCM_STREAM_CAPTURE);
+ 		}
+ 		break;
+ 
+@@ -586,6 +619,7 @@
+ 	struct snd_soc_card *card;
+ 	struct sdm845_snd_data *data;
+ 	struct device *dev = &pdev->dev;
++	struct clk *mclk;
+ 	int ret;
+ 
+ 	card = devm_kzalloc(dev, sizeof(*card), GFP_KERNEL);
+@@ -597,6 +631,10 @@
+ 	if (!data)
+ 		return -ENOMEM;
+ 
++	mclk = devm_clk_get_optional_enabled(dev, "mclk");
++	if (IS_ERR(mclk))
++		return dev_err_probe(dev, PTR_ERR(mclk), "failed to enable mclk\n");
++
+ 	card->driver_name = DRIVER_NAME;
+ 	card->dapm_widgets = sdm845_snd_widgets;
+ 	card->num_dapm_widgets = ARRAY_SIZE(sdm845_snd_widgets);

@@ -56,6 +56,33 @@
 	data-lanes = <0>;
 };
 
+&q6afedai {
+	dai@19 {
+		reg = <SECONDARY_MI2S_TX>;
+		qcom,sd-lines = <0>;
+	};
+};
+
+&sound {
+	model = "comma-mici";
+	pinctrl-0 = <&sec_mi2s_active>;
+
+	mic-dai-link {
+		link-name = "Secondary MI2S Capture";
+		cpu {
+			sound-dai = <&q6afedai SECONDARY_MI2S_TX>;
+		};
+
+		platform {
+			sound-dai = <&q6routing>;
+		};
+
+		codec {
+			sound-dai = <&mic_codec>;
+		};
+	};
+};
+
 &uart3 {
 	status = "okay";
 };

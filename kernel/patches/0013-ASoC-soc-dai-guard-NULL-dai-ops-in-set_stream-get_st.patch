@@ -1,0 +1,44 @@
+From: Trey Moen <trey@moen.ai>
+Date: Fri, 3 Jul 2026 22:30:00 -0700
+Subject: [PATCH] ASoC: soc-dai: guard NULL dai ops in
+ snd_soc_dai_set_stream/get_stream
+
+DAI drivers are allowed to register without a snd_soc_dai_ops struct
+(e.g. the linux,spdif-dit/dir dummy codecs), and every accessor in
+soc-dai.c checks dai->driver->ops before dereferencing it.
+snd_soc_dai_set_stream() and snd_soc_dai_get_stream() do not, so a
+machine driver calling them on such a codec DAI oopses. This happens on
+sdm845 cards where qcom_snd_sdw_startup() runs for every DAI link: an
+MI2S backend using spdif-dit/dir as its codec crashes on PCM open with
+a NULL dereference at offsetof(struct snd_soc_dai_ops, set_stream).
+
+Check ops for NULL and fall back to the existing -ENOTSUPP paths,
+matching the convention used by the other DAI ops wrappers.
+---
+ include/sound/soc-dai.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/include/sound/soc-dai.h b/include/sound/soc-dai.h
+index 224396927..aa78cea66 100644
+--- a/include/sound/soc-dai.h
++++ b/include/sound/soc-dai.h
+@@ -559,7 +559,7 @@ static inline void *snd_soc_dai_get_drvdata(struct snd_soc_dai *dai)
+ static inline int snd_soc_dai_set_stream(struct snd_soc_dai *dai,
+ 					 void *stream, int direction)
+ {
+-	if (dai->driver->ops->set_stream)
++	if (dai->driver->ops && dai->driver->ops->set_stream)
+ 		return dai->driver->ops->set_stream(dai, stream, direction);
+ 	else
+ 		return -ENOTSUPP;
+@@ -579,7 +579,7 @@ static inline int snd_soc_dai_set_stream(struct snd_soc_dai *dai,
+ static inline void *snd_soc_dai_get_stream(struct snd_soc_dai *dai,
+ 					   int direction)
+ {
+-	if (dai->driver->ops->get_stream)
++	if (dai->driver->ops && dai->driver->ops->get_stream)
+ 		return dai->driver->ops->get_stream(dai, direction);
+ 	else
+ 		return ERR_PTR(-ENOTSUPP);
+-- 
+2.53.0

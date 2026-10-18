@@ -1,0 +1,50 @@
+From: Trey Moen <trey@moen.ai>
+Date: Fri, 3 Jul 2026 23:30:00 -0700
+Subject: [PATCH] ASoC: qdsp6: q6asm-dai: constrain audio buffer IOVAs to the
+ ADSP shared-mem aperture
+
+The downstream msm-audio-ion driver maps all ASM shared-memory buffers
+through the apps SMMU into a fixed IOVA window, MSM_AUDIO_ION_VA_START
+0x10000000 with MSM_AUDIO_ION_VA_LEN 0x0FFFFFFF, i.e. IOVAs never
+exceed 29 bits. Downstream-era ADSP firmware (AVS 2.8, as shipped on
+the comma four) validates the SID-indexed address of
+ASM_CMD_SHARED_MEM_MAP_REGIONS against that pre-configured aperture
+and NAKs the map when the address lies outside it. Mainline dma-iommu
+allocates IOVAs top-down from the 32-bit DMA limit (~0xfffxxxxx),
+which such firmware rejects, so every PCM prepare fails with
+"Audio Start: Buffer Allocation failed rc = -22".
+
+Cap the q6asm-dai DMA mask at 29 bits when an SMMU is in use so the
+top-down IOVA allocator hands out addresses just below 0x20000000,
+inside the window the DSP accepts. Firmware that accepts full 32-bit
+IOVAs is unaffected beyond the narrower allocation range, which is far
+larger than any realistic set of concurrently mapped audio buffers.
+---
+ sound/soc/qcom/qdsp6/q6asm-dai.c | 9 +++++++--
+ 1 file changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/sound/soc/qcom/qdsp6/q6asm-dai.c b/sound/soc/qcom/qdsp6/q6asm-dai.c
+index b616ce316..1520b7840 100644
+--- a/sound/soc/qcom/qdsp6/q6asm-dai.c
++++ b/sound/soc/qcom/qdsp6/q6asm-dai.c
+@@ -1298,11 +1298,16 @@ static int q6asm_dai_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ 
+ 	rc = of_parse_phandle_with_fixed_args(node, "iommus", 1, 0, &args);
+-	if (rc < 0)
++	if (rc < 0) {
+ 		pdata->sid = -1;
+-	else
++	} else {
+ 		pdata->sid = args.args[0] & SID_MASK_DEFAULT;
+ 
++		rc = dma_set_mask_and_coherent(dev, DMA_BIT_MASK(29));
++		if (rc)
++			return rc;
++	}
++
+ 	dev_set_drvdata(dev, pdata);
+ 
+ 	rc = of_q6asm_parse_dai_data(dev, pdata);
+-- 
+2.53.0
