@@ -1,0 +1,10 @@
+CompileFlags:
+  Remove:
+    - -fconserve-stack
+    - -femit-struct-debug-baseonly
+    - -femit-struct-debug-detailed=*
+    - -fmin-function-alignment=*
+    - -fno-code-hoisting
+    - -fno-allow-store-data-races
+    - -fzero-init-padding-bits=*
+    - -mabi=*

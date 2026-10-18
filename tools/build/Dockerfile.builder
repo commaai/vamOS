@@ -17,6 +17,7 @@ RUN apk add --no-cache \
     findutils \
     flex \
     git \
+    git-lfs \
     libcap \
     linux-headers \
     lz4-dev \

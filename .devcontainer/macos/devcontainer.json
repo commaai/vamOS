@@ -1,0 +1,35 @@
+{
+  "name": "vamos-kernel-dev-macos",
+  "build": {
+    "dockerfile": "../Dockerfile",
+    "context": "../.."
+  },
+  "initializeCommand": "bash ./tools/build/prepare_kernel_volume.sh",
+  "workspaceMount": "source=${localWorkspaceFolder},target=${localWorkspaceFolder},type=bind",
+  "mounts": [
+    "source=vamos-kernel-linux,target=${localWorkspaceFolder}/kernel/linux,type=volume",
+    "source=vamos-kernel-ccache,target=${localWorkspaceFolder}/.ccache,type=volume",
+    "source=vamos-kernel-clangd-cache,target=${localWorkspaceFolder}/.cache/clangd,type=volume"
+  ],
+  "remoteUser": "${localEnv:USER}",
+  "workspaceFolder": "${localWorkspaceFolder}",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "llvm-vs-code-extensions.vscode-clangd",
+        "xaver.clang-format"
+      ],
+      "settings": {
+        "clangd.path": "/usr/bin/clangd",
+        "clangd.arguments": [
+          "--background-index",
+          "--header-insertion=never"
+        ],
+        "C_Cpp.intelliSenseEngine": "Disabled",
+        "C_Cpp.errorSquiggles": "Disabled",
+        "editor.defaultFormatter": "xaver.clang-format",
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}
