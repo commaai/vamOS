@@ -1,0 +1,14 @@
+#!/bin/sh
+# Temporary solution until openpilot is running (which owns panda bringup).
+exec 2>&1
+
+while [ ! -f /run/gpio.ready ]; do sleep 0.1; done
+
+if /usr/comma/panda/panda.sh start; then
+  echo "panda: started"
+else
+  echo "panda: failed to start"
+  exit 1
+fi
+
+exec sleep infinity
