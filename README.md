@@ -9,6 +9,10 @@ a new operating system for comma 3X and comma four
 ./vamos setup              # init submodules and udev rules
 ./vamos build kernel       # build boot.img
 ./vamos build system       # build system.img
+./vamos vm prepare         # init qemu package
+./vamos vm bash            # run bash in kernel and system
+./vamos vm run             # run full system and kernel
+./vamos vm kill            # kill qemu as system has no promt
 ./vamos flash kernel       # flash boot.img via EDL
 ./vamos flash system       # flash system.img via EDL
 ./vamos flash all          # flash both

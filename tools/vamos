@@ -40,6 +40,14 @@ case "${1:-}" in
       all)      "$DIR/tools/flash/gpt.sh" && "$DIR/tools/flash/firmware.sh" && "$DIR/tools/flash/kernel.sh" && "$DIR/tools/flash/system.sh" ;;
       *)        echo "Usage: vamos flash <kernel|system|firmware|gpt|all>"; exit 1 ;;
     esac ;;
+  vm)
+    case "${2:-}" in
+      prepare)  exec "$DIR/tools/vm/prepare.sh" ;;
+      bash)     exec "$DIR/tools/vm/bash.sh" ;;
+      run)      exec "$DIR/tools/vm/run.sh" ;;
+      kill)     exec "$DIR/tools/vm/kill.sh" ;;
+      *)        echo "Usage: vamos vm <prepare|bash|run|kill>"; exit 1 ;;
+    esac ;;
   profile)
     shift
     exec "$DIR/tools/profile/rootfs.sh" "$@" ;;
@@ -49,6 +57,10 @@ case "${1:-}" in
     echo "  setup              Initialize submodules and udev rules"
     echo "  build kernel       Build the kernel (output/boot.img)"
     echo "  build system       Build the system image (output/system.img)"
+    echo "  vm prepare         Prepare the VM environment using QEMU"
+    echo "  vm bash            Run a bash shell in the VM"
+    echo "  vm run             Run the VM with the built kernel and system"
+    echo "  vm kill            Kill the VM"
     echo "  flash kernel       Flash boot.img to device via EDL (--legacy for legacy kernel)"
     echo "  flash system       Flash system.img to device via EDL"
     echo "  flash firmware     Flash firmware partitions to device via EDL"
